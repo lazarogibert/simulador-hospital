@@ -5,7 +5,7 @@ import joblib
 import shap
 import dice_ml
 import matplotlib.pyplot as plt
-
+import os
 # Evitar warnings en la consola del servidor
 import warnings
 warnings.filterwarnings("ignore")
@@ -22,22 +22,27 @@ st.markdown("Herramienta de soporte a la decisión basada en fenotipos narrativo
 # ==========================================
 @st.cache_resource
 def cargar_entorno():
-    # 1. Cargar el modelo
-    paquete = joblib.load('modelo_reingreso_nlp_41vars.pkl')
+    # 🌟 NUEVO: Calculamos la ruta absoluta y exacta de esta carpeta
+    directorio_actual = os.path.dirname(os.path.abspath(__file__))
+    
+    # Construimos las rutas seguras
+    ruta_modelo = os.path.join(directorio_actual, 'modelo_reingreso_nlp_41vars.pkl')
+    ruta_datos = os.path.join(directorio_actual, 'train_sample_quimera.csv')
+    
+    # 1. Cargar el modelo con la ruta segura
+    paquete = joblib.load(ruta_modelo)
     pipeline = paquete['pipeline']
     umbral = paquete['umbral']
     cols_modelo = paquete['nombres_columnas']
     
-    # 2. Cargar el Dataset Quimera (Permutado para mantener MAD sin violar privacidad)
+    # 2. Cargar el Dataset Quimera con la ruta segura
     try:
-        df_train_sample = pd.read_csv('train_sample_quimera.csv')
+        df_train_sample = pd.read_csv(ruta_datos)
     except FileNotFoundError:
-        st.error("⚠️ Falta el archivo 'train_sample_quimera.csv'. DiCE no podrá ejecutarse correctamente.")
-        # Backup de emergencia (evita que la app crashee, pero DiCE perderá precisión)
+        st.error(f"⚠️ Falta el archivo en: {ruta_datos}")
         df_train_sample = pd.DataFrame(np.zeros((50, len(cols_modelo))), columns=cols_modelo)
     
     return pipeline, umbral, cols_modelo, df_train_sample
-
 pipeline, umbral, columnas_modelo, df_train_sample = cargar_entorno()
 
 # ==========================================
