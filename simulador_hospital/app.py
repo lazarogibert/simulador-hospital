@@ -14,196 +14,327 @@ warnings.filterwarnings("ignore")
 # ==========================================
 # 0. FUNCIONES DE PROCESAMIENTO CLÍNICO (CIE-10)
 # ==========================================
+# ==========================================================
+# 2. FEATURE ENGINEERING: MAPEO SEMÁNTICO CIE-10
+# ==========================================================
+print("🧬 Aplicando mapeo semántico CIE-10...")
+
 def normalizar_cie10(codigo):
-    if pd.isna(codigo) or not codigo: 
-        return "DESCONOCIDO"
+    if pd.isna(codigo): return pd.NA
     codigo = str(codigo).strip().upper().replace(".", "").replace(" ", "")
     m = re.match(r'^([A-Z])(\d{2})', codigo)
-    if not m: 
-        return "DESCONOCIDO"
+    if not m: return pd.NA
     return f"{m.group(1)}{int(m.group(2)):02d}"
 
-def mapear_cie10_macro(cod):
-    if pd.isna(cod) or cod == "DESCONOCIDO":
-        return "DESCONOCIDO"
+import pandas as pd
 
+def mapear_cie10_macro(cod):
+    # Si viene nulo del normalizador previo, salimos rápido
+    if pd.isna(cod):
+        return pd.NA
+
+    # Extracción directa, confiando en el normalizador
     letra = cod[0]
-    try:
-        num = int(cod[1:3])
-    except ValueError:
-        return "DESCONOCIDO"
+    num = int(cod[1:3])
 
     # --- INFECCIOSAS Y PARASITARIAS CRÓNICAS (A y B) ---
     if letra == "A":
-        if 15 <= num <= 19: return "Tuberculosis"
-        elif 30 <= num <= 30: return "Lepra"
-        elif 50 <= num <= 53: return "Sífilis"
-        else: return "Otras infecciosas (A)"
+        if 15 <= num <= 19:
+            return "Tuberculosis"
+        elif 30 <= num <= 30:
+            return "Lepra"
+        elif 50 <= num <= 53:
+            return "Sífilis"
+        else:
+            return "Otras infecciosas (A)"
 
     if letra == "B":
-        if 15 <= num <= 19: return "Hepatitis viral"
-        elif 20 <= num <= 24: return "Enfermedad por VIH"
-        elif 57 <= num <= 57: return "Enfermedad de Chagas"
-        elif 58 <= num <= 58: return "Toxoplasmosis"
-        elif 90 <= num <= 94: return "Secuelas de enfermedades infecciosas"
-        else: return "Otras infecciosas (B)"
+        if 15 <= num <= 19:
+            return "Hepatitis viral"
+        elif 20 <= num <= 24:
+            return "Enfermedad por VIH"
+        elif 57 <= num <= 57:
+            return "Enfermedad de Chagas"
+        elif 58 <= num <= 58:
+            return "Toxoplasmosis"
+        elif 67 <= num <= 67: # 🌟 PARCHE 3
+            return "Equinococosis / Hidatidosis"
+        elif 90 <= num <= 94: 
+            return "Secuelas de enfermedades infecciosas"
+        else:
+            return "Otras infecciosas (B)"
 
     # --- ONCOLOGÍA Y HEMATOLOGÍA (C y D) ---
     if letra == "C":
-        if 0 <= num <= 14: return "Cáncer de labio / boca / faringe"
-        elif 15 <= num <= 26: return "Cáncer digestivo"
-        elif 30 <= num <= 39: return "Cáncer respiratorio / intratorácico"
-        elif 40 <= num <= 41: return "Cáncer de hueso / cartílago"
-        elif 43 <= num <= 44: return "Melanoma / Cáncer de piel"
-        elif 50 <= num <= 50: return "Cáncer de mama"
-        elif 51 <= num <= 58: return "Cáncer genital femenino"
-        elif 60 <= num <= 63: return "Cáncer genital masculino"
-        elif 64 <= num <= 68: return "Cáncer de vías urinarias"
-        elif 69 <= num <= 72: return "Cáncer de sistema nervioso central"
-        elif 81 <= num <= 96: return "Cáncer linfoide / hematopoyético"
-        else: return "Otros tumores malignos"
+        if 0 <= num <= 14:
+            return "Cáncer de labio / boca / faringe"
+        elif 15 <= num <= 26:
+            return "Cáncer digestivo"
+        elif 30 <= num <= 39:
+            return "Cáncer respiratorio / intratorácico"
+        elif 40 <= num <= 41:
+            return "Cáncer de hueso / cartílago"
+        elif 43 <= num <= 44:
+            return "Melanoma / Cáncer de piel"
+        elif 50 <= num <= 50:
+            return "Cáncer de mama"
+        elif 51 <= num <= 58:
+            return "Cáncer genital femenino"
+        elif 60 <= num <= 63:
+            return "Cáncer genital masculino"
+        elif 64 <= num <= 68:
+            return "Cáncer de vías urinarias"
+        elif 69 <= num <= 72:
+            return "Cáncer de sistema nervioso central"
+        elif 81 <= num <= 96:
+            return "Cáncer linfoide / hematopoyético"
+        else:
+            return "Otros tumores malignos"
 
     if letra == "D":
-        if 0 <= num <= 48: return "Tumores in situ o benignos"
-        elif 50 <= num <= 53: return "Anemias nutricionales"
-        elif 55 <= num <= 59: return "Anemias hemolíticas"
-        elif 60 <= num <= 64: return "Aplasias y otras anemias"
-        elif 65 <= num <= 69: return "Defectos de coagulación / púrpura"
-        elif 80 <= num <= 89: return "Trastornos de inmunodeficiencia"
-        else: return "Otros trastornos de la sangre"
+        if 0 <= num <= 48:
+            return "Tumores in situ o benignos"
+        elif 50 <= num <= 53:
+            return "Anemias nutricionales"
+        elif 55 <= num <= 59:
+            return "Anemias hemolíticas"
+        elif 60 <= num <= 64:
+            return "Aplasias y otras anemias"
+        elif 65 <= num <= 69:
+            return "Defectos de coagulación / púrpura"
+        elif 80 <= num <= 89:
+            return "Trastornos de inmunodeficiencia"
+        else:
+            return "Otros trastornos de la sangre"
 
     # --- ENDOCRINAS Y METABÓLICAS (E) ---
     if letra == "E":
-        if 0 <= num <= 7: return "Tiroides"
-        elif 8 <= num <= 13: return "Diabetes"
-        elif 15 <= num <= 16: return "Glucosa / hipoglucemia"
-        elif 20 <= num <= 35: return "Otros endocrinos y metabólicos"
-        elif 65 <= num <= 68: return "Obesidad y trastornos de hiperalimentación"
+        if 0 <= num <= 7:
+            return "Tiroides"
+        elif 8 <= num <= 13:
+            return "Diabetes"
+        elif 15 <= num <= 16:
+            return "Glucosa / hipoglucemia"
+        elif 20 <= num <= 35:
+            return "Otros endocrinos y metabólicos"
+        elif 65 <= num <= 68:
+            return "Obesidad y trastornos de hiperalimentación"
         elif 70 <= num <= 90: 
-            if num == 78: return "Dislipidemia"
-            elif num == 84: return "Fibrosis quística"
+            if num == 78:
+                return "Dislipidemia"
+            elif num == 84: # 🌟 PARCHE 3
+                return "Fibrosis quística"
             return "Trastornos metabólicos"
-        else: return "Otros metabólicos / nutricionales"
+        else:
+            return "Otros metabólicos / nutricionales"
 
     # --- PSIQUIATRÍA Y SALUD MENTAL (F) ---
     if letra == "F":
-        if 0 <= num <= 9: return "Trastornos mentales orgánicos (Demencias)"
-        elif 10 <= num <= 19: return "Trastornos por uso de sustancias"
-        elif 20 <= num <= 29: return "Esquizofrenia y trastornos psicóticos"
-        elif 30 <= num <= 39: return "Trastornos del humor (Afectivos)"
-        elif 40 <= num <= 48: return "Trastornos neuróticos y de ansiedad"
-        elif 50 <= num <= 59: return "Trastornos de la conducta alimentaria / sueño"
-        elif 60 <= num <= 69: return "Trastornos de la personalidad"
-        elif 70 <= num <= 79: return "Discapacidad intelectual"
-        elif 80 <= num <= 89: return "Trastornos del desarrollo psicobiológico (Autismo)"
-        else: return "Otros trastornos mentales"
+        if 0 <= num <= 9:
+            return "Trastornos mentales orgánicos (Demencias)"
+        elif 10 <= num <= 19:
+            return "Trastornos por uso de sustancias"
+        elif 20 <= num <= 29:
+            return "Esquizofrenia y trastornos psicóticos"
+        elif 30 <= num <= 39:
+            return "Trastornos del humor (Afectivos)"
+        elif 40 <= num <= 48:
+            return "Trastornos neuróticos y de ansiedad"
+        elif 50 <= num <= 59:
+            return "Trastornos de la conducta alimentaria / sueño"
+        elif 60 <= num <= 69:
+            return "Trastornos de la personalidad"
+        elif 70 <= num <= 79: # 🌟 PARCHE 1
+            return "Discapacidad intelectual"
+        elif 80 <= num <= 89: # 🌟 PARCHE 1
+            return "Trastornos del desarrollo psicobiológico (Autismo)"
+        else:
+            return "Otros trastornos mentales"
 
     # --- NEUROLOGÍA (G) ---
     if letra == "G":
-        if 10 <= num <= 14: return "Atrofias sistémicas del SNC"
-        elif 20 <= num <= 26: return "Trastornos extrapiramidales y del movimiento (Parkinson)"
-        elif 30 <= num <= 32: return "Enfermedades degenerativas (Alzheimer)"
-        elif 35 <= num <= 37: return "Enfermedades desmielinizantes (Esclerosis Múltiple)"
-        elif 40 <= num <= 47: return "Trastornos episódicos y paroxísticos (Epilepsia, Migraña)"
-        elif 50 <= num <= 59: return "Trastornos de nervios y plexos"
-        elif 60 <= num <= 64: return "Polineuropatías"
-        elif 70 <= num <= 73: return "Enfermedades de la unión neuromuscular (Miastenia)"
-        elif 80 <= num <= 83: return "Parálisis cerebral y síndromes paralíticos"
-        else: return "Otros trastornos neurológicos"
+        if 10 <= num <= 14:
+            return "Atrofias sistémicas del SNC"
+        elif 20 <= num <= 26:
+            return "Trastornos extrapiramidales y del movimiento (Parkinson)"
+        elif 30 <= num <= 32:
+            return "Enfermedades degenerativas (Alzheimer)"
+        elif 35 <= num <= 37:
+            return "Enfermedades desmielinizantes (Esclerosis Múltiple)"
+        elif 40 <= num <= 47:
+            return "Trastornos episódicos y paroxísticos (Epilepsia, Migraña)"
+        elif 50 <= num <= 59:
+            return "Trastornos de nervios y plexos"
+        elif 60 <= num <= 64:
+            return "Polineuropatías"
+        elif 70 <= num <= 73:
+            return "Enfermedades de la unión neuromuscular (Miastenia)"
+        elif 80 <= num <= 83: # 🌟 PARCHE 1
+            return "Parálisis cerebral y síndromes paralíticos"
+        else:
+            return "Otros trastornos neurológicos"
 
     # --- SENTIDOS (H) ---
     if letra == "H":
-        if 0 <= num <= 59: return "Ojo"
-        elif 60 <= num <= 95: return "Oído"
-        else: return "Otros órganos de los sentidos"
+        if 0 <= num <= 59:
+            return "Ojo"
+        elif 60 <= num <= 95:
+            return "Oído"
+        else:
+            return "Otros órganos de los sentidos"
 
     # --- CARDIOVASCULAR (I) ---
     if letra == "I":
-        if 10 <= num <= 15: return "Hipertensión"
-        elif 20 <= num <= 25: return "Cardiopatía isquémica"
-        elif 26 <= num <= 28: return "Enfermedad cardiopulmonar"
-        elif 30 <= num <= 52: return "Otras enfermedades del corazón (Insuficiencia Cardíaca)"
-        elif 60 <= num <= 69: return "Cerebrovascular"
-        elif 70 <= num <= 79: return "Enfermedades de arterias y capilares"
-        elif 80 <= num <= 89: return "Enfermedades de venas y vasos linfáticos"
-        else: return "Otros circulatorios"
+        if 10 <= num <= 15:
+            return "Hipertensión"
+        elif 20 <= num <= 25:
+            return "Cardiopatía isquémica"
+        elif 26 <= num <= 28:
+            return "Enfermedad cardiopulmonar"
+        elif 30 <= num <= 52:
+            return "Otras enfermedades del corazón (Insuficiencia Cardíaca)"
+        elif 60 <= num <= 69:
+            return "Cerebrovascular"
+        elif 70 <= num <= 79:
+            return "Enfermedades de arterias y capilares"
+        elif 80 <= num <= 89:
+            return "Enfermedades de venas y vasos linfáticos"
+        else:
+            return "Otros circulatorios"
 
     # --- RESPIRATORIO (J) ---
     if letra == "J":
-        if 0 <= num <= 6: return "Vías respiratorias altas"
-        elif 9 <= num <= 18: return "Infecciones agudas / neumonía / influenza"
-        elif 20 <= num <= 22: return "Infecciones respiratorias bajas"
-        elif 30 <= num <= 39: return "Enfermedades de vías respiratorias superiores"
-        elif 40 <= num <= 47: return "Asma / EPOC / bronquitis"
-        elif 60 <= num <= 70: return "Enfermedades del pulmón por agentes externos (Neumoconiosis)"
-        elif 80 <= num <= 84: return "Enfermedades pulmonares intersticiales"
-        else: return "Otros respiratorios"
+        if 0 <= num <= 6:
+            return "Vías respiratorias altas"
+        elif 9 <= num <= 18:
+            return "Infecciones agudas / neumonía / influenza"
+        elif 20 <= num <= 22:
+            return "Infecciones respiratorias bajas"
+        elif 30 <= num <= 39:
+            return "Enfermedades de vías respiratorias superiores"
+        elif 40 <= num <= 47:
+            return "Asma / EPOC / bronquitis"
+        elif 60 <= num <= 70:
+            return "Enfermedades del pulmón por agentes externos (Neumoconiosis)"
+        elif 80 <= num <= 84:
+            return "Enfermedades pulmonares intersticiales"
+        else:
+            return "Otros respiratorios"
 
     # --- DIGESTIVO (K) ---
     if letra == "K":
-        if 0 <= num <= 14: return "Boca / dientes / faringe"
-        elif 20 <= num <= 31: return "Esófago / estómago / duodeno"
-        elif 35 <= num <= 38: return "Apendicitis"
-        elif 40 <= num <= 46: return "Hernias"
-        elif 50 <= num <= 52: return "Enfermedad de Crohn y colitis"
-        elif 55 <= num <= 63: return "Otras enfermedades de los intestinos"
-        elif 70 <= num <= 77: return "Hígado"
-        elif 80 <= num <= 87: return "Vesícula / vías biliares / páncreas"
-        else: return "Otros digestivos"
+        if 0 <= num <= 14:
+            return "Boca / dientes / faringe"
+        elif 20 <= num <= 31:
+            return "Esófago / estómago / duodeno"
+        elif 35 <= num <= 38:
+            return "Apendicitis"
+        elif 40 <= num <= 46:
+            return "Hernias"
+        elif 50 <= num <= 52:
+            return "Enfermedad de Crohn y colitis"
+        elif 55 <= num <= 63:
+            return "Otras enfermedades de los intestinos"
+        elif 70 <= num <= 77:
+            return "Hígado"
+        elif 80 <= num <= 87:
+            return "Vesícula / vías biliares / páncreas"
+        else:
+            return "Otros digestivos"
 
     # --- DERMATOLOGÍA (L) ---
     if letra == "L":
-        if 20 <= num <= 30: return "Dermatitis y eczema"
-        elif 40 <= num <= 45: return "Trastornos papuloescamosos (Psoriasis)"
-        elif 50 <= num <= 54: return "Urticaria y eritema"
-        elif 80 <= num <= 99: return "Trastornos de las faneras / Otros trastornos de piel"
-        else: return "Otras enfermedades de la piel"
+        if 20 <= num <= 30:
+            return "Dermatitis y eczema"
+        elif 40 <= num <= 45:
+            return "Trastornos papuloescamosos (Psoriasis)"
+        elif 50 <= num <= 54:
+            return "Urticaria y eritema"
+        elif 80 <= num <= 99:
+            return "Trastornos de las faneras / Otros trastornos de piel"
+        else:
+            return "Otras enfermedades de la piel"
 
     # --- OSTEOMUSCULAR (M) ---
     if letra == "M":
-        if 0 <= num <= 25: return "Artropatías"
-        elif 30 <= num <= 36: return "Tejido conectivo (Lupus, etc.)"
-        elif 40 <= num <= 54: return "Dorsopatías"
-        elif 60 <= num <= 79: return "Tejidos blandos"
-        elif 80 <= num <= 94: return "Osteopatías y condropatías (Osteoporosis)"
-        else: return "Otros osteomusculares"
+        if 0 <= num <= 25:
+            return "Artropatías"
+        elif 30 <= num <= 36:
+            return "Tejido conectivo (Lupus, etc.)"
+        elif 40 <= num <= 54:
+            return "Dorsopatías"
+        elif 60 <= num <= 79:
+            return "Tejidos blandos"
+        elif 80 <= num <= 94:
+            return "Osteopatías y condropatías (Osteoporosis)"
+        else:
+            return "Otros osteomusculares"
 
     # --- GENITOURINARIO (N) ---
     if letra == "N":
-        if 0 <= num <= 29: return "Riñón (Insuficiencia Renal Crónica)"
-        elif 30 <= num <= 39: return "Vías urinarias bajas"
-        elif 40 <= num <= 51: return "Genital masculino (Hiperplasia Prostática)"
-        elif 60 <= num <= 64: return "Mama"
-        elif 70 <= num <= 98: return "Genital femenino (Endometriosis, etc.)"
-        else: return "Otros genitourinarios"
+        if 0 <= num <= 29:
+            return "Riñón (Insuficiencia Renal Crónica)"
+        elif 30 <= num <= 39:
+            return "Vías urinarias bajas"
+        elif 40 <= num <= 51:
+            return "Genital masculino (Hiperplasia Prostática)"
+        elif 60 <= num <= 64:
+            return "Mama"
+        elif 70 <= num <= 98:
+            return "Genital femenino (Endometriosis, etc.)"
+        else:
+            return "Otros genitourinarios"
             
+    # --- CONGÉNITAS (Q) ---
     if letra == "Q":
-        if 0 <= num <= 7: return "Malformaciones del sistema nervioso (Espina bífida)"
-        elif 20 <= num <= 28: return "Malformaciones cardíacas congénitas"
-        elif 90 <= num <= 99: return "Anomalías cromosómicas (Síndrome de Down)"
-        else: return "Otras malformaciones congénitas"
+        if 0 <= num <= 7: # 🌟 PARCHE 1
+            return "Malformaciones del sistema nervioso (Espina bífida)"
+        elif 20 <= num <= 28:
+            return "Malformaciones cardíacas congénitas"
+        elif 90 <= num <= 99: # 🌟 PARCHE 1
+            return "Anomalías cromosómicas (Síndrome de Down)"
+        else:
+            return "Otras malformaciones congénitas"
 
+    # --- CONDICIONES PERINATALES CRÓNICAS (P) --- 🌟 PARCHE 3
     if letra == "P":
-        if num == 27: return "Enfermedad respiratoria crónica perinatal"
-        else: return "DESCONOCIDO"
+        if num == 27:
+            return "Enfermedad respiratoria crónica perinatal"
+        else:
+            return pd.NA
 
+    # --- SECUELAS DE TRAUMATISMOS (T) --- 🌟 PARCHE 2
     if letra == "T":
-        if 90 <= num <= 98: return "Secuelas crónicas de traumatismos"
-        else: return "DESCONOCIDO"
+        if 90 <= num <= 98:
+            return "Secuelas crónicas de traumatismos"
+        else:
+            return pd.NA
             
+    # --- CONDICIONES ESPECIALES Y POST-COVID (U) --- 
     if letra == "U":
-        if num == 9: return "Síndrome Post-COVID (Long COVID)"
-        else: return "Otras condiciones especiales (U)"
+        if num == 9:
+            return "Síndrome Post-COVID (Long COVID)"
+        else:
+            return "Otras condiciones especiales (U)"
 
+    # --- ESTADO DE SALUD Y DISPOSITIVOS (Z) ---
     if letra == "Z":
-        if 85 <= num <= 87: return "Historia personal de tumores / enfermedades"
-        elif 89 <= num <= 90: return "Ausencia adquirida de miembros / órganos"
-        elif 93 <= num <= 93: return "Aberturas artificiales (Ostomías)"
-        elif 94 <= num <= 94: return "Estado de órgano trasplantado"
-        elif 95 <= num <= 95: return "Presencia de implantes cardíacos / vasculares"
-        elif 99 <= num <= 99: return "Dependencia de máquinas (diálisis, oxígeno)"
-        else: return "Otros factores de salud"
+        if 85 <= num <= 87:
+            return "Historia personal de tumores / enfermedades"
+        elif 89 <= num <= 90: # 🌟 PARCHE 2
+            return "Ausencia adquirida de miembros / órganos"
+        elif 93 <= num <= 93: # 🌟 PARCHE 2
+            return "Aberturas artificiales (Ostomías)"
+        elif 94 <= num <= 94:
+            return "Estado de órgano trasplantado"
+        elif 95 <= num <= 95:
+            return "Presencia de implantes cardíacos / vasculares"
+        elif 99 <= num <= 99:
+            return "Dependencia de máquinas (diálisis, oxígeno)"
+        else:
+            return "Otros factores de salud"
 
+    # Casos residuales estrictamente agudos o no clasificables (R, S, V, W, X, Y)
     return "DESCONOCIDO"
 
 # ==========================================
@@ -447,11 +578,18 @@ else:
             df_dice_train = df_train_sample.copy()
             df_dice_train['target'] = 0 
             
+            # 🌟 BLINDAJE ANTI-OOV (Out Of Vocabulary) PARA CATEGORÍAS
+            # Inyectamos al paciente actual en el dataset de referencia de DiCE
+            # garantizando que la librería reconozca su código CIE-10 y su rango de edad.
+            df_paciente_para_dice = df_paciente.copy()
+            df_paciente_para_dice['target'] = 0
+            df_dice_train = pd.concat([df_dice_train, df_paciente_para_dice], ignore_index=True)
+            
             # 🌟 BLINDAJE DE TIPOS DE DATOS PARA DiCE
-            # Extraemos automáticamente solo las columnas numéricas verdaderas (int, float)
+            # Extraemos automáticamente solo las columnas numéricas verdaderas
             cols_numericas = df_dice_train.select_dtypes(include=[np.number]).columns.tolist()
             if 'target' in cols_numericas:
-                cols_numericas.remove('target') # Quitamos el target de la lista de features continuos
+                cols_numericas.remove('target') 
             
             # Instanciamos DiCE pasándole únicamente las columnas numéricas
             d = dice_ml.Data(dataframe=df_dice_train, continuous_features=cols_numericas, outcome_name='target')
