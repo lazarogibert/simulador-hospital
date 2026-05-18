@@ -514,3 +514,4 @@ else:
                         st.error("No se encontró una ruta matemáticamente viable solo con modificaciones clínicas.")
             except Exception as e:
                 st.error("La estabilización requerida excede las modificaciones clínicamente permitidas con los parámetros actuales.")
+                st.warning(f"🔍 Debug Matemático: {str(e)}")
