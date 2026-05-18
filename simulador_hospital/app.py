@@ -626,7 +626,7 @@ else:
                     st.error("No hay variables clínicas modificables en la evolución que puedan mejorar el estado del paciente.")
                 else:
                     dice_exp = exp.generate_counterfactuals(
-                        df_paciente, total_CFs=3, desired_class="opposite", 
+                        df_paciente, total_CFs=5, desired_class="opposite", 
                         features_to_vary=vars_a_variar, permitted_range=rangos_permitidos, random_seed=42
                     )
                     
