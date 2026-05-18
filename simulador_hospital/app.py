@@ -620,7 +620,7 @@ else:
                         rangos_permitidos[col] = [0, 1]
                         vars_a_variar.append(col)
             
-            # 4. Ejecución del motor configurado para múltiples rutas (total_CFs=3)
+            # 4. Ejecución del motor configurado para múltiples rutas (total_CFs=5)
             try:
                 if not vars_a_variar:
                     st.error("No hay variables clínicas modificables en la evolución que puedan mejorar el estado del paciente.")
