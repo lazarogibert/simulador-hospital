@@ -570,23 +570,20 @@ class ModeloSincronizado:
 if riesgo <= umbral:
     st.info("El paciente se encuentra en condiciones óptimas para el egreso. No se requieren contrafactuales.")
 else:
-    st.warning("El riesgo es alto. Presione el botón para calcular una ruta clínica de estabilización que permita cruzar el umbral.")
+    st.warning("El riesgo es alto. Presione el botón para calcular rutas clínicas de estabilización que permitan cruzar el umbral.")
     if st.button("Generar Prescripción (DiCE)", type="primary"):
-        with st.spinner("Calculando contrafactuales clínicamente viables..."):
+        with st.spinner("Calculando múltiples alternativas clínicamente viables..."):
             
             # 1. Preparación del DataFrame base para DiCE
             df_dice_train = df_train_sample.copy()
             df_dice_train['target'] = 0 
             
-            # 🌟 BLINDAJE ANTI-OOV (Out Of Vocabulary) PARA CATEGORÍAS
-            # Inyectamos al paciente actual en el dataset de referencia de DiCE
-            # garantizando que la librería reconozca su código CIE-10 y su rango de edad.
+            # BLINDAJE ANTI-OOV (Out Of Vocabulary) PARA CATEGORÍAS
             df_paciente_para_dice = df_paciente.copy()
             df_paciente_para_dice['target'] = 0
             df_dice_train = pd.concat([df_dice_train, df_paciente_para_dice], ignore_index=True)
             
-            # 🌟 BLINDAJE DE TIPOS DE DATOS PARA DiCE
-            # Extraemos automáticamente solo las columnas numéricas verdaderas
+            # BLINDAJE DE TIPOS DE DATOS PARA DiCE
             cols_numericas = df_dice_train.select_dtypes(include=[np.number]).columns.tolist()
             if 'target' in cols_numericas:
                 cols_numericas.remove('target') 
@@ -623,33 +620,43 @@ else:
                         rangos_permitidos[col] = [0, 1]
                         vars_a_variar.append(col)
             
-            # 4. Ejecución del motor contrafactual
+            # 4. Ejecución del motor configurado para múltiples rutas (total_CFs=3)
             try:
                 if not vars_a_variar:
                     st.error("No hay variables clínicas modificables en la evolución que puedan mejorar el estado del paciente.")
                 else:
                     dice_exp = exp.generate_counterfactuals(
-                        df_paciente, total_CFs=1, desired_class="opposite", 
+                        df_paciente, total_CFs=3, desired_class="opposite", 
                         features_to_vary=vars_a_variar, permitted_range=rangos_permitidos, random_seed=42
                     )
                     
                     cf_df = dice_exp.cf_examples_list[0].final_cfs_df
                     if cf_df is not None and not cf_df.empty:
-                        st.success("✅ **RUTA CLÍNICA ENCONTRADA:**")
-                        for col in vars_a_variar:
-                            val_orig = df_paciente.iloc[0][col]
-                            val_cf = cf_df.iloc[0][col]
-                            
-                            if rangos_permitidos[col] == [0, 1]: 
-                                val_cf = round(val_cf)
-                            
-                            if val_orig != val_cf:
-                                if 'dolor' in col or 'gravedad' in col:
-                                    st.write(f"- 💊 **{col}**: Reducir de [{val_orig:.0f}] ➔ Meta: **[{val_cf:.0f}]**")
-                                else:
-                                    st.write(f"- 💊 **{col}**: Resolver complicación ➔ **[Ausente]**")
+                        st.success(f"✅ **SE ENCONTRARON {len(cf_df)} RUTAS CLÍNICAS ALTERNATIVAS:**")
+                        st.markdown("El personal médico puede seleccionar la opción más factible según el escenario del piso:")
+                        
+                        # 🌟 BUCLE DINÁMICO: Recorre e imprime cada ruta de forma independiente
+                        for r_idx in range(len(cf_df)):
+                            with st.expander(f"➔ 🛤️ Opción Terapéutica Alternativa {r_idx + 1}"):
+                                cambios_detectados = 0
+                                for col in vars_a_variar:
+                                    val_orig = df_paciente.iloc[0][col]
+                                    val_cf = cf_df.iloc[r_idx][col]
+                                    
+                                    if rangos_permitidos[col] == [0, 1]: 
+                                        val_cf = round(val_cf)
+                                    
+                                    if val_orig != val_cf:
+                                        cambios_detectados += 1
+                                        if 'dolor' in col or 'gravedad' in col:
+                                            st.write(f"- 💊 **{col}**: Reducir de [{val_orig:.0f}] ➔ Meta: **[{val_cf:.0f}]**")
+                                        else:
+                                            st.write(f"- 💊 **{col}**: Resolver complicación ➔ **[Ausente]**")
+                                
+                                if cambios_detectados == 0:
+                                    st.write("Esta alternativa sugiere mantener los parámetros actuales basándose en la estabilidad marginal del riesgo.")
                     else:
-                        st.error("No se encontró una ruta matemáticamente viable solo con modificaciones clínicas.")
+                        st.error("No se encontraron rutas matemáticamente viables solo con modificaciones clínicas.")
             except Exception as e:
                 st.error("La estabilización requerida excede las modificaciones clínicamente permitidas con los parámetros actuales.")
                 st.warning(f"🔍 Debug Matemático: {str(e)}")
