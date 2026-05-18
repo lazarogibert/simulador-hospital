@@ -247,7 +247,12 @@ st.sidebar.markdown("Seleccione únicamente las condiciones presentes.")
 st.sidebar.subheader("1. Parámetros Base e Ingreso")
 cie10_input = st.sidebar.text_input("Motivo de internación (Código CIE-10):", value="I10", help="Ejemplo: I10, E11, J44")
 dias_internados = st.sidebar.number_input("Cantidad de días internado:", min_value=1, max_value=150, value=5)
-rango_edad = st.sidebar.selectbox("Rango de Edad del Paciente:", ["ADULTO JOVEN", "ADULTO", "ANCIANO"])
+
+# Opciones completas y mapeo a mayúsculas para la compatibilidad con el pipeline
+opciones_edad = ["Menor de edad", "Adulto Joven", "Adulto de mediana edad", "Adulto mayor", "Anciano"]
+rango_edad_ui = st.sidebar.selectbox("Rango de Edad del Paciente:", opciones_edad)
+rango_edad = rango_edad_ui.upper()
+
 es_pluripatologico = st.sidebar.checkbox("¿El paciente es Pluripatológico?", value=False)
 
 # --- BLOQUE LLM (Historial y Crónicos) ---
@@ -369,7 +374,13 @@ with col_der:
     st.subheader("Auditoría de Decisión (SHAP)")
     clf = pipeline.named_steps['clasificador']
     prep = pipeline.named_steps['preprocesador']
+    
+    # 1. Transformamos los datos (Esto genera la matriz ancha)
     X_proc = prep.transform(df_paciente)
+    
+    # 2. Extraemos los nombres reales con los que entrena el algoritmo y los limpiamos
+    nombres_crudos = prep.get_feature_names_out()
+    nombres_limpios = [nombre.replace('num__', '').replace('cat__', '') for nombre in nombres_crudos]
     
     try:
         explainer = shap.TreeExplainer(clf)
@@ -378,15 +389,23 @@ with col_der:
         explainer = shap.LinearExplainer(clf, X_proc) if hasattr(clf, 'coef_') else shap.Explainer(clf, X_proc)
         shap_vals = explainer(X_proc).values
     
+    # Control de dimensiones dependiendo del tipo de modelo (RF, CatBoost, XGBoost)
     if isinstance(shap_vals, list): shap_vals = shap_vals[1]
     if len(shap_vals.shape) > 2: shap_vals = shap_vals[:, :, 1]
     
+    # Extracción segura del Expected Value (Base Value)
+    exp_val = explainer.expected_value
+    if isinstance(exp_val, (list, np.ndarray)):
+        exp_val = exp_val[1] if len(exp_val) > 1 else exp_val[0]
+    
     fig, ax = plt.subplots(figsize=(8, 4))
+    
+    # 🌟 BLINDAJE DIMENSIONAL: Ahora values, data y feature_names tienen exactamente la misma longitud
     shap.waterfall_plot(shap.Explanation(
         values=shap_vals[0], 
-        base_values=explainer.expected_value, 
-        data=df_paciente.iloc[0], 
-        feature_names=columnas_modelo), 
+        base_values=exp_val, 
+        data=X_proc[0], 
+        feature_names=nombres_limpios), 
         show=False, max_display=8
     )
     st.pyplot(fig)
