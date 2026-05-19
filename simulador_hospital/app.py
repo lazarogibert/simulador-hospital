@@ -784,3 +784,61 @@ else:
             except Exception as e:
                 st.error("The required stabilization exceeds the clinically permitted modifications with the current parameters.")
                 st.warning(f"🔍 Mathematical Debug: {str(e)}")
+
+
+# ==========================================
+# 7. GLOBAL INTERPRETABILITY (PDP)
+# ==========================================
+st.markdown("---")
+st.subheader("Global Interpretability (Partial Dependence Plots)")
+st.markdown("Analyze how the Delta variables influence the average readmission risk. **The green line marks your current patient's position.**")
+
+# Definimos las variables Delta
+delta_vars = [
+    'DELTA_dolor_eva', 'DELTA_gravedad_percibida', 'DELTA_alteracion_mental', 
+    'DELTA_dependencia_funcional', 'DELTA_portador_dispositivos'
+]
+
+delta_ui_dict = {
+    'DELTA_dolor_eva': 'Pain Delta', 'DELTA_gravedad_percibida': 'Severity Delta',
+    'DELTA_alteracion_mental': 'Mental Alteration Delta', 
+    'DELTA_dependencia_funcional': 'Functional Dependency Delta',
+    'DELTA_portador_dispositivos': 'Device Bearer Delta'
+}
+
+var_a_graficar = st.selectbox("Select variable for PDP analysis:", list(delta_ui_dict.keys()), format_func=lambda x: delta_ui_dict[x])
+
+if st.button("Generate PDP"):
+    plt.close('all')
+    fig, ax = plt.subplots(figsize=(8, 4))
+    
+    try:
+        from sklearn.inspection import PartialDependenceDisplay
+        
+        # 1. Graficamos el PDP global
+        PartialDependenceDisplay.from_estimator(
+            pipeline, 
+            df_train_sample, 
+            features=[var_a_graficar],
+            ax=ax,
+            kind='average',
+            subsample=100
+        )
+        
+        # 2. Marcamos la posición del paciente actual
+        # Obtenemos el valor que introdujiste para el paciente
+        valor_paciente = df_paciente[var_a_graficar].iloc[0]
+        
+        # Dibujamos la línea vertical (Green line = Patient position)
+        ax.axvline(x=valor_paciente, color='green', linestyle='-', linewidth=2, label=f'Patient Value: {valor_paciente:.1f}')
+        ax.legend(loc='best')
+        
+        # Estilo del gráfico
+        ax.set_title(f"PDP: {delta_ui_dict[var_a_graficar]} vs Risk")
+        ax.set_ylabel("Partial Dependence (Risk)")
+        ax.grid(True, linestyle='--', alpha=0.6)
+        
+        st.pyplot(fig)
+        
+    except Exception as e:
+        st.error(f"Could not generate PDP: {str(e)}")
