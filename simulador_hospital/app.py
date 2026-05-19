@@ -787,10 +787,17 @@ else:
 
 
 # ==========================================
-# 7. GLOBAL INTERPRETABILITY (PDP) - CORREGIDO
+# 7. GLOBAL INTERPRETABILITY (PDP) - BINARY AWARE
 # ==========================================
 st.markdown("---")
 st.subheader("Global Interpretability (Partial Dependence Plots)")
+
+# Lista de variables que provienen de datos binarios (rango -1 a 1)
+binary_deltas = [
+    'DELTA_alteracion_mental', 
+    'DELTA_dependencia_funcional', 
+    'DELTA_portador_dispositivos'
+]
 
 delta_ui_dict = {
     'DELTA_dolor_eva': 'Pain Delta', 'DELTA_gravedad_percibida': 'Severity Delta',
@@ -818,38 +825,36 @@ if st.button("Generate PDP"):
             subsample=100
         )
         
-        # 2. Accedemos al eje real
         ax_real = disp.axes_[0][0]
         
-        # 3. Obtenemos el valor del paciente
+        # 2. Obtenemos el valor del paciente
         valor_paciente = float(df_paciente[var_a_graficar].iloc[0])
         
-        # 4. Dibujamos la línea roja
+        # 3. Dibujamos la línea del paciente (zorder=10 para que esté al frente)
         ax_real.axvline(x=valor_paciente, color='red', linestyle='--', linewidth=3, 
-                        label=f'Patient Value: {valor_paciente:.2f}', zorder=10)
+                        label=f'Patient: {valor_paciente:.2f}', zorder=10)
         
-        # 5. Ajustamos los límites de X explícitamente
-        curr_min, curr_max = ax_real.get_xlim()
-        new_min = min(curr_min, valor_paciente - 1)
-        new_max = max(curr_max, valor_paciente + 1)
-        ax_real.set_xlim(new_min, new_max)
-        
-        # 6. ESTABLECEMOS LOS NOMBRES CORRECTOS (TRADUCIDOS)
-        ax_real.set_title(f"PDP: {delta_ui_dict[var_a_graficar]} vs Risk")
-        ax_real.set_xlabel(delta_ui_dict[var_a_graficar])  # Nombre traducido en el eje X
-        ax_real.set_ylabel("Partial Dependence (Risk)")
-        
-        # Estilo final
+        # 4. LÓGICA DE EJES: Binarios vs Continuos
+        if var_a_graficar in binary_deltas:
+            # Fuerza rango [-1.1, 1.1] para binarios
+            ax_real.set_xlim(-1.1, 1.1)
+            # Opcional: ajustar ticks para que solo muestre -1, 0, 1
+            ax_real.set_xticks([-1, 0, 1])
+        else:
+            # Rango automático para continuos
+            curr_min, curr_max = ax_real.get_xlim()
+            new_min = min(curr_min, valor_paciente - 1)
+            new_max = max(curr_max, valor_paciente + 1)
+            ax_real.set_xlim(new_min, new_max)
+            
+        # 5. Estilo y Etiquetas
         ax_real.legend(loc='best', frameon=True)
+        ax_real.set_title(f"PDP: {delta_ui_dict[var_a_graficar]} vs Risk")
+        ax_real.set_xlabel(delta_ui_dict[var_a_graficar])
+        ax_real.set_ylabel("Partial Dependence (Risk)")
         ax_real.grid(True, linestyle='--', alpha=0.6, zorder=0)
         
         st.pyplot(fig)
         
-        # Advertencia si está fuera de rango
-        min_train = df_train_sample[var_a_graficar].min()
-        max_train = df_train_sample[var_a_graficar].max()
-        if valor_paciente < min_train or valor_paciente > max_train:
-            st.warning(f"⚠️ Note: Patient value ({valor_paciente:.1f}) is outside the training data range ({min_train:.1f} to {max_train:.1f}).")
-            
     except Exception as e:
         st.error(f"Error generating PDP: {e}")
