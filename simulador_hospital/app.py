@@ -13,11 +13,8 @@ warnings.filterwarnings("ignore")
 
 # ==========================================
 # 0. FUNCIONES DE PROCESAMIENTO CLÍNICO (CIE-10)
+# (ESTE BLOQUE DEBE PERMANECER EN ESPAÑOL PARA EL BACKEND)
 # ==========================================
-# ==========================================================
-# 2. FEATURE ENGINEERING: MAPEO SEMÁNTICO CIE-10
-# ==========================================================
-print("🧬 Aplicando mapeo semántico CIE-10...")
 
 def normalizar_cie10(codigo):
     if pd.isna(codigo): return pd.NA
@@ -31,7 +28,7 @@ import pandas as pd
 def mapear_cie10_macro(cod):
     # Si viene nulo del normalizador previo, salimos rápido
     if pd.isna(cod):
-        return pd.NA
+        return "Desconocido"
 
     # Extracción directa, confiando en el normalizador
     letra = cod[0]
@@ -335,17 +332,16 @@ def mapear_cie10_macro(cod):
             return "Otros factores de salud"
 
     # Casos residuales estrictamente agudos o no clasificables (R, S, V, W, X, Y)
-    return "DESCONOCIDO"
+    return "Desconocido"
+# ==========================================
+# 1. PAGE CONFIGURATION
+# ==========================================
+st.set_page_config(page_title="Safe Discharge Simulator", layout="wide")
+st.title("🏥 Clinical Safe Discharge Simulator (15 Days)")
+st.markdown("Decision support tool based on narrative phenotypes and prescriptive explainability.")
 
 # ==========================================
-# 1. CONFIGURACIÓN DE LA PÁGINA
-# ==========================================
-st.set_page_config(page_title="Simulador de Alta Segura", layout="wide")
-st.title("🏥 Simulador Clínico de Alta Segura (15 Días)")
-st.markdown("Herramienta de soporte a la decisión basada en fenotipos narrativos y explicabilidad prescriptiva.")
-
-# ==========================================
-# 2. CARGA DE MODELO Y DATOS QUIMERA (CACHÉ)
+# 2. MODEL AND DATA LOADING (CACHE)
 # ==========================================
 @st.cache_resource
 def cargar_entorno():
@@ -361,7 +357,7 @@ def cargar_entorno():
     try:
         df_train_sample = pd.read_csv(ruta_datos)
     except FileNotFoundError:
-        st.error(f"⚠️ Falta el archivo en: {ruta_datos}")
+        st.error(f"⚠️ Missing file at: {ruta_datos}")
         df_train_sample = pd.DataFrame(np.zeros((50, len(cols_modelo))), columns=cols_modelo)
     
     return pipeline, umbral, cols_modelo, df_train_sample
@@ -369,65 +365,86 @@ def cargar_entorno():
 pipeline, umbral, columnas_modelo, df_train_sample = cargar_entorno()
 
 # ==========================================
-# 3. INTERFAZ DE CAPTURA (FRICCIÓN CERO)
+# 3. INTERFACE CAPTURE (ZERO FRICTION)
 # ==========================================
-st.sidebar.header("🩺 Carga de Fenotipo")
-st.sidebar.markdown("Seleccione únicamente las condiciones presentes.")
+st.sidebar.header("🩺 Phenotype Loading")
+st.sidebar.markdown("Select only the present conditions.")
 
-# --- BLOQUE CLÍNICO-DEMOGRÁFICO ---
-st.sidebar.subheader("1. Parámetros Base e Ingreso")
-cie10_input = st.sidebar.text_input("Motivo de internación (Código CIE-10):", value="I10", help="Ejemplo: I10, E11, J44")
-dias_internados = st.sidebar.number_input("Cantidad de días internado:", min_value=1, max_value=150, value=5)
+# --- CLINICAL-DEMOGRAPHIC BLOCK ---
+st.sidebar.subheader("1. Baseline Parameters & Admission")
+cie10_input = st.sidebar.text_input("Reason for admission (ICD-10 Code):", value="I10", help="Example: I10, E11, J44")
+dias_internados = st.sidebar.number_input("Number of days hospitalized:", min_value=1, max_value=150, value=5)
 
-# Opciones completas y mapeo a mayúsculas para la compatibilidad con el pipeline
-opciones_edad = ["Menor de edad", "Adulto Joven", "Adulto de mediana edad", "Adulto mayor", "Anciano"]
-rango_edad_ui = st.sidebar.selectbox("Rango de Edad del Paciente:", opciones_edad)
-rango_edad = rango_edad_ui.upper()
+# UI English mappings to Spanish backend categories
+opciones_edad_dict = {
+    "Minor": "Menor de edad", 
+    "Young Adult": "Adulto Joven", 
+    "Middle-aged Adult": "Adulto de mediana edad", 
+    "Older Adult": "Adulto mayor", 
+    "Elderly": "Anciano"
+}
+rango_edad_ui = st.sidebar.selectbox("Patient Age Range:", list(opciones_edad_dict.keys()))
+rango_edad = opciones_edad_dict[rango_edad_ui].upper()
 
-es_pluripatologico = st.sidebar.checkbox("¿El paciente es Pluripatológico?", value=False)
+es_pluripatologico = st.sidebar.checkbox("Is the patient Pluripathological?", value=False)
 
-# --- BLOQUE LLM (Historial y Crónicos) ---
-st.sidebar.subheader("2. Terreno del Paciente (Historial)")
-opciones_af = [
-    'autoinmune', 'cardiovascular_otro', 'diabetes', 'hipertension', 
-    'metabolico_otro', 'neurologico', 'oncologico', 'psiquiatrico', 'renal', 'respiratorio'
-]
-af_seleccionados = st.sidebar.multiselect("Antecedentes Familiares (LLM_AF):", opciones_af)
+# --- LLM BLOCK (History & Chronic) ---
+st.sidebar.subheader("2. Patient Background (History)")
 
-opciones_cronicos = [
-    'abandono_medicacion', 'alcoholismo', 'desnutricion_severa', 'drogas_ilicitas', 
-    'fragilidad_geriatrica', 'historial_caidas', 'oxigenodependiente', 'polifarmacia', 'tabaquismo_activo'
-]
-cronicos_seleccionados = st.sidebar.multiselect("Crónicos y Hábitos (LLM):", opciones_cronicos)
+af_dict = {
+    'Autoimmune': 'autoinmune', 'Other Cardiovascular': 'cardiovascular_otro', 
+    'Diabetes': 'diabetes', 'Hypertension': 'hipertension', 
+    'Other Metabolic': 'metabolico_otro', 'Neurological': 'neurologico', 
+    'Oncological': 'oncologico', 'Psychiatric': 'psiquiatrico', 
+    'Renal': 'renal', 'Respiratory': 'respiratorio'
+}
+af_seleccionados_ui = st.sidebar.multiselect("Family History (LLM_AF):", list(af_dict.keys()))
+af_seleccionados = [af_dict[k] for k in af_seleccionados_ui]
 
-# --- BLOQUE ING vs EVO ---
-st.sidebar.subheader("3. Evolución Clínica")
+cro_dict = {
+    'Medication Abandonment': 'abandono_medicacion', 'Alcoholism': 'alcoholismo', 
+    'Severe Malnutrition': 'desnutricion_severa', 'Illicit Drugs': 'drogas_ilicitas', 
+    'Geriatric Frailty': 'fragilidad_geriatrica', 'History of Falls': 'historial_caidas', 
+    'Oxygen Dependent': 'oxigenodependiente', 'Polypharmacy': 'polifarmacia', 
+    'Active Smoking': 'tabaquismo_activo'
+}
+cronicos_seleccionados_ui = st.sidebar.multiselect("Chronic Conditions & Habits (LLM):", list(cro_dict.keys()))
+cronicos_seleccionados = [cro_dict[k] for k in cronicos_seleccionados_ui]
+
+# --- ING vs EVO BLOCK ---
+st.sidebar.subheader("3. Clinical Evolution")
 c_ing, c_evo = st.sidebar.columns(2)
 
 with c_ing:
-    st.markdown("**Al Ingreso (ING)**")
-    ing_dolor = st.slider("Dolor Inicial", 0, 10, 0)
-    ing_grav = st.slider("Gravedad Inicial", 1, 10, 5)
+    st.markdown("**At Admission (ING)**")
+    ing_dolor = st.slider("Initial Pain", 0, 10, 0)
+    ing_grav = st.slider("Initial Severity", 1, 10, 5)
     
-    opc_ing = ['alteracion_mental', 'consultas_reiteradas', 'dependencia_funcional', 'portador_dispositivos', 'riesgo_hemorragico']
-    ing_sel = st.multiselect("Complicaciones (ING):", opc_ing)
+    ing_dict = {
+        'Mental Alteration': 'alteracion_mental', 'Repeated Consultations': 'consultas_reiteradas', 
+        'Functional Dependency': 'dependencia_funcional', 'Device Bearer': 'portador_dispositivos', 
+        'Hemorrhagic Risk': 'riesgo_hemorragico'
+    }
+    ing_sel_ui = st.multiselect("Complications (ING):", list(ing_dict.keys()))
+    ing_sel = [ing_dict[k] for k in ing_sel_ui]
 
 with c_evo:
-    st.markdown("**Al Alta (EVO)**")
-    evo_dolor = st.slider("Dolor Actual", 0, 10, 0)
-    evo_grav = st.slider("Gravedad Actual", 1, 10, 5)
+    st.markdown("**At Discharge (EVO)**")
+    evo_dolor = st.slider("Current Pain", 0, 10, 0)
+    evo_grav = st.slider("Current Severity", 1, 10, 5)
     
-    opc_evo = [
-        'aislamiento_infeccioso', 'alteracion_mental', 'complicacion_internacion', 
-        'cuidados_paliativos', 'dependencia_funcional', 'fuga_o_alta_irregular', 
-        'portador_dispositivos', 'ulceras_presion'
-    ]
-    evo_sel = st.multiselect("Complicaciones (EVO):", opc_evo)
+    evo_dict = {
+        'Infectious Isolation': 'aislamiento_infeccioso', 'Mental Alteration': 'alteracion_mental', 
+        'Hospitalization Complication': 'complicacion_internacion', 'Palliative Care': 'cuidados_paliativos', 
+        'Functional Dependency': 'dependencia_funcional', 'Irregular Discharge / Escape': 'fuga_o_alta_irregular', 
+        'Device Bearer': 'portador_dispositivos', 'Pressure Ulcers': 'ulceras_presion'
+    }
+    evo_sel_ui = st.multiselect("Complications (EVO):", list(evo_dict.keys()))
+    evo_sel = [evo_dict[k] for k in evo_sel_ui]
 
 # ==========================================
-# 4. MOTOR DE ENSAMBLADO MATEMÁTICO (BLINDADO)
+# 4. MATHEMATICAL ASSEMBLY ENGINE
 # ==========================================
-# 1. Inicialización ultra-segura basada SOLO en las columnas del modelo entrenado
 paciente_data = {}
 for col in columnas_modelo:
     if col in ['rango_edad', 'CIE10_MACRO', 'CIE10_SUBMACRO']:
@@ -435,24 +452,20 @@ for col in columnas_modelo:
     else:
         paciente_data[col] = 0.0
 
-# 2. Asignación de nuevas variables (Solo si existen en el modelo)
 if 'rango_edad' in paciente_data: paciente_data['rango_edad'] = rango_edad
 if 'dias_internados' in paciente_data: paciente_data['dias_internados'] = float(dias_internados)
 if 'pluripatologico' in paciente_data: paciente_data['pluripatologico'] = 1.0 if es_pluripatologico else 0.0
 
-# 3. Tratamiento CIE-10
 codigo_normalizado = normalizar_cie10(cie10_input)
 categoria_cie10 = mapear_cie10_macro(codigo_normalizado)
 if 'CIE10_MACRO' in paciente_data: paciente_data['CIE10_MACRO'] = categoria_cie10
 
-# 4. Asignación de variables NLP Crónicas (Solo cambia a 1.0 lo que el médico seleccionó y existe en el modelo)
 for af in af_seleccionados: 
     if f"LLM_AF_{af}" in paciente_data: paciente_data[f"LLM_AF_{af}"] = 1.0
 
 for cro in cronicos_seleccionados: 
     if f"LLM_{cro}" in paciente_data: paciente_data[f"LLM_{cro}"] = 1.0
 
-# 5. Escala y Complicaciones (ING y EVO)
 ing_dolor_val = float(ing_dolor)
 ing_grav_val = float(ing_grav)
 if 'ING_dolor_eva' in paciente_data: paciente_data['ING_dolor_eva'] = ing_dolor_val
@@ -467,7 +480,6 @@ if 'EVO_gravedad_percibida' in paciente_data: paciente_data['EVO_gravedad_percib
 for evo in evo_sel:
     if f"EVO_{evo}" in paciente_data: paciente_data[f"EVO_{evo}"] = 1.0
 
-# 6. Cálculo Seguro de Deltas (Solo se calculan si la columna DELTA existe en el modelo entrenado)
 def calcular_delta_seguro(col_delta, col_evo, col_ing):
     if col_delta in paciente_data:
         val_evo = paciente_data.get(col_evo, 0.0)
@@ -480,36 +492,111 @@ calcular_delta_seguro('DELTA_alteracion_mental', 'EVO_alteracion_mental', 'ING_a
 calcular_delta_seguro('DELTA_dependencia_funcional', 'EVO_dependencia_funcional', 'ING_dependencia_funcional')
 calcular_delta_seguro('DELTA_portador_dispositivos', 'EVO_portador_dispositivos', 'ING_portador_dispositivos')
 
-# 7. Construcción final del DataFrame
 df_paciente = pd.DataFrame([paciente_data])[columnas_modelo]
 
 # ==========================================
-# 5. INFERENCIA Y DASHBOARD PRINCIPAL
+# 5. INFERENCE & MAIN DASHBOARD
 # ==========================================
 riesgo = pipeline.predict_proba(df_paciente)[0][1]
 
 col_izq, col_der = st.columns([1, 2])
 
 with col_izq:
-    st.subheader("Riesgo de Reingreso")
-    st.metric(label="Probabilidad a 15 Días", value=f"{riesgo*100:.1f}%")
+    st.subheader("Readmission Risk")
+    st.metric(label="15-Day Probability", value=f"{riesgo*100:.1f}%")
     
     if riesgo > umbral:
-        st.error(f"⚠️ **ALERTA CLÍNICA**\n\nEl paciente supera el umbral de seguridad estricto ({umbral*100:.1f}%).")
+        st.error(f"⚠️ **CLINICAL ALERT**\n\nThe patient exceeds the strict safety threshold ({umbral*100:.1f}%).")
     else:
-        st.success(f"✅ **ALTA SEGURA**\n\nRiesgo controlado dentro del umbral permitido.")
+        st.success(f"✅ **SAFE DISCHARGE**\n\nRisk controlled within the permitted threshold.")
 
-    st.info(f"**Diagnóstico Mapeado:** {categoria_cie10} (Código: {codigo_normalizado})")
+    # 🌟 DICCIONARIO UI EXHAUSTIVO PARA LA TRADUCCIÓN DEL CIE-10
+    cie10_ui_dict = {
+        # A y B
+        "Tuberculosis": "Tuberculosis", "Lepra": "Leprosy", "Sífilis": "Syphilis", 
+        "Otras infecciosas (A)": "Other infectious (A)", "Hepatitis viral": "Viral hepatitis", 
+        "Enfermedad por VIH": "HIV disease", "Enfermedad de Chagas": "Chagas disease", 
+        "Toxoplasmosis": "Toxoplasmosis", "Equinococosis / Hidatidosis": "Echinococcosis / Hydatidosis", 
+        "Secuelas de enfermedades infecciosas": "Sequelae of infectious diseases", "Otras infecciosas (B)": "Other infectious (B)",
+        # C y D
+        "Cáncer de labio / boca / faringe": "Lip / mouth / pharynx cancer", "Cáncer digestivo": "Digestive cancer", 
+        "Cáncer respiratorio / intratorácico": "Respiratory / intrathoracic cancer", "Cáncer de hueso / cartílago": "Bone / cartilage cancer", 
+        "Melanoma / Cáncer de piel": "Melanoma / Skin cancer", "Cáncer de mama": "Breast cancer", 
+        "Cáncer genital femenino": "Female genital cancer", "Cáncer genital masculino": "Male genital cancer", 
+        "Cáncer de vías urinarias": "Urinary tract cancer", "Cáncer de sistema nervioso central": "Central nervous system cancer", 
+        "Cáncer linfoide / hematopoyético": "Lymphoid / hematopoietic cancer", "Otros tumores malignos": "Other malignant tumors", 
+        "Tumores in situ o benignos": "In situ or benign tumors", "Anemias nutricionales": "Nutritional anemias", 
+        "Anemias hemolíticas": "Hemolytic anemias", "Aplasias y otras anemias": "Aplasias and other anemias", 
+        "Defectos de coagulación / púrpura": "Coagulation defects / purpura", "Trastornos de inmunodeficiencia": "Immunodeficiency disorders", 
+        "Otros trastornos de la sangre": "Other blood disorders",
+        # E
+        "Tiroides": "Thyroid", "Diabetes": "Diabetes", "Glucosa / hipoglucemia": "Glucose / hypoglycemia", 
+        "Otros endocrinos y metabólicos": "Other endocrine and metabolic", "Obesidad y trastornos de hiperalimentación": "Obesity and hyperalimentation disorders", 
+        "Dislipidemia": "Dyslipidemia", "Fibrosis quística": "Cystic fibrosis", "Trastornos metabólicos": "Metabolic disorders", 
+        "Otros metabólicos / nutricionales": "Other metabolic / nutritional",
+        # F
+        "Trastornos mentales orgánicos (Demencias)": "Organic mental disorders (Dementias)", "Trastornos por uso de sustancias": "Substance use disorders", 
+        "Esquizofrenia y trastornos psicóticos": "Schizophrenia and psychotic disorders", "Trastornos del humor (Afectivos)": "Mood (Affective) disorders", 
+        "Trastornos neuróticos y de ansiedad": "Neurotic and anxiety disorders", "Trastornos de la conducta alimentaria / sueño": "Eating / sleep disorders", 
+        "Trastornos de la personalidad": "Personality disorders", "Discapacidad intelectual": "Intellectual disability", 
+        "Trastornos del desarrollo psicobiológico (Autismo)": "Psychobiological development disorders (Autism)", "Otros trastornos mentales": "Other mental disorders",
+        # G
+        "Atrofias sistémicas del SNC": "Systemic atrophies of CNS", "Trastornos extrapiramidales y del movimiento (Parkinson)": "Extrapyramidal and movement disorders (Parkinson's)", 
+        "Enfermedades degenerativas (Alzheimer)": "Degenerative diseases (Alzheimer's)", "Enfermedades desmielinizantes (Esclerosis Múltiple)": "Demyelinating diseases (Multiple Sclerosis)", 
+        "Trastornos episódicos y paroxísticos (Epilepsia, Migraña)": "Episodic and paroxysmal disorders (Epilepsy, Migraine)", "Trastornos de nervios y plexos": "Nerve and plexus disorders", 
+        "Polineuropatías": "Polyneuropathies", "Enfermedades de la unión neuromuscular (Miastenia)": "Diseases of the neuromuscular junction (Myasthenia)", 
+        "Parálisis cerebral y síndromes paralíticos": "Cerebral palsy and paralytic syndromes", "Otros trastornos neurológicos": "Other neurological disorders",
+        # H, I, J
+        "Ojo": "Eye", "Oído": "Ear", "Otros órganos de los sentidos": "Other sense organs",
+        "Hipertensión": "Hypertension", "Cardiopatía isquémica": "Ischemic heart disease", "Enfermedad cardiopulmonar": "Cardiopulmonary disease", 
+        "Otras enfermedades del corazón (Insuficiencia Cardíaca)": "Other heart diseases (Heart Failure)", "Cerebrovascular": "Cerebrovascular", 
+        "Enfermedades de arterias y capilares": "Diseases of arteries and capillaries", "Enfermedades de venas y vasos linfáticos": "Diseases of veins and lymphatic vessels", 
+        "Otros circulatorios": "Other circulatory",
+        "Vías respiratorias altas": "Upper respiratory tract", "Infecciones agudas / neumonía / influenza": "Acute infections / pneumonia / influenza", 
+        "Infecciones respiratorias bajas": "Lower respiratory infections", "Enfermedades de vías respiratorias superiores": "Diseases of upper respiratory tract", 
+        "Asma / EPOC / bronquitis": "Asthma / COPD / bronchitis", "Enfermedades del pulmón por agentes externos (Neumoconiosis)": "Lung diseases due to external agents (Pneumoconiosis)", 
+        "Enfermedades pulmonares intersticiales": "Interstitial lung diseases", "Otros respiratorios": "Other respiratory",
+        # K, L, M, N
+        "Boca / dientes / faringe": "Mouth / teeth / pharynx", "Esófago / estómago / duodeno": "Esophagus / stomach / duodenum", 
+        "Apendicitis": "Appendicitis", "Hernias": "Hernias", "Enfermedad de Crohn y colitis": "Crohn's disease and colitis", 
+        "Otras enfermedades de los intestinos": "Other diseases of the intestines", "Hígado": "Liver", 
+        "Vesícula / vías biliares / páncreas": "Gallbladder / biliary tract / pancreas", "Otros digestivos": "Other digestive",
+        "Dermatitis y eczema": "Dermatitis and eczema", "Trastornos papuloescamosos (Psoriasis)": "Papulosquamous disorders (Psoriasis)", 
+        "Urticaria y eritema": "Urticaria and erythema", "Trastornos de las faneras / Otros trastornos de piel": "Disorders of skin appendages / Other skin disorders", 
+        "Otras enfermedades de la piel": "Other skin diseases",
+        "Artropatías": "Arthropathies", "Tejido conectivo (Lupus, etc.)": "Connective tissue (Lupus, etc.)", "Dorsopatías": "Dorsopathies", 
+        "Tejidos blandos": "Soft tissues", "Osteopatías y condropatías (Osteoporosis)": "Osteopathies and chondropathies (Osteoporosis)", 
+        "Otros osteomusculares": "Other musculoskeletal",
+        "Riñón (Insuficiencia Renal Crónica)": "Kidney (Chronic Renal Failure)", "Vías urinarias bajas": "Lower urinary tract", 
+        "Genital masculino (Hiperplasia Prostática)": "Male genital (Prostatic Hyperplasia)", "Mama": "Breast", 
+        "Genital femenino (Endometriosis, etc.)": "Female genital (Endometriosis, etc.)", "Otros genitourinarios": "Other genitourinary",
+        # Q, P, T, U, Z
+        "Malformaciones del sistema nervioso (Espina bífida)": "Malformations of the nervous system (Spina bifida)", "Malformaciones cardíacas congénitas": "Congenital heart malformations", 
+        "Anomalías cromosómicas (Síndrome de Down)": "Chromosomal abnormalities (Down Syndrome)", "Otras malformaciones congénitas": "Other congenital malformations",
+        "Enfermedad respiratoria crónica perinatal": "Chronic perinatal respiratory disease", 
+        "Secuelas crónicas de traumatismos": "Chronic sequelae of injuries",
+        "Síndrome Post-COVID (Long COVID)": "Post-COVID Syndrome (Long COVID)", "Otras condiciones especiales (U)": "Other special conditions (U)",
+        "Historia personal de tumores / enfermedades": "Personal history of tumors / diseases", "Ausencia adquirida de miembros / órganos": "Acquired absence of limbs / organs", 
+        "Aberturas artificiales (Ostomías)": "Artificial openings (Ostomies)", "Estado de órgano trasplantado": "Transplanted organ status", 
+        "Presencia de implantes cardíacos / vasculares": "Presence of cardiac / vascular implants", "Dependencia de máquinas (diálisis, oxígeno)": "Machine dependence (dialysis, oxygen)", 
+        "Otros factores de salud": "Other health factors",
+        "DESCONOCIDO": "UNKNOWN"
+    }
+
+    if pd.isna(categoria_cie10):
+        categoria_cie10_ingles = "N/A"
+    else:
+        categoria_cie10_ingles = cie10_ui_dict.get(categoria_cie10, categoria_cie10)
+    
+    st.info(f"**Mapped Diagnosis:** {categoria_cie10_ingles} (Code: {codigo_normalizado})")
 
 with col_der:
-    st.subheader("Auditoría de Decisión (SHAP)")
+    st.subheader("Decision Audit (SHAP)")
     clf = pipeline.named_steps['clasificador']
     prep = pipeline.named_steps['preprocesador']
     
-    # 1. Transformamos los datos (Esto genera la matriz ancha)
     X_proc = prep.transform(df_paciente)
     
-    # 2. Extraemos los nombres reales con los que entrena el algoritmo y los limpiamos
     nombres_crudos = prep.get_feature_names_out()
     nombres_limpios = [nombre.replace('num__', '').replace('cat__', '') for nombre in nombres_crudos]
     
@@ -520,18 +607,15 @@ with col_der:
         explainer = shap.LinearExplainer(clf, X_proc) if hasattr(clf, 'coef_') else shap.Explainer(clf, X_proc)
         shap_vals = explainer(X_proc).values
     
-    # Control de dimensiones dependiendo del tipo de modelo (RF, CatBoost, XGBoost)
     if isinstance(shap_vals, list): shap_vals = shap_vals[1]
     if len(shap_vals.shape) > 2: shap_vals = shap_vals[:, :, 1]
     
-    # Extracción segura del Expected Value (Base Value)
     exp_val = explainer.expected_value
     if isinstance(exp_val, (list, np.ndarray)):
         exp_val = exp_val[1] if len(exp_val) > 1 else exp_val[0]
     
     fig, ax = plt.subplots(figsize=(8, 4))
     
-    # 🌟 BLINDAJE DIMENSIONAL: Ahora values, data y feature_names tienen exactamente la misma longitud
     shap.waterfall_plot(shap.Explanation(
         values=shap_vals[0], 
         base_values=exp_val, 
@@ -542,10 +626,10 @@ with col_der:
     st.pyplot(fig)
 
 # ==========================================
-# 6. NAVEGADOR TERAPÉUTICO (DiCE)
+# 6. THERAPEUTIC NAVIGATOR (DiCE)
 # ==========================================
 st.markdown("---")
-st.subheader("Navegador Terapéutico (IA Prescriptiva)")
+st.subheader("Therapeutic Navigator (Prescriptive AI)")
 
 class ModeloSincronizado:
     def __init__(self, pipeline_original):
@@ -554,7 +638,6 @@ class ModeloSincronizado:
     def predict_proba(self, X):
         X_sync = X.copy()
         
-        # Recalcular deltas dinámicos SOLO si las columnas están en el modelo
         def sync_delta(df, col_delta, col_evo, col_ing):
             if col_delta in df.columns and col_evo in df.columns and col_ing in df.columns:
                 df[col_delta] = df[col_evo] - df[col_ing]
@@ -568,35 +651,29 @@ class ModeloSincronizado:
         return self.pipeline.predict_proba(X_sync)
 
 if riesgo <= umbral:
-    st.info("El paciente se encuentra en condiciones óptimas para el egreso. No se requieren contrafactuales.")
+    st.info("The patient is in optimal condition for discharge. No counterfactuals required.")
 else:
-    st.warning("El riesgo es alto. Presione el botón para calcular rutas clínicas de estabilización que permitan cruzar el umbral.")
-    if st.button("Generar Prescripción (DiCE)", type="primary"):
-        with st.spinner("Calculando múltiples alternativas clínicamente viables..."):
+    st.warning("High risk detected. Click the button to calculate clinical stabilization routes that allow crossing the safety threshold.")
+    if st.button("Generate Prescription (DiCE)", type="primary"):
+        with st.spinner("Calculating multiple clinically viable alternatives..."):
             
-            # 1. Preparación del DataFrame base para DiCE
             df_dice_train = df_train_sample.copy()
             df_dice_train['target'] = 0 
             
-            # BLINDAJE ANTI-OOV (Out Of Vocabulary) PARA CATEGORÍAS
             df_paciente_para_dice = df_paciente.copy()
             df_paciente_para_dice['target'] = 0
             df_dice_train = pd.concat([df_dice_train, df_paciente_para_dice], ignore_index=True)
             
-            # BLINDAJE DE TIPOS DE DATOS PARA DiCE
             cols_numericas = df_dice_train.select_dtypes(include=[np.number]).columns.tolist()
             if 'target' in cols_numericas:
                 cols_numericas.remove('target') 
             
-            # Instanciamos DiCE pasándole únicamente las columnas numéricas
             d = dice_ml.Data(dataframe=df_dice_train, continuous_features=cols_numericas, outcome_name='target')
             
-            # 2. Instanciación del Modelo Sincronizado
             modelo_blindado = ModeloSincronizado(pipeline)
             m = dice_ml.Model(model=modelo_blindado, backend="sklearn")
             exp = dice_ml.Dice(d, m, method="random")
             
-            # 3. Definición del espacio de búsqueda clínico
             variables_accionables = [col for col in columnas_modelo if col.startswith('EVO_')]
             rangos_permitidos = {}
             vars_a_variar = []
@@ -620,10 +697,9 @@ else:
                         rangos_permitidos[col] = [0, 1]
                         vars_a_variar.append(col)
             
-            # 4. Ejecución del motor configurado para múltiples rutas (total_CFs=5)
             try:
                 if not vars_a_variar:
-                    st.error("No hay variables clínicas modificables en la evolución que puedan mejorar el estado del paciente.")
+                    st.error("There are no modifiable clinical variables in the patient's evolution that can improve their condition.")
                 else:
                     dice_exp = exp.generate_counterfactuals(
                         df_paciente, total_CFs=5, desired_class="opposite", 
@@ -632,12 +708,11 @@ else:
                     
                     cf_df = dice_exp.cf_examples_list[0].final_cfs_df
                     if cf_df is not None and not cf_df.empty:
-                        st.success(f"✅ **SE ENCONTRARON {len(cf_df)} RUTAS CLÍNICAS ALTERNATIVAS:**")
-                        st.markdown("El personal médico puede seleccionar la opción más factible según el escenario del piso:")
+                        st.success(f"✅ **{len(cf_df)} ALTERNATIVE CLINICAL ROUTES FOUND:**")
+                        st.markdown("The medical staff can select the most feasible option according to the ward scenario:")
                         
-                        # 🌟 BUCLE DINÁMICO: Recorre e imprime cada ruta de forma independiente
                         for r_idx in range(len(cf_df)):
-                            with st.expander(f"➔ 🛤️ Opción Terapéutica Alternativa {r_idx + 1}"):
+                            with st.expander(f"➔ 🛤️ Alternative Therapeutic Option {r_idx + 1}"):
                                 cambios_detectados = 0
                                 for col in vars_a_variar:
                                     val_orig = df_paciente.iloc[0][col]
@@ -649,14 +724,14 @@ else:
                                     if val_orig != val_cf:
                                         cambios_detectados += 1
                                         if 'dolor' in col or 'gravedad' in col:
-                                            st.write(f"- 💊 **{col}**: Reducir de [{val_orig:.0f}] ➔ Meta: **[{val_cf:.0f}]**")
+                                            st.write(f"- 💊 **{col}**: Reduce from [{val_orig:.0f}] ➔ Target: **[{val_cf:.0f}]**")
                                         else:
-                                            st.write(f"- 💊 **{col}**: Resolver complicación ➔ **[Ausente]**")
+                                            st.write(f"- 💊 **{col}**: Resolve complication ➔ **[Absent]**")
                                 
                                 if cambios_detectados == 0:
-                                    st.write("Esta alternativa sugiere mantener los parámetros actuales basándose en la estabilidad marginal del riesgo.")
+                                    st.write("This alternative suggests maintaining current parameters based on marginal risk stability.")
                     else:
-                        st.error("No se encontraron rutas matemáticamente viables solo con modificaciones clínicas.")
+                        st.error("No mathematically viable routes were found using only clinical modifications.")
             except Exception as e:
-                st.error("La estabilización requerida excede las modificaciones clínicamente permitidas con los parámetros actuales.")
-                st.warning(f"🔍 Debug Matemático: {str(e)}")
+                st.error("The required stabilization exceeds the clinically permitted modifications with the current parameters.")
+                st.warning(f"🔍 Mathematical Debug: {str(e)}")
