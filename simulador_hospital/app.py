@@ -809,7 +809,6 @@ if st.button("Generate PDP"):
         fig, ax = plt.subplots(figsize=(8, 4))
         
         # 1. Generamos el gráfico
-        # Usamos 'disp' para capturar el objeto y controlar los ejes después
         disp = PartialDependenceDisplay.from_estimator(
             pipeline, 
             df_train_sample, 
@@ -819,7 +818,7 @@ if st.button("Generate PDP"):
             subsample=100
         )
         
-        # 2. Accedemos al eje real que creó sklearn
+        # 2. Accedemos al eje real
         ax_real = disp.axes_[0][0]
         
         # 3. Obtenemos el valor del paciente
@@ -829,24 +828,24 @@ if st.button("Generate PDP"):
         ax_real.axvline(x=valor_paciente, color='red', linestyle='--', linewidth=3, 
                         label=f'Patient Value: {valor_paciente:.2f}', zorder=10)
         
-        # 5. Ajustamos los límites de los ejes explícitamente
-        # Obtenemos el rango actual del gráfico
+        # 5. Ajustamos los límites de X explícitamente
         curr_min, curr_max = ax_real.get_xlim()
-        
-        # Expandimos el rango si el paciente está fuera de los datos de entrenamiento
         new_min = min(curr_min, valor_paciente - 1)
         new_max = max(curr_max, valor_paciente + 1)
-        
         ax_real.set_xlim(new_min, new_max)
         
-        # Ajustes finales de estilo
-        ax_real.legend(loc='best', frameon=True)
+        # 6. ESTABLECEMOS LOS NOMBRES CORRECTOS (TRADUCIDOS)
         ax_real.set_title(f"PDP: {delta_ui_dict[var_a_graficar]} vs Risk")
+        ax_real.set_xlabel(delta_ui_dict[var_a_graficar])  # Nombre traducido en el eje X
+        ax_real.set_ylabel("Partial Dependence (Risk)")
+        
+        # Estilo final
+        ax_real.legend(loc='best', frameon=True)
         ax_real.grid(True, linestyle='--', alpha=0.6, zorder=0)
         
         st.pyplot(fig)
         
-        # Advertencia de integridad si está fuera de rango
+        # Advertencia si está fuera de rango
         min_train = df_train_sample[var_a_graficar].min()
         max_train = df_train_sample[var_a_graficar].max()
         if valor_paciente < min_train or valor_paciente > max_train:
