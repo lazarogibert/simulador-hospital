@@ -669,29 +669,29 @@ with col_der:
     if isinstance(exp_val, (list, np.ndarray)):
         exp_val = exp_val[1] if len(exp_val) > 1 else exp_val[0]
     
-    # 🌟 ESCALADO MATEMÁTICO DIRECTO (* 100)
-    shap_vals_pct = shap_vals[0] * 100
-    exp_val_pct = exp_val * 100
+    # 🌟 FORZADO DE MATRICES NUMPY (Multiplicación blindada)
+    # Convertimos explícitamente a numpy array y multiplicamos por 100
+    val_pct = np.array(shap_vals[0]) * 100.0
+    base_pct = float(exp_val) * 100.0
     
     fig, ax = plt.subplots(figsize=(8, 4))
     
-    # Dejamos que SHAP dibuje de forma nativa sin interferencias
-    shap.waterfall_plot(shap.Explanation(
-        values=shap_vals_pct, 
-        base_values=exp_val_pct, 
+    # Creamos un objeto Explanation NUEVO desde cero con la matemática ya aplicada
+    ex = shap.Explanation(
+        values=val_pct, 
+        base_values=base_pct, 
         data=X_proc[0], 
-        feature_names=nombres_limpios_traducidos), 
-        show=False, max_display=8
+        feature_names=nombres_limpios_traducidos
     )
     
-    # Modificamos ÚNICAMENTE el Eje X inferior (Esto es seguro y no rompe SHAP)
+    # Renderizamos de forma nativa. SHAP calculará la suma correcta (ej. 32.0 en lugar de 0.32)
+    shap.waterfall_plot(ex, show=False, max_display=8)
+    
+    # Formateamos solo el eje inferior. CERO bucles, CERO modificaciones al texto interno
     import matplotlib.ticker as mtick
     plt.gca().xaxis.set_major_formatter(mtick.FormatStrFormatter('%.0f%%'))
     
-    # Renderizamos el gráfico sin bucles destructivos
     st.pyplot(fig)
-    
-    # Usamos la UI para darle contexto al médico de forma limpia
     st.caption("📌 **Note:** The numbers next to the bars represent the impact in **percentage points (%)**.")
     
 # ==========================================
