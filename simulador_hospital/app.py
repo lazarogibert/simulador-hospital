@@ -510,15 +510,13 @@ with col_izq:
     else:
         st.success(f"✅ **SAFE DISCHARGE**\n\nRisk controlled within the permitted threshold.")
 
-    # 🌟 DICCIONARIO UI EXHAUSTIVO PARA LA TRADUCCIÓN DEL CIE-10
+    # DICCIONARIO UI EXHAUSTIVO PARA LA TRADUCCIÓN DEL CIE-10
     cie10_ui_dict = {
-        # A y B
         "Tuberculosis": "Tuberculosis", "Lepra": "Leprosy", "Sífilis": "Syphilis", 
         "Otras infecciosas (A)": "Other infectious (A)", "Hepatitis viral": "Viral hepatitis", 
         "Enfermedad por VIH": "HIV disease", "Enfermedad de Chagas": "Chagas disease", 
         "Toxoplasmosis": "Toxoplasmosis", "Equinococosis / Hidatidosis": "Echinococcosis / Hydatidosis", 
         "Secuelas de enfermedades infecciosas": "Sequelae of infectious diseases", "Otras infecciosas (B)": "Other infectious (B)",
-        # C y D
         "Cáncer de labio / boca / faringe": "Lip / mouth / pharynx cancer", "Cáncer digestivo": "Digestive cancer", 
         "Cáncer respiratorio / intratorácico": "Respiratory / intrathoracic cancer", "Cáncer de hueso / cartílago": "Bone / cartilage cancer", 
         "Melanoma / Cáncer de piel": "Melanoma / Skin cancer", "Cáncer de mama": "Breast cancer", 
@@ -529,24 +527,20 @@ with col_izq:
         "Anemias hemolíticas": "Hemolytic anemias", "Aplasias y otras anemias": "Aplasias and other anemias", 
         "Defectos de coagulación / púrpura": "Coagulation defects / purpura", "Trastornos de inmunodeficiencia": "Immunodeficiency disorders", 
         "Otros trastornos de la sangre": "Other blood disorders",
-        # E
         "Tiroides": "Thyroid", "Diabetes": "Diabetes", "Glucosa / hipoglucemia": "Glucose / hypoglycemia", 
         "Otros endocrinos y metabólicos": "Other endocrine and metabolic", "Obesidad y trastornos de hiperalimentación": "Obesity and hyperalimentation disorders", 
         "Dislipidemia": "Dyslipidemia", "Fibrosis quística": "Cystic fibrosis", "Trastornos metabólicos": "Metabolic disorders", 
         "Otros metabólicos / nutricionales": "Other metabolic / nutritional",
-        # F
         "Trastornos mentales orgánicos (Demencias)": "Organic mental disorders (Dementias)", "Trastornos por uso de sustancias": "Substance use disorders", 
         "Esquizofrenia y trastornos psicóticos": "Schizophrenia and psychotic disorders", "Trastornos del humor (Afectivos)": "Mood (Affective) disorders", 
         "Trastornos neuróticos y de ansiedad": "Neurotic and anxiety disorders", "Trastornos de la conducta alimentaria / sueño": "Eating / sleep disorders", 
         "Trastornos de la personalidad": "Personality disorders", "Discapacidad intelectual": "Intellectual disability", 
         "Trastornos del desarrollo psicobiológico (Autismo)": "Psychobiological development disorders (Autism)", "Otros trastornos mentales": "Other mental disorders",
-        # G
         "Atrofias sistémicas del SNC": "Systemic atrophies of CNS", "Trastornos extrapiramidales y del movimiento (Parkinson)": "Extrapyramidal and movement disorders (Parkinson's)", 
         "Enfermedades degenerativas (Alzheimer)": "Degenerative diseases (Alzheimer's)", "Enfermedades desmielinizantes (Esclerosis Múltiple)": "Demyelinating diseases (Multiple Sclerosis)", 
         "Trastornos episódicos y paroxísticos (Epilepsia, Migraña)": "Episodic and paroxysmal disorders (Epilepsy, Migraine)", "Trastornos de nervios y plexos": "Nerve and plexus disorders", 
         "Polineuropatías": "Polyneuropathies", "Enfermedades de la unión neuromuscular (Miastenia)": "Diseases of the neuromuscular junction (Myasthenia)", 
         "Parálisis cerebral y síndromes paralíticos": "Cerebral palsy and paralytic syndromes", "Otros trastornos neurológicos": "Other neurological disorders",
-        # H, I, J
         "Ojo": "Eye", "Oído": "Ear", "Otros órganos de los sentidos": "Other sense organs",
         "Hipertensión": "Hypertension", "Cardiopatía isquémica": "Ischemic heart disease", "Enfermedad cardiopulmonar": "Cardiopulmonary disease", 
         "Otras enfermedades del corazón (Insuficiencia Cardíaca)": "Other heart diseases (Heart Failure)", "Cerebrovascular": "Cerebrovascular", 
@@ -556,7 +550,6 @@ with col_izq:
         "Infecciones respiratorias bajas": "Lower respiratory infections", "Enfermedades de vías respiratorias superiores": "Diseases of upper respiratory tract", 
         "Asma / EPOC / bronquitis": "Asthma / COPD / bronchitis", "Enfermedades del pulmón por agentes externos (Neumoconiosis)": "Lung diseases due to external agents (Pneumoconiosis)", 
         "Enfermedades pulmonares intersticiales": "Interstitial lung diseases", "Otros respiratorios": "Other respiratory",
-        # K, L, M, N
         "Boca / dientes / faringe": "Mouth / teeth / pharynx", "Esófago / estómago / duodeno": "Esophagus / stomach / duodenum", 
         "Apendicitis": "Appendicitis", "Hernias": "Hernias", "Enfermedad de Crohn y colitis": "Crohn's disease and colitis", 
         "Otras enfermedades de los intestinos": "Other diseases of the intestines", "Hígado": "Liver", 
@@ -570,7 +563,6 @@ with col_izq:
         "Riñón (Insuficiencia Renal Crónica)": "Kidney (Chronic Renal Failure)", "Vías urinarias bajas": "Lower urinary tract", 
         "Genital masculino (Hiperplasia Prostática)": "Male genital (Prostatic Hyperplasia)", "Mama": "Breast", 
         "Genital femenino (Endometriosis, etc.)": "Female genital (Endometriosis, etc.)", "Otros genitourinarios": "Other genitourinary",
-        # Q, P, T, U, Z
         "Malformaciones del sistema nervioso (Espina bífida)": "Malformations of the nervous system (Spina bifida)", "Malformaciones cardíacas congénitas": "Congenital heart malformations", 
         "Anomalías cromosómicas (Síndrome de Down)": "Chromosomal abnormalities (Down Syndrome)", "Otras malformaciones congénitas": "Other congenital malformations",
         "Enfermedad respiratoria crónica perinatal": "Chronic perinatal respiratory disease", 
@@ -600,6 +592,74 @@ with col_der:
     nombres_crudos = prep.get_feature_names_out()
     nombres_limpios = [nombre.replace('num__', '').replace('cat__', '') for nombre in nombres_crudos]
     
+    # 🌟 DICCIONARIO UI PARA TRADUCIR LAS VARIABLES DE SHAP
+    shap_ui_dict = {
+        'dias_internados': 'Hospitalization Days',
+        'pluripatologico': 'Pluripathological',
+        'ING_dolor_eva': 'Initial Pain',
+        'ING_gravedad_percibida': 'Initial Severity',
+        'EVO_dolor_eva': 'Current Pain',
+        'EVO_gravedad_percibida': 'Current Severity',
+        'DELTA_dolor_eva': 'Pain Delta',
+        'DELTA_gravedad_percibida': 'Severity Delta',
+        'DELTA_alteracion_mental': 'Mental Alt. Delta',
+        'DELTA_dependencia_funcional': 'Func. Dep. Delta',
+        'DELTA_portador_dispositivos': 'Device Bearer Delta',
+        'ING_alteracion_mental': 'Initial Mental Alt.',
+        'ING_consultas_reiteradas': 'Initial Repeated Consults',
+        'ING_dependencia_funcional': 'Initial Func. Dep.',
+        'ING_portador_dispositivos': 'Initial Device Bearer',
+        'ING_riesgo_hemorragico': 'Initial Hemorrhagic Risk',
+        'EVO_aislamiento_infeccioso': 'Current Infect. Isolation',
+        'EVO_alteracion_mental': 'Current Mental Alt.',
+        'EVO_complicacion_internacion': 'Current Hosp. Complication',
+        'EVO_cuidados_paliativos': 'Current Palliat. Care',
+        'EVO_dependencia_funcional': 'Current Func. Dep.',
+        'EVO_fuga_o_alta_irregular': 'Current Irreg. Discharge',
+        'EVO_portador_dispositivos': 'Current Device Bearer',
+        'EVO_ulceras_presion': 'Current Pressure Ulcers',
+        'LLM_AF_autoinmune': 'Fam. Hist: Autoimmune',
+        'LLM_AF_cardiovascular_otro': 'Fam. Hist: Other CV',
+        'LLM_AF_diabetes': 'Fam. Hist: Diabetes',
+        'LLM_AF_hipertension': 'Fam. Hist: Hypertension',
+        'LLM_AF_metabolico_otro': 'Fam. Hist: Other Metabolic',
+        'LLM_AF_neurologico': 'Fam. Hist: Neurological',
+        'LLM_AF_oncologico': 'Fam. Hist: Oncological',
+        'LLM_AF_psiquiatrico': 'Fam. Hist: Psychiatric',
+        'LLM_AF_renal': 'Fam. Hist: Renal',
+        'LLM_AF_respiratorio': 'Fam. Hist: Respiratory',
+        'LLM_abandono_medicacion': 'Chronic: Med. Abandonment',
+        'LLM_alcoholismo': 'Chronic: Alcoholism',
+        'LLM_desnutricion_severa': 'Chronic: Severe Malnutrition',
+        'LLM_drogas_ilicitas': 'Chronic: Illicit Drugs',
+        'LLM_fragilidad_geriatrica': 'Chronic: Geriatric Frailty',
+        'LLM_historial_caidas': 'Chronic: History of Falls',
+        'LLM_oxigenodependiente': 'Chronic: Oxygen Dependent',
+        'LLM_polifarmacia': 'Chronic: Polypharmacy',
+        'LLM_tabaquismo_activo': 'Chronic: Active Smoking'
+    }
+
+    # 🌟 TRADUCCIÓN DINÁMICA DE LA LISTA DE VARIABLES
+    nombres_limpios_traducidos = []
+    for nombre in nombres_limpios:
+        if "CIE10_MACRO" in nombre:
+            # Captura variables One-Hot (ej. CIE10_MACRO_Diabetes) y traduce la enfermedad
+            cat_val = nombre.replace("CIE10_MACRO_", "")
+            trad = cie10_ui_dict.get(cat_val, cat_val)
+            nombres_limpios_traducidos.append(f"Diagnosis: {trad}")
+        elif "rango_edad" in nombre:
+            # Traduce la variable de edad haciendo búsqueda inversa en tu diccionario
+            cat_val = nombre.replace("rango_edad_", "")
+            trad = cat_val
+            for en, es in opciones_edad_dict.items():
+                if es.upper() == cat_val.upper():
+                    trad = en
+                    break
+            nombres_limpios_traducidos.append(f"Age: {trad}")
+        else:
+            # Mapea cualquier otra variable cruda al inglés
+            nombres_limpios_traducidos.append(shap_ui_dict.get(nombre, nombre))
+
     try:
         explainer = shap.TreeExplainer(clf)
         shap_vals = explainer.shap_values(X_proc)
@@ -614,17 +674,20 @@ with col_der:
     if isinstance(exp_val, (list, np.ndarray)):
         exp_val = exp_val[1] if len(exp_val) > 1 else exp_val[0]
     
+    # 🌟 ESCALADO MATEMÁTICO A PORCENTAJES (Transformación x100)
+    shap_vals_pct = shap_vals[0] * 100
+    exp_val_pct = exp_val * 100
+    
     fig, ax = plt.subplots(figsize=(8, 4))
     
     shap.waterfall_plot(shap.Explanation(
-        values=shap_vals[0], 
-        base_values=exp_val, 
+        values=shap_vals_pct, 
+        base_values=exp_val_pct, 
         data=X_proc[0], 
-        feature_names=nombres_limpios), 
+        feature_names=nombres_limpios_traducidos), 
         show=False, max_display=8
     )
     st.pyplot(fig)
-
 # ==========================================
 # 6. THERAPEUTIC NAVIGATOR (DiCE)
 # ==========================================
@@ -711,6 +774,20 @@ else:
                         st.success(f"✅ **{len(cf_df)} ALTERNATIVE CLINICAL ROUTES FOUND:**")
                         st.markdown("The medical staff can select the most feasible option according to the ward scenario:")
                         
+                        # 🌟 DICCIONARIO DE TRADUCCIÓN PARA LA SALIDA DE DiCE
+                        evo_output_dict = {
+                            'EVO_dolor_eva': 'Current Pain',
+                            'EVO_gravedad_percibida': 'Current Severity',
+                            'EVO_aislamiento_infeccioso': 'Infectious Isolation',
+                            'EVO_alteracion_mental': 'Mental Alteration',
+                            'EVO_complicacion_internacion': 'Hospitalization Complication',
+                            'EVO_cuidados_paliativos': 'Palliative Care',
+                            'EVO_dependencia_funcional': 'Functional Dependency',
+                            'EVO_fuga_o_alta_irregular': 'Irregular Discharge / Escape',
+                            'EVO_portador_dispositivos': 'Device Bearer',
+                            'EVO_ulceras_presion': 'Pressure Ulcers'
+                        }
+                        
                         for r_idx in range(len(cf_df)):
                             with st.expander(f"➔ 🛤️ Alternative Therapeutic Option {r_idx + 1}"):
                                 cambios_detectados = 0
@@ -723,15 +800,14 @@ else:
                                     
                                     if val_orig != val_cf:
                                         cambios_detectados += 1
+                                        
+                                        # Aplicamos la traducción (si no la encuentra, usa la original como fallback)
+                                        col_en = evo_output_dict.get(col, col)
+                                        
                                         if 'dolor' in col or 'gravedad' in col:
-                                            st.write(f"- 💊 **{col}**: Reduce from [{val_orig:.0f}] ➔ Target: **[{val_cf:.0f}]**")
+                                            st.write(f"- 💊 **{col_en}**: Reduce from [{val_orig:.0f}] ➔ Target: **[{val_cf:.0f}]**")
                                         else:
-                                            st.write(f"- 💊 **{col}**: Resolve complication ➔ **[Absent]**")
+                                            st.write(f"- 💊 **{col_en}**: Resolve complication ➔ **[Absent]**")
                                 
                                 if cambios_detectados == 0:
                                     st.write("This alternative suggests maintaining current parameters based on marginal risk stability.")
-                    else:
-                        st.error("No mathematically viable routes were found using only clinical modifications.")
-            except Exception as e:
-                st.error("The required stabilization exceeds the clinically permitted modifications with the current parameters.")
-                st.warning(f"🔍 Mathematical Debug: {str(e)}")
