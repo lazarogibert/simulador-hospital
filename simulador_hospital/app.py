@@ -803,12 +803,14 @@ var_a_graficar = st.selectbox("Select variable for PDP analysis:", list(delta_ui
 
 if st.button("Generate PDP"):
     plt.close('all')
-    fig, ax = plt.subplots(figsize=(8, 4))
     
     try:
         from sklearn.inspection import PartialDependenceDisplay
         
-        # 1. Generamos el PDP
+        # 1. Creamos la figura y el eje donde queremos pintar
+        fig, ax = plt.subplots(figsize=(8, 4))
+        
+        # 2. Generamos el gráfico y guardamos el objeto 'disp'
         disp = PartialDependenceDisplay.from_estimator(
             pipeline, 
             df_train_sample, 
@@ -818,36 +820,39 @@ if st.button("Generate PDP"):
             subsample=100
         )
         
-        # 2. Obtenemos el valor del paciente
+        # 3. ACCESO DIRECTO AL EJE:
+        # disp.axes_ es una matriz de ejes. Obtenemos el primero [0][0]
+        ax_real = disp.axes_[0][0]
+        
+        # 4. Obtenemos el valor del paciente
         valor_paciente = float(df_paciente[var_a_graficar].iloc[0])
         
-        # 3. Forzamos límites de X para que la línea roja sea visible
-        # Calculamos el rango necesario para que el paciente entre en el eje
-        xlim = ax.get_xlim()
-        new_min = min(xlim[0], valor_paciente - 0.5)
-        new_max = max(xlim[1], valor_paciente + 0.5)
-        ax.set_xlim(new_min, new_max)
+        # 5. Dibujamos sobre el eje real (ax_real)
+        # Usamos zorder alto para asegurar que quede por encima
+        ax_real.axvline(x=valor_paciente, color='red', linestyle='--', linewidth=3, 
+                        label=f'Patient: {valor_paciente:.2f}', zorder=100)
         
-        # 4. Forzamos límites de Y para que el texto "Patient" no se corte
-        ylim = ax.get_ylim()
-        ax.set_ylim(ylim[0], ylim[1] * 1.25) # Damos 25% más de espacio arriba
+        # Ajustamos límites Y para que el texto "Patient" no se corte
+        current_ylim = ax_real.get_ylim()
+        ax_real.set_ylim(current_ylim[0], current_ylim[1] * 1.25)
         
-        # 5. Dibujamos la línea y el texto con clip_on=False
-        ax.axvline(x=valor_paciente, color='red', linestyle='--', linewidth=3, 
-                   label=f'Patient: {valor_paciente:.2f}', zorder=10)
+        # Dibujamos el texto
+        ax_real.text(valor_paciente, current_ylim[1] * 1.05, ' Patient', 
+                     color='red', fontweight='bold', fontsize=12, 
+                     rotation=90, zorder=101, clip_on=False)
         
-        # Añadimos el texto con clip_on=False para evitar cortes
-        ax.text(valor_paciente, ylim[1] * 1.05, ' Patient', color='red', 
-                fontweight='bold', fontsize=12, rotation=90, 
-                zorder=11, clip_on=False)
-        
-        # Ajustes finales
-        ax.legend(loc='upper right', frameon=True)
-        ax.set_title(f"PDP: {delta_ui_dict[var_a_graficar]} vs Risk")
-        ax.set_ylabel("Partial Dependence (Risk)")
-        ax.grid(True, linestyle='--', alpha=0.6, zorder=0)
+        # Ajustamos leyenda y estilo
+        ax_real.legend(loc='upper right', frameon=True)
+        ax_real.set_title(f"PDP: {delta_ui_dict[var_a_graficar]} vs Risk")
+        ax_real.grid(True, linestyle='--', alpha=0.6, zorder=0)
         
         st.pyplot(fig)
         
+        # Análisis de integridad
+        min_val = df_train_sample[var_a_graficar].min()
+        max_val = df_train_sample[var_a_graficar].max()
+        if min_val > valor_paciente or max_val < valor_paciente:
+            st.warning(f"⚠️ Warning: Patient value ({valor_paciente:.1f}) outside training range ({min_val:.1f}-{max_val:.1f}).")
+            
     except Exception as e:
         st.error(f"Error generating PDP: {e}")
