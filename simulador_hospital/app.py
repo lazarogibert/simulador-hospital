@@ -670,12 +670,13 @@ with col_der:
         exp_val = exp_val[1] if len(exp_val) > 1 else exp_val[0]
     
     # 🌟 ESCALADO MATEMÁTICO DIRECTO (* 100)
+    # Convertimos los valores crudos en porcentajes antes de pasarlos a SHAP
     shap_vals_pct = shap_vals[0] * 100
     exp_val_pct = exp_val * 100
     
     fig, ax = plt.subplots(figsize=(8, 4))
     
-    # Instanciamos el gráfico con los valores ya escalados
+    # Instanciamos el gráfico con los valores ya multiplicados por 100
     shap.waterfall_plot(shap.Explanation(
         values=shap_vals_pct, 
         base_values=exp_val_pct, 
@@ -684,7 +685,7 @@ with col_der:
         show=False, max_display=8
     )
     
-    # 🌟 POST-PROCESAMIENTO CLÍNICO (Regex + Redondeo)
+    # 🌟 POST-PROCESAMIENTO CLÍNICO (Solo Regex Visual)
     import matplotlib.ticker as mtick
     import re
     ax_actual = plt.gca()
@@ -692,37 +693,16 @@ with col_der:
     # 1. Aplicamos el formato de porcentaje al Eje X inferior
     ax_actual.xaxis.set_major_formatter(mtick.FormatStrFormatter('%.0f%%'))
     
-    # 2. Interceptamos las etiquetas numéricas de las barras y totales
+    # 2. Interceptamos SOLO las etiquetas numéricas puras de las barras
     for text_obj in ax_actual.texts:
-        t_orig = text_obj.get_text().strip()
-        if not t_orig:
-            continue
-            
-        # Reemplazamos el "Menos Unicode" que usa Matplotlib por el guion estándar
-        t_clean = t_orig.replace('−', '-')
+        texto = text_obj.get_text().strip()
         
-        # Buscamos matemáticamente si el texto contiene un número real
-        match = re.search(r'([+-]?\d+\.?\d*)', t_clean)
-        
-        if match:
-            num_str = match.group(1)
-            try:
-                num_val = float(num_str)
-                
-                # A) Si es un valor total (f(x) final o E[f(X)] esperado)
-                if 'f(x)' in t_orig or 'E[f(X)]' in t_orig:
-                    nuevo_texto = t_clean.replace(num_str, f"{num_val:.1f}%")
-                    text_obj.set_text(nuevo_texto)
-                    
-                # B) Si son las BARRAS INDIVIDUALES (El impacto de la variable)
-                else:
-                    # Aquí forzamos explícitamente el signo (+ o -) sin importar cómo vino, 
-                    # lo redondeamos a 1 decimal y le clavamos el %
-                    nuevo_texto = f"{num_val:+.1f}%"
-                    text_obj.set_text(nuevo_texto)
-                    
-            except ValueError:
-                pass # Si la porción detectada no es un float real, la ignoramos
+        # Regex estricto: Busca textos que empiecen EXACTAMENTE con +, - o el menos Unicode (−),
+        # seguidos (opcionalmente) por espacios, y luego un número decimal.
+        # Al usar esto, IGNORAMOS f(x) y E[f(X)], evitando romper sus sombras blancas.
+        if re.match(r'^[+−-]\s*\d+\.?\d*$', texto):
+            # Le pegamos el "%" al final al texto existente (no tocamos el número original de SHAP)
+            text_obj.set_text(texto + '%')
 
     st.pyplot(fig)
     
