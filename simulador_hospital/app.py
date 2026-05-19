@@ -592,7 +592,6 @@ with col_der:
     nombres_crudos = prep.get_feature_names_out()
     nombres_limpios = [nombre.replace('num__', '').replace('cat__', '') for nombre in nombres_crudos]
     
-    # 🌟 DICCIONARIO UI PARA TRADUCIR LAS VARIABLES DE SHAP
     shap_ui_dict = {
         'dias_internados': 'Hospitalization Days',
         'pluripatologico': 'Pluripathological',
@@ -639,16 +638,13 @@ with col_der:
         'LLM_tabaquismo_activo': 'Chronic: Active Smoking'
     }
 
-    # 🌟 TRADUCCIÓN DINÁMICA DE LA LISTA DE VARIABLES
     nombres_limpios_traducidos = []
     for nombre in nombres_limpios:
         if "CIE10_MACRO" in nombre:
-            # Captura variables One-Hot (ej. CIE10_MACRO_Diabetes) y traduce la enfermedad
             cat_val = nombre.replace("CIE10_MACRO_", "")
             trad = cie10_ui_dict.get(cat_val, cat_val)
             nombres_limpios_traducidos.append(f"Diagnosis: {trad}")
         elif "rango_edad" in nombre:
-            # Traduce la variable de edad haciendo búsqueda inversa en tu diccionario
             cat_val = nombre.replace("rango_edad_", "")
             trad = cat_val
             for en, es in opciones_edad_dict.items():
@@ -657,7 +653,6 @@ with col_der:
                     break
             nombres_limpios_traducidos.append(f"Age: {trad}")
         else:
-            # Mapea cualquier otra variable cruda al inglés
             nombres_limpios_traducidos.append(shap_ui_dict.get(nombre, nombre))
 
     try:
@@ -674,7 +669,7 @@ with col_der:
     if isinstance(exp_val, (list, np.ndarray)):
         exp_val = exp_val[1] if len(exp_val) > 1 else exp_val[0]
     
-    # 🌟 ESCALADO MATEMÁTICO A PORCENTAJES (Transformación x100)
+    # Escalado matemático a porcentajes (Transformación x100)
     shap_vals_pct = shap_vals[0] * 100
     exp_val_pct = exp_val * 100
     
@@ -687,7 +682,29 @@ with col_der:
         feature_names=nombres_limpios_traducidos), 
         show=False, max_display=8
     )
+    
+    # 🌟 POST-PROCESAMIENTO DINÁMICO PARA FORZAR EL SÍMBOLO DE PORCENTAJE (%) EN SHAP
+    ax_actual = plt.gca()
+    
+    # 1. Modificar las etiquetas numéricas del eje X
+    import matplotlib.ticker as mtick
+    ax_actual.xaxis.set_major_formatter(mtick.FormatStrFormatter('%.1f%%'))
+    
+    # 2. Modificar las anotaciones de texto dentro del gráfico (valores de impacto, f(x) y E[f(X)])
+    for text in ax_actual.texts:
+        t_orig = text.get_text()
+        if not t_orig:
+            continue
+            
+        # Formatear impactos numéricos en las flechas (ej: "+4.5", "-2.3")
+        if (t_orig.startswith('+') or t_orig.startswith('-')) and '%' not in t_orig:
+            text.set_text(f"{t_orig}%")
+        # Formatear el valor esperado base y el valor final de predicción de la barra superior/inferior
+        elif ('f(x)' in t_orig or 'E[f(X)]' in t_orig) and '%' not in t_orig:
+            text.set_text(f"{t_orig}%")
+            
     st.pyplot(fig)
+
 # ==========================================
 # 6. THERAPEUTIC NAVIGATOR (DiCE)
 # ==========================================
