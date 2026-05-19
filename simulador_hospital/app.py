@@ -510,7 +510,7 @@ with col_izq:
     else:
         st.success(f"✅ **SAFE DISCHARGE**\n\nRisk controlled within the permitted threshold.")
 
-    # DICCIONARIO UI EXHAUSTIVO PARA LA TRADUCCIÓN DEL CIE-10
+    # UI Translation Dictionary for CIE-10
     cie10_ui_dict = {
         "Tuberculosis": "Tuberculosis", "Lepra": "Leprosy", "Sífilis": "Syphilis", 
         "Otras infecciosas (A)": "Other infectious (A)", "Hepatitis viral": "Viral hepatitis", 
@@ -588,53 +588,32 @@ with col_der:
     prep = pipeline.named_steps['preprocesador']
     
     X_proc = prep.transform(df_paciente)
-    
     nombres_crudos = prep.get_feature_names_out()
     nombres_limpios = [nombre.replace('num__', '').replace('cat__', '') for nombre in nombres_crudos]
     
+    # Dictionary for SHAP variables
     shap_ui_dict = {
-        'dias_internados': 'Hospitalization Days',
-        'pluripatologico': 'Pluripathological',
-        'ING_dolor_eva': 'Initial Pain',
-        'ING_gravedad_percibida': 'Initial Severity',
-        'EVO_dolor_eva': 'Current Pain',
-        'EVO_gravedad_percibida': 'Current Severity',
-        'DELTA_dolor_eva': 'Pain Delta',
-        'DELTA_gravedad_percibida': 'Severity Delta',
-        'DELTA_alteracion_mental': 'Mental Alt. Delta',
-        'DELTA_dependencia_funcional': 'Func. Dep. Delta',
-        'DELTA_portador_dispositivos': 'Device Bearer Delta',
-        'ING_alteracion_mental': 'Initial Mental Alt.',
-        'ING_consultas_reiteradas': 'Initial Repeated Consults',
-        'ING_dependencia_funcional': 'Initial Func. Dep.',
-        'ING_portador_dispositivos': 'Initial Device Bearer',
-        'ING_riesgo_hemorragico': 'Initial Hemorrhagic Risk',
-        'EVO_aislamiento_infeccioso': 'Current Infect. Isolation',
-        'EVO_alteracion_mental': 'Current Mental Alt.',
-        'EVO_complicacion_internacion': 'Current Hosp. Complication',
-        'EVO_cuidados_paliativos': 'Current Palliat. Care',
-        'EVO_dependencia_funcional': 'Current Func. Dep.',
-        'EVO_fuga_o_alta_irregular': 'Current Irreg. Discharge',
-        'EVO_portador_dispositivos': 'Current Device Bearer',
-        'EVO_ulceras_presion': 'Current Pressure Ulcers',
-        'LLM_AF_autoinmune': 'Fam. Hist: Autoimmune',
-        'LLM_AF_cardiovascular_otro': 'Fam. Hist: Other CV',
-        'LLM_AF_diabetes': 'Fam. Hist: Diabetes',
-        'LLM_AF_hipertension': 'Fam. Hist: Hypertension',
-        'LLM_AF_metabolico_otro': 'Fam. Hist: Other Metabolic',
-        'LLM_AF_neurologico': 'Fam. Hist: Neurological',
-        'LLM_AF_oncologico': 'Fam. Hist: Oncological',
-        'LLM_AF_psiquiatrico': 'Fam. Hist: Psychiatric',
-        'LLM_AF_renal': 'Fam. Hist: Renal',
-        'LLM_AF_respiratorio': 'Fam. Hist: Respiratory',
-        'LLM_abandono_medicacion': 'Chronic: Med. Abandonment',
-        'LLM_alcoholismo': 'Chronic: Alcoholism',
-        'LLM_desnutricion_severa': 'Chronic: Severe Malnutrition',
-        'LLM_drogas_ilicitas': 'Chronic: Illicit Drugs',
-        'LLM_fragilidad_geriatrica': 'Chronic: Geriatric Frailty',
-        'LLM_historial_caidas': 'Chronic: History of Falls',
-        'LLM_oxigenodependiente': 'Chronic: Oxygen Dependent',
-        'LLM_polifarmacia': 'Chronic: Polypharmacy',
+        'dias_internados': 'Hospitalization Days', 'pluripatologico': 'Pluripathological',
+        'ING_dolor_eva': 'Initial Pain', 'ING_gravedad_percibida': 'Initial Severity',
+        'EVO_dolor_eva': 'Current Pain', 'EVO_gravedad_percibida': 'Current Severity',
+        'DELTA_dolor_eva': 'Pain Delta', 'DELTA_gravedad_percibida': 'Severity Delta',
+        'DELTA_alteracion_mental': 'Mental Alt. Delta', 'DELTA_dependencia_funcional': 'Func. Dep. Delta',
+        'DELTA_portador_dispositivos': 'Device Bearer Delta', 'ING_alteracion_mental': 'Initial Mental Alt.',
+        'ING_consultas_reiteradas': 'Initial Repeated Consults', 'ING_dependencia_funcional': 'Initial Func. Dep.',
+        'ING_portador_dispositivos': 'Initial Device Bearer', 'ING_riesgo_hemorragico': 'Initial Hemorrhagic Risk',
+        'EVO_aislamiento_infeccioso': 'Current Infect. Isolation', 'EVO_alteracion_mental': 'Current Mental Alt.',
+        'EVO_complicacion_internacion': 'Current Hosp. Complication', 'EVO_cuidados_paliativos': 'Current Palliat. Care',
+        'EVO_dependencia_funcional': 'Current Func. Dep.', 'EVO_fuga_o_alta_irregular': 'Current Irreg. Discharge',
+        'EVO_portador_dispositivos': 'Current Device Bearer', 'EVO_ulceras_presion': 'Current Pressure Ulcers',
+        'LLM_AF_autoinmune': 'Fam. Hist: Autoimmune', 'LLM_AF_cardiovascular_otro': 'Fam. Hist: Other CV',
+        'LLM_AF_diabetes': 'Fam. Hist: Diabetes', 'LLM_AF_hipertension': 'Fam. Hist: Hypertension',
+        'LLM_AF_metabolico_otro': 'Fam. Hist: Other Metabolic', 'LLM_AF_neurologico': 'Fam. Hist: Neurological',
+        'LLM_AF_oncologico': 'Fam. Hist: Oncological', 'LLM_AF_psiquiatrico': 'Fam. Hist: Psychiatric',
+        'LLM_AF_renal': 'Fam. Hist: Renal', 'LLM_AF_respiratorio': 'Fam. Hist: Respiratory',
+        'LLM_abandono_medicacion': 'Chronic: Med. Abandonment', 'LLM_alcoholismo': 'Chronic: Alcoholism',
+        'LLM_desnutricion_severa': 'Chronic: Severe Malnutrition', 'LLM_drogas_ilicitas': 'Chronic: Illicit Drugs',
+        'LLM_fragilidad_geriatrica': 'Chronic: Geriatric Frailty', 'LLM_historial_caidas': 'Chronic: History of Falls',
+        'LLM_oxigenodependiente': 'Chronic: Oxygen Dependent', 'LLM_polifarmacia': 'Chronic: Polypharmacy',
         'LLM_tabaquismo_activo': 'Chronic: Active Smoking'
     }
 
@@ -642,15 +621,10 @@ with col_der:
     for nombre in nombres_limpios:
         if "CIE10_MACRO" in nombre:
             cat_val = nombre.replace("CIE10_MACRO_", "")
-            trad = cie10_ui_dict.get(cat_val, cat_val)
-            nombres_limpios_traducidos.append(f"Diagnosis: {trad}")
+            nombres_limpios_traducidos.append(f"Diagnosis: {cie10_ui_dict.get(cat_val, cat_val)}")
         elif "rango_edad" in nombre:
             cat_val = nombre.replace("rango_edad_", "")
-            trad = cat_val
-            for en, es in opciones_edad_dict.items():
-                if es.upper() == cat_val.upper():
-                    trad = en
-                    break
+            trad = next((k for k, v in opciones_edad_dict.items() if v.upper() == cat_val.upper()), cat_val)
             nombres_limpios_traducidos.append(f"Age: {trad}")
         else:
             nombres_limpios_traducidos.append(shap_ui_dict.get(nombre, nombre))
@@ -658,45 +632,29 @@ with col_der:
     try:
         explainer = shap.TreeExplainer(clf)
         shap_vals = explainer.shap_values(X_proc)
-    except Exception:
+    except:
         explainer = shap.LinearExplainer(clf, X_proc) if hasattr(clf, 'coef_') else shap.Explainer(clf, X_proc)
         shap_vals = explainer(X_proc).values
     
     if isinstance(shap_vals, list): shap_vals = shap_vals[1]
     if len(shap_vals.shape) > 2: shap_vals = shap_vals[:, :, 1]
     
-    exp_val = explainer.expected_value
-    if isinstance(exp_val, (list, np.ndarray)):
-        exp_val = exp_val[1] if len(exp_val) > 1 else exp_val[0]
-    
-    # 🌟 LIMPIEZA DE MEMORIA DE STREAMLIT
-    # Destruye cualquier gráfico atrapado en caché antes de dibujar el nuevo
+    # 🌟 LIMPIEZA TOTAL DE MEMORIA (Previene el texto superpuesto)
     plt.close('all')
-    
-    # 🌟 CONVERSIÓN MATEMÁTICA PURA (NumPy)
-    # Forzamos los datos a floats explícitos y los multiplicamos por 100
-    val_pct = np.array(shap_vals[0], dtype=np.float64) * 100.0
-    base_pct = float(exp_val) * 100.0
-    
-    # Construimos el objeto Explanation con los números ya calculados
-    ex = shap.Explanation(
-        values=val_pct, 
-        base_values=base_pct, 
-        data=X_proc[0], 
-        feature_names=nombres_limpios_traducidos
-    )
     
     fig, ax = plt.subplots(figsize=(8, 4))
     
-    # Renderizado natural de SHAP (sin alterar textos)
-    shap.waterfall_plot(ex, show=False, max_display=8)
-    
-    # Formateo del Eje X con el símbolo "%"
-    import matplotlib.ticker as mtick
-    plt.gca().xaxis.set_major_formatter(mtick.FormatStrFormatter('%.0f%%'))
+    # Renderizamos nativamente. No tocamos los textos para mantener la integridad visual.
+    shap.waterfall_plot(shap.Explanation(
+        values=shap_vals[0], 
+        base_values=explainer.expected_value[1] if isinstance(explainer.expected_value, list) else explainer.expected_value,
+        data=X_proc[0], 
+        feature_names=nombres_limpios_traducidos), 
+        show=False, max_display=8
+    )
     
     st.pyplot(fig)
-    st.caption("📌 **Note:** The values displayed on the bars represent the impact in **percentage points (%)**.")
+    st.caption("📌 **Note:** SHAP values represent the impact on readmission risk (e.g., 0.19 = 19% increase).")
     
 # ==========================================
 # 6. THERAPEUTIC NAVIGATOR (DiCE)
