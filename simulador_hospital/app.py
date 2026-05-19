@@ -683,28 +683,26 @@ with col_der:
         show=False, max_display=8
     )
     
-    # 🌟 POST-PROCESAMIENTO DINÁMICO PARA FORZAR EL SÍMBOLO DE PORCENTAJE (%) EN SHAP
+    # 🌟 POST-PROCESAMIENTO CLÍNICO: Símbolo de % SOLO en el impacto de las variables
     ax_actual = plt.gca()
     
-    # 1. Modificar las etiquetas numéricas del eje X
-    import matplotlib.ticker as mtick
-    ax_actual.xaxis.set_major_formatter(mtick.FormatStrFormatter('%.1f%%'))
-    
-    # 2. Modificar las anotaciones de texto dentro del gráfico (valores de impacto, f(x) y E[f(X)])
-    for text in ax_actual.texts:
-        t_orig = text.get_text()
+    for text_obj in ax_actual.texts:
+        t_orig = text_obj.get_text().strip()
         if not t_orig:
             continue
             
-        # Formatear impactos numéricos en las flechas (ej: "+4.5", "-2.3")
-        if (t_orig.startswith('+') or t_orig.startswith('-')) and '%' not in t_orig:
-            text.set_text(f"{t_orig}%")
-        # Formatear el valor esperado base y el valor final de predicción de la barra superior/inferior
-        elif ('f(x)' in t_orig or 'E[f(X)]' in t_orig) and '%' not in t_orig:
-            text.set_text(f"{t_orig}%")
-            
+        # Filtro estricto: Solo capturamos textos que comiencen explícitamente con un signo +/-
+        if t_orig.startswith('+') or t_orig.startswith('-'):
+            try:
+                # Validamos que lo que sigue al signo sea efectivamente un número
+                float(t_orig[1:].replace(',', ''))
+                if '%' not in t_orig:
+                    text_obj.set_text(f"{t_orig}%")
+            except ValueError:
+                pass # Ignoramos cualquier texto que no sea un número puro de impacto
+                
     st.pyplot(fig)
-
+    
 # ==========================================
 # 6. THERAPEUTIC NAVIGATOR (DiCE)
 # ==========================================
