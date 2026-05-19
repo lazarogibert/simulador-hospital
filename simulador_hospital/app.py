@@ -787,17 +787,10 @@ else:
 
 
 # ==========================================
-# 7. GLOBAL INTERPRETABILITY (PDP)
+# 7. GLOBAL INTERPRETABILITY (PDP) - CORREGIDO
 # ==========================================
 st.markdown("---")
 st.subheader("Global Interpretability (Partial Dependence Plots)")
-st.markdown("Analyze how the Delta variables influence the average readmission risk. **The green line marks your current patient's position.**")
-
-# Definimos las variables Delta
-delta_vars = [
-    'DELTA_dolor_eva', 'DELTA_gravedad_percibida', 'DELTA_alteracion_mental', 
-    'DELTA_dependencia_funcional', 'DELTA_portador_dispositivos'
-]
 
 delta_ui_dict = {
     'DELTA_dolor_eva': 'Pain Delta', 'DELTA_gravedad_percibida': 'Severity Delta',
@@ -810,12 +803,17 @@ var_a_graficar = st.selectbox("Select variable for PDP analysis:", list(delta_ui
 
 if st.button("Generate PDP"):
     plt.close('all')
-    fig, ax = plt.subplots(figsize=(8, 4))
     
+    # DEBUG: Verificamos qué valores tiene realmente el dataset que recibe el PDP
+    min_val = df_train_sample[var_a_graficar].min()
+    max_val = df_train_sample[var_a_graficar].max()
+    st.write(f"🔍 **Data Range in Dataset:** Min={min_val:.2f}, Max={max_val:.2f}")
+
     try:
         from sklearn.inspection import PartialDependenceDisplay
+        fig, ax = plt.subplots(figsize=(8, 4))
         
-        # 1. Graficamos el PDP global
+        # Generamos el PDP
         PartialDependenceDisplay.from_estimator(
             pipeline, 
             df_train_sample, 
@@ -825,28 +823,28 @@ if st.button("Generate PDP"):
             subsample=100
         )
         
-        # 2. Obtenemos el valor del paciente
+        # 1. Obtenemos el valor del paciente
         valor_paciente = float(df_paciente[var_a_graficar].iloc[0])
         
-        # 3. Dibujamos el marcador solo si está dentro de los límites visuales
-        xlim = ax.get_xlim()
-        if xlim[0] <= valor_paciente <= xlim[1]:
-            # Línea roja vertical gruesa
-            ax.axvline(x=valor_paciente, color='red', linestyle='--', linewidth=2.5, label=f'Patient: {valor_paciente:.1f}')
-            
-            # Etiqueta de texto para que sea obvio
-            ylim = ax.get_ylim()
-            ax.text(valor_paciente, ylim[1]*0.9, ' Patient', color='red', fontweight='bold', fontsize=10, rotation=90)
-            ax.legend(loc='upper right')
-        else:
-            st.warning(f"⚠️ Patient value ({valor_paciente:.1f}) is outside the training data range (Limits: {xlim[0]:.1f} to {xlim[1]:.1f}).")
+        # 2. Forzamos los límites del eje X para incluir el valor del paciente
+        current_xlim = ax.get_xlim()
+        # Ampliamos el rango visual para que no se corte
+        min_visual = min(current_xlim[0], valor_paciente - 1)
+        max_visual = max(current_xlim[1], valor_paciente + 1)
+        ax.set_xlim(min_visual, max_visual)
         
-        # Estilo final
+        # 3. Dibujamos la línea del paciente
+        ax.axvline(x=valor_paciente, color='red', linestyle='--', linewidth=2.5, label=f'Patient: {valor_paciente:.1f}')
+        ax.text(valor_paciente, ax.get_ylim()[1]*0.8, ' Patient', color='red', fontweight='bold', rotation=90)
+        
         ax.set_title(f"PDP: {delta_ui_dict[var_a_graficar]} vs Risk")
-        ax.set_ylabel("Partial Dependence (Risk)")
         ax.grid(True, linestyle='--', alpha=0.6)
         
         st.pyplot(fig)
         
+        # 4. Análisis de integridad
+        if min_val > valor_paciente or max_val < valor_paciente:
+            st.warning("⚠️ **Warning:** Patient value is outside the training range. PDP extrapolation may be unreliable.")
+            
     except Exception as e:
-        st.error(f"Could not generate PDP: {str(e)}")
+        st.error(f"Error generating PDP: {e}")
