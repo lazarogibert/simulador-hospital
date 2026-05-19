@@ -493,7 +493,6 @@ calcular_delta_seguro('DELTA_dependencia_funcional', 'EVO_dependencia_funcional'
 calcular_delta_seguro('DELTA_portador_dispositivos', 'EVO_portador_dispositivos', 'ING_portador_dispositivos')
 
 df_paciente = pd.DataFrame([paciente_data])[columnas_modelo]
-
 # ==========================================
 # 5. INFERENCE & MAIN DASHBOARD
 # ==========================================
@@ -548,7 +547,7 @@ with col_izq:
         "Otros circulatorios": "Other circulatory",
         "Vías respiratorias altas": "Upper respiratory tract", "Infecciones agudas / neumonía / influenza": "Acute infections / pneumonia / influenza", 
         "Infecciones respiratorias bajas": "Lower respiratory infections", "Enfermedades de vías respiratorias superiores": "Diseases of upper respiratory tract", 
-        "Asma / EPOC / bronquitis": "Asthma / COPD / bronchitis", "Enfermedades del pulmón por agentes externos (Neumoconiosis)": "Lung diseases due to external agents (Pneumoconiosis)", 
+        "Asma / EPOC / bronquitis": "Asthma / COPD / bronchitis", "Enfermedades del pulmón por agentes externos (Neumoconiosis)": "Lung diseases due to external agents (Neumoconiosis)", 
         "Enfermedades pulmonares intersticiales": "Interstitial lung diseases", "Otros respiratorios": "Other respiratory",
         "Boca / dientes / faringe": "Mouth / teeth / pharynx", "Esófago / estómago / duodeno": "Esophagus / stomach / duodenum", 
         "Apendicitis": "Appendicitis", "Hernias": "Hernias", "Enfermedad de Crohn y colitis": "Crohn's disease and colitis", 
@@ -591,7 +590,6 @@ with col_der:
     nombres_crudos = prep.get_feature_names_out()
     nombres_limpios = [nombre.replace('num__', '').replace('cat__', '') for nombre in nombres_crudos]
     
-    # Dictionary for SHAP variables
     shap_ui_dict = {
         'dias_internados': 'Hospitalization Days', 'pluripatologico': 'Pluripathological',
         'ING_dolor_eva': 'Initial Pain', 'ING_gravedad_percibida': 'Initial Severity',
@@ -639,15 +637,19 @@ with col_der:
     if isinstance(shap_vals, list): shap_vals = shap_vals[1]
     if len(shap_vals.shape) > 2: shap_vals = shap_vals[:, :, 1]
     
-    # 🌟 LIMPIEZA TOTAL DE MEMORIA (Previene el texto superpuesto)
+    # 🌟 CORRECCIÓN DE TIPO: Forzamos el valor base a float escalar único
+    raw_exp = explainer.expected_value
+    base_val = float(raw_exp[1]) if isinstance(raw_exp, (list, np.ndarray)) else float(raw_exp)
+    
+    # 🌟 LIMPIEZA DE MEMORIA: Previene el texto superpuesto eliminando cachés previas
     plt.close('all')
     
     fig, ax = plt.subplots(figsize=(8, 4))
     
-    # Renderizamos nativamente. No tocamos los textos para mantener la integridad visual.
+    # Renderizado nativo: No manipulamos texto, garantizamos integridad
     shap.waterfall_plot(shap.Explanation(
         values=shap_vals[0], 
-        base_values=explainer.expected_value[1] if isinstance(explainer.expected_value, list) else explainer.expected_value,
+        base_values=base_val, 
         data=X_proc[0], 
         feature_names=nombres_limpios_traducidos), 
         show=False, max_display=8
