@@ -774,7 +774,7 @@ else:
                         st.success(f"✅ **{len(cf_df)} ALTERNATIVE CLINICAL ROUTES FOUND:**")
                         st.markdown("The medical staff can select the most feasible option according to the ward scenario:")
                         
-                        # 🌟 DICCIONARIO DE TRADUCCIÓN PARA LA SALIDA DE DiCE
+                        # DICCIONARIO DE TRADUCCIÓN PARA LA SALIDA DE DiCE
                         evo_output_dict = {
                             'EVO_dolor_eva': 'Current Pain',
                             'EVO_gravedad_percibida': 'Current Severity',
@@ -800,8 +800,6 @@ else:
                                     
                                     if val_orig != val_cf:
                                         cambios_detectados += 1
-                                        
-                                        # Aplicamos la traducción (si no la encuentra, usa la original como fallback)
                                         col_en = evo_output_dict.get(col, col)
                                         
                                         if 'dolor' in col or 'gravedad' in col:
@@ -811,3 +809,8 @@ else:
                                 
                                 if cambios_detectados == 0:
                                     st.write("This alternative suggests maintaining current parameters based on marginal risk stability.")
+                    else:
+                        st.error("No mathematically viable routes were found using only clinical modifications.")
+            except Exception as e:
+                st.error("The required stabilization exceeds the clinically permitted modifications with the current parameters.")
+                st.warning(f"🔍 Mathematical Debug: {str(e)}")
