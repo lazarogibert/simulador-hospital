@@ -825,15 +825,23 @@ if st.button("Generate PDP"):
             subsample=100
         )
         
-        # 2. Marcamos la posición del paciente actual
-        # Obtenemos el valor que introdujiste para el paciente
-        valor_paciente = df_paciente[var_a_graficar].iloc[0]
+        # 2. Obtenemos el valor del paciente
+        valor_paciente = float(df_paciente[var_a_graficar].iloc[0])
         
-        # Dibujamos la línea vertical (Green line = Patient position)
-        ax.axvline(x=valor_paciente, color='green', linestyle='-', linewidth=2, label=f'Patient Value: {valor_paciente:.1f}')
-        ax.legend(loc='best')
+        # 3. Dibujamos el marcador solo si está dentro de los límites visuales
+        xlim = ax.get_xlim()
+        if xlim[0] <= valor_paciente <= xlim[1]:
+            # Línea roja vertical gruesa
+            ax.axvline(x=valor_paciente, color='red', linestyle='--', linewidth=2.5, label=f'Patient: {valor_paciente:.1f}')
+            
+            # Etiqueta de texto para que sea obvio
+            ylim = ax.get_ylim()
+            ax.text(valor_paciente, ylim[1]*0.9, ' Patient', color='red', fontweight='bold', fontsize=10, rotation=90)
+            ax.legend(loc='upper right')
+        else:
+            st.warning(f"⚠️ Patient value ({valor_paciente:.1f}) is outside the training data range (Limits: {xlim[0]:.1f} to {xlim[1]:.1f}).")
         
-        # Estilo del gráfico
+        # Estilo final
         ax.set_title(f"PDP: {delta_ui_dict[var_a_graficar]} vs Risk")
         ax.set_ylabel("Partial Dependence (Risk)")
         ax.grid(True, linestyle='--', alpha=0.6)
