@@ -806,11 +806,10 @@ if st.button("Generate PDP"):
     
     try:
         from sklearn.inspection import PartialDependenceDisplay
-        
-        # 1. Creamos la figura y el eje donde queremos pintar
         fig, ax = plt.subplots(figsize=(8, 4))
         
-        # 2. Generamos el gráfico y guardamos el objeto 'disp'
+        # 1. Generamos el gráfico
+        # Usamos 'disp' para capturar el objeto y controlar los ejes después
         disp = PartialDependenceDisplay.from_estimator(
             pipeline, 
             df_train_sample, 
@@ -820,39 +819,38 @@ if st.button("Generate PDP"):
             subsample=100
         )
         
-        # 3. ACCESO DIRECTO AL EJE:
-        # disp.axes_ es una matriz de ejes. Obtenemos el primero [0][0]
+        # 2. Accedemos al eje real que creó sklearn
         ax_real = disp.axes_[0][0]
         
-        # 4. Obtenemos el valor del paciente
+        # 3. Obtenemos el valor del paciente
         valor_paciente = float(df_paciente[var_a_graficar].iloc[0])
         
-        # 5. Dibujamos sobre el eje real (ax_real)
-        # Usamos zorder alto para asegurar que quede por encima
+        # 4. Dibujamos la línea roja
         ax_real.axvline(x=valor_paciente, color='red', linestyle='--', linewidth=3, 
-                        label=f'Patient: {valor_paciente:.2f}', zorder=100)
+                        label=f'Patient Value: {valor_paciente:.2f}', zorder=10)
         
-        # Ajustamos límites Y para que el texto "Patient" no se corte
-        current_ylim = ax_real.get_ylim()
-        ax_real.set_ylim(current_ylim[0], current_ylim[1] * 1.25)
+        # 5. Ajustamos los límites de los ejes explícitamente
+        # Obtenemos el rango actual del gráfico
+        curr_min, curr_max = ax_real.get_xlim()
         
-        # Dibujamos el texto
-        ax_real.text(valor_paciente, current_ylim[1] * 1.05, ' Patient', 
-                     color='red', fontweight='bold', fontsize=12, 
-                     rotation=90, zorder=101, clip_on=False)
+        # Expandimos el rango si el paciente está fuera de los datos de entrenamiento
+        new_min = min(curr_min, valor_paciente - 1)
+        new_max = max(curr_max, valor_paciente + 1)
         
-        # Ajustamos leyenda y estilo
-        ax_real.legend(loc='upper right', frameon=True)
+        ax_real.set_xlim(new_min, new_max)
+        
+        # Ajustes finales de estilo
+        ax_real.legend(loc='best', frameon=True)
         ax_real.set_title(f"PDP: {delta_ui_dict[var_a_graficar]} vs Risk")
         ax_real.grid(True, linestyle='--', alpha=0.6, zorder=0)
         
         st.pyplot(fig)
         
-        # Análisis de integridad
-        min_val = df_train_sample[var_a_graficar].min()
-        max_val = df_train_sample[var_a_graficar].max()
-        if min_val > valor_paciente or max_val < valor_paciente:
-            st.warning(f"⚠️ Warning: Patient value ({valor_paciente:.1f}) outside training range ({min_val:.1f}-{max_val:.1f}).")
+        # Advertencia de integridad si está fuera de rango
+        min_train = df_train_sample[var_a_graficar].min()
+        max_train = df_train_sample[var_a_graficar].max()
+        if valor_paciente < min_train or valor_paciente > max_train:
+            st.warning(f"⚠️ Note: Patient value ({valor_paciente:.1f}) is outside the training data range ({min_train:.1f} to {max_train:.1f}).")
             
     except Exception as e:
         st.error(f"Error generating PDP: {e}")
