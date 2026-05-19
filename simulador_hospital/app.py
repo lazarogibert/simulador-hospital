@@ -669,14 +669,16 @@ with col_der:
     if isinstance(exp_val, (list, np.ndarray)):
         exp_val = exp_val[1] if len(exp_val) > 1 else exp_val[0]
     
-    # 🌟 FORZADO DE MATRICES NUMPY (Multiplicación blindada)
-    # Convertimos explícitamente a numpy array y multiplicamos por 100
-    val_pct = np.array(shap_vals[0]) * 100.0
+    # 🌟 LIMPIEZA DE MEMORIA DE STREAMLIT
+    # Destruye cualquier gráfico atrapado en caché antes de dibujar el nuevo
+    plt.close('all')
+    
+    # 🌟 CONVERSIÓN MATEMÁTICA PURA (NumPy)
+    # Forzamos los datos a floats explícitos y los multiplicamos por 100
+    val_pct = np.array(shap_vals[0], dtype=np.float64) * 100.0
     base_pct = float(exp_val) * 100.0
     
-    fig, ax = plt.subplots(figsize=(8, 4))
-    
-    # Creamos un objeto Explanation NUEVO desde cero con la matemática ya aplicada
+    # Construimos el objeto Explanation con los números ya calculados
     ex = shap.Explanation(
         values=val_pct, 
         base_values=base_pct, 
@@ -684,15 +686,17 @@ with col_der:
         feature_names=nombres_limpios_traducidos
     )
     
-    # Renderizamos de forma nativa. SHAP calculará la suma correcta (ej. 32.0 en lugar de 0.32)
+    fig, ax = plt.subplots(figsize=(8, 4))
+    
+    # Renderizado natural de SHAP (sin alterar textos)
     shap.waterfall_plot(ex, show=False, max_display=8)
     
-    # Formateamos solo el eje inferior. CERO bucles, CERO modificaciones al texto interno
+    # Formateo del Eje X con el símbolo "%"
     import matplotlib.ticker as mtick
     plt.gca().xaxis.set_major_formatter(mtick.FormatStrFormatter('%.0f%%'))
     
     st.pyplot(fig)
-    st.caption("📌 **Note:** The numbers next to the bars represent the impact in **percentage points (%)**.")
+    st.caption("📌 **Note:** The values displayed on the bars represent the impact in **percentage points (%)**.")
     
 # ==========================================
 # 6. THERAPEUTIC NAVIGATOR (DiCE)
