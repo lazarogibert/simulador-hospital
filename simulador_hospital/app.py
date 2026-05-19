@@ -670,13 +670,12 @@ with col_der:
         exp_val = exp_val[1] if len(exp_val) > 1 else exp_val[0]
     
     # 🌟 ESCALADO MATEMÁTICO DIRECTO (* 100)
-    # Convertimos los valores crudos en porcentajes antes de pasarlos a SHAP
     shap_vals_pct = shap_vals[0] * 100
     exp_val_pct = exp_val * 100
     
     fig, ax = plt.subplots(figsize=(8, 4))
     
-    # Instanciamos el gráfico con los valores ya multiplicados por 100
+    # Dejamos que SHAP dibuje de forma nativa sin interferencias
     shap.waterfall_plot(shap.Explanation(
         values=shap_vals_pct, 
         base_values=exp_val_pct, 
@@ -685,26 +684,15 @@ with col_der:
         show=False, max_display=8
     )
     
-    # 🌟 POST-PROCESAMIENTO CLÍNICO (Solo Regex Visual)
+    # Modificamos ÚNICAMENTE el Eje X inferior (Esto es seguro y no rompe SHAP)
     import matplotlib.ticker as mtick
-    import re
-    ax_actual = plt.gca()
+    plt.gca().xaxis.set_major_formatter(mtick.FormatStrFormatter('%.0f%%'))
     
-    # 1. Aplicamos el formato de porcentaje al Eje X inferior
-    ax_actual.xaxis.set_major_formatter(mtick.FormatStrFormatter('%.0f%%'))
-    
-    # 2. Interceptamos SOLO las etiquetas numéricas puras de las barras
-    for text_obj in ax_actual.texts:
-        texto = text_obj.get_text().strip()
-        
-        # Regex estricto: Busca textos que empiecen EXACTAMENTE con +, - o el menos Unicode (−),
-        # seguidos (opcionalmente) por espacios, y luego un número decimal.
-        # Al usar esto, IGNORAMOS f(x) y E[f(X)], evitando romper sus sombras blancas.
-        if re.match(r'^[+−-]\s*\d+\.?\d*$', texto):
-            # Le pegamos el "%" al final al texto existente (no tocamos el número original de SHAP)
-            text_obj.set_text(texto + '%')
-
+    # Renderizamos el gráfico sin bucles destructivos
     st.pyplot(fig)
+    
+    # Usamos la UI para darle contexto al médico de forma limpia
+    st.caption("📌 **Note:** The numbers next to the bars represent the impact in **percentage points (%)**.")
     
 # ==========================================
 # 6. THERAPEUTIC NAVIGATOR (DiCE)
