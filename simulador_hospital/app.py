@@ -871,6 +871,106 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from sklearn.neighbors import NearestNeighbors
 
+# --- DICCIONARIO DE TRADUCCIÓN CLÍNICA (ES -> EN) ---
+TRANSLATION_DICT = {
+    'dias_internados': 'Length of Stay (Days)',
+    'rango_edad': 'Age Range',
+    'pluripatologico': 'Multimorbidity',
+    'CIE10_MACRO': 'Primary Diagnosis (ICD-10)',
+    # LLM (Antecedentes y Riesgos)
+    'LLM_tabaquismo_activo': 'Active Smoking',
+    'LLM_alcoholismo': 'Alcoholism',
+    'LLM_drogas_ilicitas': 'Illicit Drug Use',
+    'LLM_fragilidad_geriatrica': 'Geriatric Frailty',
+    'LLM_polifarmacia': 'Polypharmacy',
+    'LLM_desnutricion_severa': 'Severe Malnutrition',
+    'LLM_oxigenodependiente': 'Oxygen Dependent',
+    'LLM_historial_caidas': 'History of Falls',
+    'LLM_abandono_medicacion': 'Medication Non-adherence',
+    'LLM_AF_diabetes': 'FHx: Diabetes',
+    'LLM_AF_hipertension': 'FHx: Hypertension',
+    'LLM_AF_cardiovascular_otro': 'FHx: Other Cardiovascular',
+    'LLM_AF_oncologico': 'FHx: Oncology',
+    'LLM_AF_metabolico_otro': 'FHx: Other Metabolic',
+    'LLM_AF_neurologico': 'FHx: Neurology',
+    'LLM_AF_psiquiatrico': 'FHx: Psychiatry',
+    'LLM_AF_respiratorio': 'FHx: Respiratory',
+    'LLM_AF_renal': 'FHx: Renal',
+    'LLM_AF_autoinmune': 'FHx: Autoimmune',
+    # ING (Ingreso)
+    'ING_dolor_eva': 'Admission: Pain (VAS)',
+    'ING_gravedad_percibida': 'Admission: Perceived Severity',
+    'ING_alteracion_mental': 'Admission: Altered Mental Status',
+    'ING_dependencia_funcional': 'Admission: Functional Dependence',
+    'ING_portador_dispositivos': 'Admission: Medical Devices',
+    'ING_consultas_reiteradas': 'Admission: Repeated Consultations',
+    'ING_riesgo_hemorragico': 'Admission: Hemorrhagic Risk',
+    # EVO (Evolución)
+    'EVO_dolor_eva': 'Evolution: Pain (VAS)',
+    'EVO_gravedad_percibida': 'Evolution: Perceived Severity',
+    'EVO_alteracion_mental': 'Evolution: Altered Mental Status',
+    'EVO_dependencia_funcional': 'Evolution: Functional Dependence',
+    'EVO_portador_dispositivos': 'Evolution: Medical Devices',
+    'EVO_complicacion_internacion': 'Evolution: Hospital Complication',
+    'EVO_fuga_o_alta_irregular': 'Evolution: Irregular Discharge (AMA)',
+    'EVO_cuidados_paliativos': 'Evolution: Palliative Care',
+    'EVO_ulceras_presion': 'Evolution: Pressure Ulcers',
+    'EVO_aislamiento_infeccioso': 'Evolution: Infectious Isolation',
+    # DELTA (Variación)
+    'DELTA_dolor_eva': 'Δ Pain (VAS)',
+    'DELTA_gravedad_percibida': 'Δ Perceived Severity',
+    'DELTA_alteracion_mental': 'Δ Altered Mental Status',
+    'DELTA_dependencia_funcional': 'Δ Functional Dependence',
+    'DELTA_portador_dispositivos': 'Δ Medical Devices'
+}
+
+def format_clinical_value(key_es, value):
+    """Traduce y formatea los valores numéricos/categóricos según su tipo."""
+    val_str = str(value).strip().upper()
+    
+    # 1. Traducción de Categorías Clínicas de Texto
+    if key_es == 'rango_edad':
+        traducciones_edad = {
+            'ADULTO DE MEDIANA EDAD': 'Middle-Aged Adult',
+            'ADULTO MAYOR': 'Senior Adult',
+            'ADULTO JOVEN': 'Young Adult',
+            'ANCIANO': 'Elderly'
+        }
+        return traducciones_edad.get(val_str, value)
+        
+    if key_es == 'CIE10_MACRO':
+        traducciones_cie = {
+            'CARDIOPATÍA ISQUÉMICA': 'Ischemic Heart Disease',
+            'HIPERTENSIÓN': 'Hypertension',
+            'DIABETES': 'Diabetes',
+            'ENFERMEDAD CARDIOPULMONAR': 'Cardiopulmonary Disease'
+            # Puedes añadir más aquí según vayan apareciendo en tu dataset
+        }
+        return traducciones_cie.get(val_str, value)
+
+    # 2. Manejo de Booleanos (Convertir 1/0 a Yes/No)
+    # Identificamos variables booleanas por su nombre para no alterar escalas como 'dolor_eva'
+    bool_suffixes = ('_mental', '_funcional', '_dispositivos', '_reiteradas', 
+                     '_hemorragico', '_internacion', '_irregular', '_paliativos', 
+                     '_presion', '_infeccioso')
+    
+    if key_es.startswith('LLM_') or key_es == 'pluripatologico' or \
+       (key_es.endswith(bool_suffixes) and not key_es.startswith('DELTA_')):
+        try:
+            return "Yes" if float(value) == 1.0 else "No"
+        except ValueError:
+            pass
+            
+    # 3. Limpieza de Numéricos (Quitar .0 a los enteros)
+    try:
+        f_val = float(value)
+        if f_val.is_integer():
+            return str(int(f_val))
+    except ValueError:
+        pass
+
+    return value
+
 st.markdown("---")
 st.subheader("Clinical Similarity Network")
 st.markdown("Topological visualization of historical cases. Nodes are sized by clinical similarity.")
@@ -1024,11 +1124,19 @@ if st.session_state.mostrar_grafo:
                 
                 st.markdown("---")
                 
-                # 🤝 SECCIÓN 1: LO QUE TIENEN EN COMÚN (Dinámico)
+                # 🤝 SECCIÓN 1: LO QUE TIENEN EN COMÚN (Dinámico y Traducido)
                 st.markdown("#### 🤝 Shared Matching Criteria")
                 with st.expander("View Clinical Profile Core", expanded=True):
-                    for nombre_var, valor_var in data['datos_comunes'].items():
-                        st.markdown(f"**{nombre_var}:** {valor_var}")
+                    for nombre_var_es, valor_var in data['datos_comunes'].items():
+                        
+                        # 1. Obtenemos el nombre en inglés del diccionario (si no existe, usa el original limpio)
+                        nombre_en = TRANSLATION_DICT.get(nombre_var_es, nombre_var_es.replace('_', ' ').title())
+                        
+                        # 2. Formateamos y traducimos el valor
+                        valor_en = format_clinical_value(nombre_var_es, valor_var)
+                        
+                        # 3. Renderizamos en la UI
+                        st.markdown(f"**{nombre_en}:** {valor_en}")
                 
                 st.markdown("---")
                 
