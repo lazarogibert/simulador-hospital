@@ -922,19 +922,27 @@ if st.session_state.mostrar_grafo:
         prep = pipeline.named_steps['preprocesador']
         X_paciente_proc = prep.transform(df_paciente)
         
+        # Ejecutamos la búsqueda
         distancias, indices = knn.kneighbors(X_paciente_proc)
         
         vecinos_idx = indices[0]
         distancias_vecinos = distancias[0]
         
+        # 3. CONFIGURACIÓN VISUAL Y ESCALADO
         COLOR_NEW_PATIENT = '#87CEEB' 
-        COLOR_HIST_READMIT = '#0000CD' 
-        COLOR_HIST_SAFE = '#228B22'    
+        COLOR_HIST_READMIT = '#FF0000' # 🔴 Rojo Puro para reingresos
+        COLOR_HIST_SAFE = '#228B22'    # 🟢 Verde para altas seguras
         
-        SIZE_NEW_PATIENT = 1500 
-        SIZE_MAX_TWIN = 1300    
-        SIZE_MIN_TWIN = 500     
+        SIZE_NEW_PATIENT = 2000 # Aumentamos el nodo central para que siempre sea el rey
+        SIZE_MAX_TWIN = 1400    # Gemelo idéntico
+        SIZE_MIN_TWIN = 150     # Gemelo lejano (muy pequeño para forzar contraste)
 
+        # Pre-calculamos las similitudes y buscamos los límites locales
+        similitudes_brutas = [max(0, (1 - d)) * 100 for d in distancias_vecinos]
+        sim_max = max(similitudes_brutas)
+        sim_min = min(similitudes_brutas)
+
+        # 4. CONSTRUCCIÓN DEL GRAFO
         G = nx.Graph()
         G.add_node("Current\nPatient", color=COLOR_NEW_PATIENT, size=SIZE_NEW_PATIENT)
         
@@ -949,17 +957,28 @@ if st.session_state.mostrar_grafo:
         IDX_DIAGSEC = 6
         IDX_TARGET = 7
         
-        for i, (idx, dist) in enumerate(zip(vecinos_idx, distancias_vecinos)):
-            # CORRECCIÓN METODOLÓGICA: Evitar similitudes negativas
-            similitud_pct = max(0, (1 - dist)) * 100
+        for i, (idx, similitud_pct) in enumerate(zip(vecinos_idx, similitudes_brutas)):
             reingreso_real = float(matriz_extended[idx, IDX_TARGET])
-            
             color_nodo = COLOR_HIST_READMIT if reingreso_real == 1.0 else COLOR_HIST_SAFE
-            scaled_size = SIZE_MIN_TWIN + (similitud_pct / 100) * (SIZE_MAX_TWIN - SIZE_MIN_TWIN)
             
+            # --- MAGIA VISUAL: Escalado Dinámico Exagerado ---
+            if sim_max > sim_min:
+                # Normalizamos de 0.0 a 1.0 dentro de este micro-grupo
+                factor_normalizado = (similitud_pct - sim_min) / (sim_max - sim_min)
+                # Elevamos a la potencia de 1.5 para exagerar la caída de volumen en los nodos menos similares
+                factor_exagerado = factor_normalizado ** 1.5 
+            else:
+                factor_exagerado = 1.0
+                
+            scaled_size = SIZE_MIN_TWIN + factor_exagerado * (SIZE_MAX_TWIN - SIZE_MIN_TWIN)
+            # -------------------------------------------------
+
             label_grafo = f"Twin {i+1}\n({similitud_pct:.1f}%)"
             G.add_node(label_grafo, color=color_nodo, size=scaled_size)
-            G.add_edge("Current\nPatient", label_grafo, weight=(similitud_pct / 20))
+            
+            # El grosor de la línea también se beneficia del factor exagerado
+            grosor_linea = 0.5 + (factor_exagerado * 2.5)
+            G.add_edge("Current\nPatient", label_grafo, weight=grosor_linea)
             
             info_inspeccion[f"Twin {i+1}"] = {
                 "similitud": similitud_pct,
