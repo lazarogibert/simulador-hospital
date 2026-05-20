@@ -635,77 +635,50 @@ with col_der:
         else:
             nombres_limpios_traducidos.append(shap_ui_dict.get(nombre, nombre))
 
-    # 🌟 CÁLCULO SHAP BLINDADO CONTRA ERRORES DE ADITIVIDAD
+    # 🌟 CÁLCULO SHAP ESTRICTO (SOLO PACIENTE ACTUAL)
     try:
         explainer = shap.TreeExplainer(clf)
-        shap_vals_raw = explainer.shap_values(X_proc, check_additivity=False)
-    except Exception:
-        try:
-            explainer = shap.LinearExplainer(clf, X_proc)
-            shap_vals_raw = explainer.shap_values(X_proc)
-        except Exception:
-            explainer = shap.Explainer(clf, X_proc)
-            shap_vals_raw = explainer(X_proc).values
+        # Extraemos SHAP values específicamente para nuestra fila 0
+        shap_values = explainer.shap_values(X_proc, check_additivity=False)
+    except:
+        explainer = shap.Explainer(clf, X_proc)
+        shap_values = explainer(X_proc).values
 
-    # 🌟 EXTRACCIÓN Y ALINEACIÓN (GARANTIZANDO ESTRUCTURA)
-    if isinstance(shap_vals_raw, list):
-        shap_array = np.array(shap_vals_raw[1])
+    # 🚨 EXTRACCIÓN LÓGICA DE CLASE 1 (BINARIA)
+    # Si es lista (TreeExplainer), tomamos el índice 1 (clase positiva)
+    if isinstance(shap_values, list):
+        shap_array = shap_values[1] # Esto es (n_samples, n_features)
+    elif len(shap_values.shape) == 3:
+        shap_array = shap_values[:, :, 1] # Esto es (n_samples, n_features)
     else:
-        shap_array = np.array(shap_vals_raw)
-        
-    # Aplanamos correctamente al primer registro (tu paciente)
-    if len(shap_array.shape) == 3:
-        valores_shap_1d = shap_array[0, :, 1]
-    elif len(shap_array.shape) == 2:
-        valores_shap_1d = shap_array[0, :]
-    else:
-        valores_shap_1d = shap_array.flatten()
+        shap_array = shap_values # Esto ya es (n_samples, n_features)
 
-    # Paracaídas de dimensiones: forzamos que las longitudes coincidan exactamente
-    n_features = len(nombres_limpios_traducidos)
-    n_shap = len(valores_shap_1d)
-    
-    if n_shap != n_features:
-        if n_shap > n_features:
-            valores_shap_1d = valores_shap_1d[-n_features:]
-        else:
-            valores_shap_1d = np.pad(valores_shap_1d, (0, n_features - n_shap), 'constant')
+    # 🚨 FILTRO DE PACIENTE: Tomamos SOLAMENTE la fila 0 (el paciente actual)
+    valores_paciente_1d = shap_array[0, :] 
 
-    # 🌟 ARMADO DEL DATAFRAME
-    df_shap_full = pd.DataFrame({
-        'Feature': nombres_limpios_traducidos, 
-        'SHAP_Value': valores_shap_1d
+    # 🌟 CREACIÓN DEL DATAFRAME DE PESOS
+    df_shap = pd.DataFrame({
+        'Feature': nombres_limpios_traducidos,
+        'SHAP_Value': valores_paciente_1d
     })
-
-    # Filtramos y ordenamos
-    df_shap_full['Abs_Value'] = df_shap_full['SHAP_Value'].abs()
-    df_top_shap = df_shap_full.sort_values(by='Abs_Value', ascending=False).head(8)
-    df_top_shap = df_top_shap.sort_values(by='Abs_Value', ascending=True)
     
-    # 🌟 EXTRACCIÓN A LISTAS PURAS (Evita que Matplotlib se confunda)
-    eje_y_nombres = df_top_shap['Feature'].tolist()
-    eje_x_valores = df_top_shap['SHAP_Value'].tolist()
-    colores_barras = ['#FF0051' if val > 0 else '#008BFB' for val in eje_x_valores]
-
-    # 🌟 RENDERIZADO DEL GRÁFICO (COORDS NUMÉRICAS)
+    # 🌟 FILTRADO Y ORDEN
+    df_shap['Abs'] = df_shap['SHAP_Value'].abs()
+    df_top = df_shap.sort_values(by='Abs', ascending=False).head(8).sort_values(by='Abs', ascending=True)
+    
+    # 🌟 RENDERIZADO
     plt.close('all')
     fig, ax = plt.subplots(figsize=(8, 4))
     
-    posiciones_y = np.arange(len(eje_y_nombres))
-    ax.barh(y=posiciones_y, width=eje_x_valores, color=colores_barras, edgecolor='white', linewidth=1.5)
+    # Colores: Rojo (aumenta riesgo) / Azul (reduce riesgo)
+    colores = ['#FF0051' if v > 0 else '#008BFB' for v in df_top['SHAP_Value']]
     
-    # Asignamos etiquetas de forma explícita
-    ax.set_yticks(posiciones_y)
-    ax.set_yticklabels(eje_y_nombres, fontsize=9)
+    ax.barh(y=df_top['Feature'], width=df_top['SHAP_Value'], color=colores, edgecolor='white', height=0.6)
+    ax.axvline(x=0, color='black', linewidth=1.2)
     
-    ax.axvline(x=0, color='black', linewidth=1.5, linestyle='-')
-    
-    # Eje simétrico garantizado
-    max_impact = max([abs(v) for v in eje_x_valores]) if eje_x_valores else 1
-    ax.set_xlim(-max_impact * 1.15, max_impact * 1.15)
-    
+    # Ajustes finales
+    ax.set_xlabel("Relative Impact on Risk (SHAP)", fontsize=9, fontweight='bold')
     ax.set_xticks([])
-    ax.set_xlabel("Relative Impact on Risk Decision", fontsize=10, fontweight='bold')
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     ax.spines['bottom'].set_visible(False)
