@@ -644,6 +644,7 @@ with col_der:
     plt.close('all')
     fig, ax = plt.subplots(figsize=(8, 4))
     
+    # Renderizado nativo de SHAP
     shap.waterfall_plot(shap.Explanation(
         values=shap_vals[0], 
         base_values=base_val, 
@@ -652,18 +653,25 @@ with col_der:
         show=False, max_display=8
     )
     
-    # 🌟 NUEVO BLINDAJE: Ocultar los valores numéricos crudos (log-odds) de las barras y ejes
-    for txt in ax.texts:
-        txt.set_visible(False)
+    # 🌟 BLINDAJE EXTREMO: Capturamos la figura real activa post-SHAP
+    fig_actual = plt.gcf()
     
-    # Limpiamos también el texto del valor base y final en el eje X para evitar confusión matemática
-    ax.set_xticklabels([]) 
-    ax.set_xlabel("Relative Impact on Risk Decision")
+    # Recorremos TODOS los ejes (visibles y ocultos que SHAP haya creado)
+    for eje_interno in fig_actual.axes:
+        # Vaciamos los strings de texto por completo (números de las barras y log-odds)
+        for texto in eje_interno.texts:
+            texto.set_text("") 
+            
+    # Limpiamos el eje X para que quede totalmente cualitativo
+    ax_principal = plt.gca()
+    ax_principal.set_xticklabels([]) 
+    ax_principal.set_xlabel("Relative Impact on Risk Decision", fontsize=10, fontweight='bold')
     
-    st.pyplot(fig)
+    # Renderizamos en Streamlit
+    st.pyplot(fig_actual)
     
     # 🌟 NUEVO CAPTION CUALITATIVO PARA MÉDICOS
-    st.caption("📌 **Note:** Bar size represents the clinical weight of the variable in the model's decision. 🔴 **Red** pushes risk higher (Towards Readmission), 🔵 **Blue** pushes risk lower (Towards Safe Discharge).")    
+    st.caption("📌 **Note:** Bar size represents the clinical weight of the variable in the model's decision. 🔴 **Red** pushes risk higher (Towards Readmission), 🔵 **Blue** pushes risk lower (Towards Safe Discharge).")
 
 # ==========================================
 # 6. THERAPEUTIC NAVIGATOR (DiCE - HIGH SECURITY & METRICALLY SOUND)
