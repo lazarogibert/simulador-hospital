@@ -660,17 +660,28 @@ with col_der:
     st.caption("📌 **Note:** SHAP values represent the impact on readmission risk (e.g., 0.19 = 19% increase).")
     
 # ==========================================
-# 6. THERAPEUTIC NAVIGATOR (DiCE)
+# 6. THERAPEUTIC NAVIGATOR (DiCE - HIGH SECURITY & METRICALLY SOUND)
 # ==========================================
+import os
+import numpy as np
+import pandas as pd
+import dice_ml
+
 st.markdown("---")
 st.subheader("Therapeutic Navigator (Prescriptive AI)")
 
+# --- MODELO BLINDADO CONTRA ARRAYS DE NUMPY Y DESINCRONIZACIÓN ---
 class ModeloSincronizado:
-    def __init__(self, pipeline_original):
+    def __init__(self, pipeline_original, columnas_modelo):
         self.pipeline = pipeline_original
+        self.columnas_modelo = columnas_modelo
         
     def predict_proba(self, X):
-        X_sync = X.copy()
+        # SOPORTE DUAL: Si DiCE envía un array de NumPy, lo convertimos a DataFrame sobre la marcha
+        if isinstance(X, np.ndarray):
+            X_sync = pd.DataFrame(X, columns=self.columnas_modelo)
+        else:
+            X_sync = X.copy()
         
         def sync_delta(df, col_delta, col_evo, col_ing):
             if col_delta in df.columns and col_evo in df.columns and col_ing in df.columns:
@@ -688,50 +699,81 @@ if riesgo <= umbral:
     st.info("The patient is in optimal condition for discharge. No counterfactuals required.")
 else:
     st.warning("High risk detected. Click the button to calculate clinical stabilization routes that allow crossing the safety threshold.")
+    
     if st.button("Generate Prescription (DiCE)", type="primary"):
-        with st.spinner("Calculating multiple clinically viable alternatives..."):
-            
-            df_dice_train = df_train_sample.copy()
-            df_dice_train['target'] = 0 
-            
-            df_paciente_para_dice = df_paciente.copy()
-            df_paciente_para_dice['target'] = 0
-            df_dice_train = pd.concat([df_dice_train, df_paciente_para_dice], ignore_index=True)
-            
-            cols_numericas = df_dice_train.select_dtypes(include=[np.number]).columns.tolist()
-            if 'target' in cols_numericas:
-                cols_numericas.remove('target') 
-            
-            d = dice_ml.Data(dataframe=df_dice_train, continuous_features=cols_numericas, outcome_name='target')
-            
-            modelo_blindado = ModeloSincronizado(pipeline)
-            m = dice_ml.Model(model=modelo_blindado, backend="sklearn")
-            exp = dice_ml.Dice(d, m, method="random")
-            
-            variables_accionables = [col for col in columnas_modelo if col.startswith('EVO_')]
-            rangos_permitidos = {}
-            vars_a_variar = []
-            
-            for col in variables_accionables:
-                val_actual = df_paciente[col].iloc[0]
-                
-                if 'cuidados_paliativos' in col or 'fuga' in col: 
-                    continue
-                
-                if 'gravedad' in col:
-                    if val_actual > 1.0:
-                        rangos_permitidos[col] = [1.0, float(val_actual)]
-                        vars_a_variar.append(col)
-                elif 'dolor' in col:
-                    if val_actual > 0.0:
-                        rangos_permitidos[col] = [0.0, float(val_actual)]
-                        vars_a_variar.append(col)
-                else:
-                    if val_actual == 1.0:
-                        rangos_permitidos[col] = [0, 1]
-                        vars_a_variar.append(col)
-            
+        with st.spinner("Calculating multiple clinically viable alternatives from historical matrix..."):
             try:
+                # 1. RUTAS ABSOLUTAS CONTROLADAS
+                BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+                ruta_ext = os.path.join(BASE_DIR, 'matriz_extended_display.npy')
+                ruta_cols = os.path.join(BASE_DIR, 'columnas_display.npy')
+                
+                matriz_extended = np.load(ruta_ext, allow_pickle=True)
+                nombres_columnas = np.load(ruta_cols, allow_pickle=True)
+                
+                # 2. RECONSTRUCCIÓN CON DESENLACES HISTÓRICOS REALES
+                df_background_raw = pd.DataFrame(matriz_extended, columns=nombres_columnas)
+                
+                columnas_modelo = df_paciente.columns.tolist()
+                # Rescatamos las variables del modelo + el target real histórico
+                df_dice_train = df_background_raw[columnas_modelo].copy()
+                df_dice_train['target'] = df_background_raw['target'].astype(int)
+                
+                # 3. ALINEACIÓN ESTRICTA DE DTYPES
+                for col in columnas_modelo:
+                    df_dice_train[col] = df_dice_train[col].astype(df_paciente[col].dtype)
+                
+                # Downsampling estratégico para conservar la fluidez del servidor
+                df_dice_train = df_dice_train.sample(n=min(1000, len(df_dice_train)), random_state=42)
+                
+                # Inyectamos al paciente actual en el subset estructural de DiCE
+                df_paciente_para_dice = df_paciente.copy()
+                df_paciente_para_dice['target'] = int(modelo_blindado_global.predict(df_paciente)[0]) if 'modelo_blindado_global' in globals() else 1
+                df_dice_train = pd.concat([df_dice_train, df_paciente_para_dice], ignore_index=True)
+                
+                # 4. SEGREGACIÓN METODOLÓGICA DE ESPACIOS DE BÚSQUEDA
+                # Separamos qué es verdaderamente continuo y qué es categórico/binario
+                features_continuas = [col for col in columnas_modelo if 'dolor' in col or 'gravedad' in col or 'dias_' in col]
+                features_categoricas = [col for col in columnas_modelo if col not in features_continuas]
+                
+                # 5. INICIALIZACIÓN DEL ENTORNO DiCE CON APOYO DUAL
+                d = dice_ml.Data(
+                    dataframe=df_dice_train, 
+                    continuous_features=features_continuas, 
+                    outcome_name='target'
+                )
+                
+                # Pasamos las columnas explícitamente a nuestro sincronizador
+                modelo_sincronizado = ModeloSincronizado(pipeline, columnas_modelo)
+                m = dice_ml.Model(model=modelo_sincronizado, backend="sklearn")
+                exp = dice_ml.Dice(d, m, method="random")
+                
+                # 6. LIMITADORES CLÍNICOS Y DIRECCIONALIDAD ACCIONABLE
+                variables_accionables = [col for col in columnas_modelo if col.startswith('EVO_')]
+                rangos_permitidos = {}
+                vars_a_variar = []
+                
+                for col in variables_accionables:
+                    val_actual = df_paciente[col].iloc[0]
+                    
+                    if 'cuidados_paliativos' in col or 'fuga' in col: 
+                        continue
+                    
+                    if 'gravedad' in col:
+                        if val_actual > 1.0:
+                            rangos_permitidos[col] = [1.0, float(val_actual)]
+                            vars_a_variar.append(col)
+                    elif 'dolor' in col:
+                        if val_actual > 0.0:
+                            rangos_permitidos[col] = [0.0, float(val_actual)]
+                            vars_a_variar.append(col)
+                    else:
+                        # Si la complicación está activa (1.0), le permitimos a DiCE apagarla (0)
+                        if val_actual == 1.0:
+                            rangos_permitidos[col] = [0, 1]
+                            vars_a_variar.append(col)
+                
+                # 7. EJECUCIÓN Y RENDERIZADO VISUAL
                 if not vars_a_variar:
                     st.error("There are no modifiable clinical variables in the patient's evolution that can improve their condition.")
                 else:
@@ -745,7 +787,6 @@ else:
                         st.success(f"✅ **{len(cf_df)} ALTERNATIVE CLINICAL ROUTES FOUND:**")
                         st.markdown("The medical staff can select the most feasible option according to the ward scenario:")
                         
-                        # DICCIONARIO DE TRADUCCIÓN PARA LA SALIDA DE DiCE
                         evo_output_dict = {
                             'EVO_dolor_eva': 'Current Pain',
                             'EVO_gravedad_percibida': 'Current Severity',
@@ -766,7 +807,7 @@ else:
                                     val_orig = df_paciente.iloc[0][col]
                                     val_cf = cf_df.iloc[r_idx][col]
                                     
-                                    if rangos_permitidos[col] == [0, 1]: 
+                                    if col in features_categoricas:
                                         val_cf = round(val_cf)
                                     
                                     if val_orig != val_cf:
@@ -777,15 +818,15 @@ else:
                                             st.write(f"- 💊 **{col_en}**: Reduce from [{val_orig:.0f}] ➔ Target: **[{val_cf:.0f}]**")
                                         else:
                                             st.write(f"- 💊 **{col_en}**: Resolve complication ➔ **[Absent]**")
-                                
+                                            
                                 if cambios_detectados == 0:
                                     st.write("This alternative suggests maintaining current parameters based on marginal risk stability.")
                     else:
                         st.error("No mathematically viable routes were found using only clinical modifications.")
+                        
             except Exception as e:
                 st.error("The required stabilization exceeds the clinically permitted modifications with the current parameters.")
-                st.warning(f"🔍 Mathematical Debug: {str(e)}")
-
+                st.warning(f"🔍 Technical Context: {str(e)}")
 
 # ==========================================
 # 7. GLOBAL INTERPRETABILITY (PDP) - BINARY AWARE
