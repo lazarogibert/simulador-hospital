@@ -896,7 +896,7 @@ def load_similarity_assets():
     matriz_ext = np.load(ruta_ext, allow_pickle=True)
     
     # 4. Entrenamos el buscador en la memoria RAM
-    knn_engine = NearestNeighbors(n_neighbors=5, metric='cosine')
+    knn_engine = NearestNeighbors(n_neighbors=20, metric='cosine')
     knn_engine.fit(X_train_proc)
     
     return knn_engine, matriz_ext
