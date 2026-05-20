@@ -1140,16 +1140,59 @@ if st.session_state.mostrar_grafo:
                 
                 st.markdown("---")
                 
-                # 🏥 SECCIÓN 2: LA INFORMACIÓN ADICIONAL
+                # -----------------------------------------------------------
+                # DICCIONARIOS DE TRADUCCIÓN PARA VARIABLES EXTRA
+                # -----------------------------------------------------------
+                traduccion_sexo = {
+                    'MASCULINO': 'Male',
+                    'FEMENINO': 'Female'
+                }
+                
+                traduccion_area = {
+                    'CIRUGIA': 'Surgery',
+                    'CLINICA MEDICA': 'Internal Medicine',
+                    'TERAPIA INTENSIVA': 'Intensive Care Unit (ICU)',
+                    'UNIDAD CORONARIA': 'Coronary Care Unit (CCU)',
+                    'GUARDIA': 'Emergency Room (ER)',
+                    'TRAUMATOLOGIA': 'Traumatology',
+                    'PEDIATRIA': 'Pediatrics'
+                }
+                
+                traduccion_complejidad = {
+                    'ALTA': 'High',
+                    'MEDIA': 'Medium',
+                    'BAJA': 'Low'
+                }
+                
+                # Función rápida para traducir "Ninguno"
+                def traducir_ninguno(texto):
+                    texto_str = str(texto).strip()
+                    if texto_str.upper() == 'NINGUNO':
+                        return 'None'
+                    elif texto_str == '':
+                        return 'Unknown'
+                    return texto_str
+
+                # Aplicamos las traducciones de forma segura
+                sexo_en = traduccion_sexo.get(str(data['sexo']).strip().upper(), data['sexo'])
+                area_en = traduccion_area.get(str(data['area']).strip().upper(), data['area'])
+                complejidad_en = traduccion_complejidad.get(str(data['complejidad']).strip().upper(), data['complejidad'])
+                
+                diagsec_en = traducir_ninguno(data['diagsec'])
+                farmacos_en = traducir_ninguno(data['farmacos'])
+                
+                # -----------------------------------------------------------
+                # 🏥 SECCIÓN 2: LA INFORMACIÓN ADICIONAL (UI Traducida)
+                # -----------------------------------------------------------
                 st.markdown("#### 🏥 Retrospective Extra Details")
-                st.markdown(f"**Sex:** {data['sexo']} | **Area:** {data['area']}")
-                st.markdown(f"**Complexity:** {data['complejidad']}")
+                st.markdown(f"**Sex:** {sexo_en} | **Area:** {area_en}")
+                st.markdown(f"**Complexity:** {complejidad_en}")
                 st.markdown(f"**Prior ER Visits (6m):** {safe_int(data['guardia'])}")
                 st.markdown(f"**Consultations:** {safe_int(data['interconsultas'])}")
                 
                 st.markdown("#### Clinical Profile")
-                st.markdown(f"**Secondary Diagnoses:**\n{data['diagsec']}")
-                st.markdown(f"**Medications:**\n{data['farmacos']}")
+                st.markdown(f"**Secondary Diagnoses:**\n{diagsec_en}")
+                st.markdown(f"**Medications:**\n{farmacos_en}")
 
     except Exception as e:
         st.error(f"Error generating similarity graph: {str(e)}")
