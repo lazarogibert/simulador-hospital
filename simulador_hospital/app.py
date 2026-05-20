@@ -710,16 +710,20 @@ with col_der:
         shap_values = shap_obj.values
         base_value = shap_obj.base_values[0]
 
-    # 4. Extracción estricta para paciente 0
-    if isinstance(shap_values, list):
-        shap_vals_paciente = shap_values[1][0]
-        base_val = base_value[1]
-    elif len(np.array(shap_values).shape) == 3:
-        shap_vals_paciente = np.array(shap_values)[0, :, 1]
-        base_val = base_value[0, 1] if isinstance(base_value, np.ndarray) else base_value
+    # 4. EXTRACCIÓN SEGURA DEL PACIENTE 0 Y VALOR BASE
+    # Obtenemos shap_vals_paciente (vector de impactos para el paciente)
+    if isinstance(shap_raw, list):
+        # Caso: explainer devuelve lista por clases
+        shap_vals_paciente = shap_raw[1][0] 
+        base_val = base_value[1] if isinstance(base_value, (list, np.ndarray)) else base_value
+    elif len(np.array(shap_raw).shape) == 3:
+        # Caso: array 3D (n_clases, n_muestras, n_features)
+        shap_vals_paciente = np.array(shap_raw)[1, 0, :]
+        base_val = base_value[1] if isinstance(base_value, (list, np.ndarray)) else base_value
     else:
-        shap_vals_paciente = np.array(shap_values)[0]
-        base_val = base_value[0] if isinstance(base_value, np.ndarray) else base_value
+        # Caso estándar 2D o fallback
+        shap_vals_paciente = np.array(shap_raw)[0]
+        base_val = base_value[0] if isinstance(base_value, (list, np.ndarray)) else base_value
 
     # 5. Aplicar limpieza a los nombres técnicos ANTES de graficar
     nombres_traducidos = [limpiar_nombre(n) for n in prep.get_feature_names_out()]
