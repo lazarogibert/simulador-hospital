@@ -641,36 +641,47 @@ with col_der:
     raw_exp = explainer.expected_value
     base_val = float(raw_exp[1]) if isinstance(raw_exp, (list, np.ndarray)) else float(raw_exp)
     
+    # 🌟 EXTRACCIÓN Y ORDENAMIENTO DE SHAP VALUES
+    # Armamos un DataFrame temporal para vincular los nombres con sus valores matemáticos
+    df_shap_custom = pd.DataFrame({
+        'Feature': nombres_limpios_traducidos,
+        'SHAP_Value': shap_vals[0]
+    })
+    
+    # Calculamos el valor absoluto para encontrar las variables con más impacto (ya sea positivo o negativo)
+    df_shap_custom['Abs_Value'] = df_shap_custom['SHAP_Value'].abs()
+    
+    # Nos quedamos con las 8 variables más importantes y las ordenamos para el gráfico
+    df_top_shap = df_shap_custom.sort_values(by='Abs_Value', ascending=False).head(8)
+    df_top_shap = df_top_shap.sort_values(by='Abs_Value', ascending=True) # Invertimos para que la más grande quede arriba
+    
+    # Asignamos colores: Rojo intenso (Aumenta riesgo) y Azul SHAP (Baja riesgo)
+    colores_barras = ['#FF0051' if val > 0 else '#008BFB' for val in df_top_shap['SHAP_Value']]
+    
+    # 🌟 RENDERIZADO DEL GRÁFICO CUSTOM
     plt.close('all')
     fig, ax = plt.subplots(figsize=(8, 4))
     
-    # Renderizado nativo de SHAP
-    shap.waterfall_plot(shap.Explanation(
-        values=shap_vals[0], 
-        base_values=base_val, 
-        data=X_proc[0], 
-        feature_names=nombres_limpios_traducidos), 
-        show=False, max_display=8
-    )
+    # Dibujamos las barras horizontales
+    ax.barh(df_top_shap['Feature'], df_top_shap['SHAP_Value'], color=colores_barras, edgecolor='white', linewidth=1.5)
     
-    # 🌟 BLINDAJE EXTREMO: Capturamos la figura real activa post-SHAP
-    fig_actual = plt.gcf()
+    # Dibujamos la línea central del valor base
+    ax.axvline(x=0, color='black', linewidth=1.5, linestyle='-')
     
-    # Recorremos TODOS los ejes (visibles y ocultos que SHAP haya creado)
-    for eje_interno in fig_actual.axes:
-        # Vaciamos los strings de texto por completo (números de las barras y log-odds)
-        for texto in eje_interno.texts:
-            texto.set_text("") 
-            
-    # Limpiamos el eje X para que quede totalmente cualitativo
-    ax_principal = plt.gca()
-    ax_principal.set_xticklabels([]) 
-    ax_principal.set_xlabel("Relative Impact on Risk Decision", fontsize=10, fontweight='bold')
+    # Eliminamos por completo el eje numérico X para evitar confusiones matemáticas
+    ax.set_xticks([])
     
-    # Renderizamos en Streamlit
-    st.pyplot(fig_actual)
+    # Estética profesional
+    ax.set_xlabel("Relative Impact on Risk Decision", fontsize=10, fontweight='bold')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.spines['bottom'].set_visible(False)
+    ax.spines['left'].set_color('#DDDDDD')
     
-    # 🌟 NUEVO CAPTION CUALITATIVO PARA MÉDICOS
+    fig.tight_layout()
+    st.pyplot(fig)
+    
+    # Caption cualitativo
     st.caption("📌 **Note:** Bar size represents the clinical weight of the variable in the model's decision. 🔴 **Red** pushes risk higher (Towards Readmission), 🔵 **Blue** pushes risk lower (Towards Safe Discharge).")
 
 # ==========================================
