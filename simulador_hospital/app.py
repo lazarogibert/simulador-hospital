@@ -877,15 +877,25 @@ def safe_int(value, default="N/A"):
     except (ValueError, TypeError):
         return default
 
-# --- CARGA SEGURA DE ACTIVOS ---
+# --- CARGA SEGURA DE ACTIVOS (Caché y Rutas Absolutas) ---
 @st.cache_resource
 def load_similarity_assets():
     import numpy as np
+    import os
     from sklearn.neighbors import NearestNeighbors
     
-    X_train_proc = np.load('X_train_proc.npy')
-    matriz_ext = np.load('matriz_extended_display.npy', allow_pickle=True)
+    # 1. Obtenemos la ruta absoluta de la carpeta donde está tu app.py
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     
+    # 2. Construimos la ruta exacta a los archivos
+    ruta_x = os.path.join(BASE_DIR, 'X_train_proc.npy')
+    ruta_ext = os.path.join(BASE_DIR, 'matriz_extended_display.npy')
+    
+    # 3. Cargamos las matrices usando las rutas blindadas
+    X_train_proc = np.load(ruta_x)
+    matriz_ext = np.load(ruta_ext, allow_pickle=True)
+    
+    # 4. Entrenamos el buscador en la memoria RAM
     knn_engine = NearestNeighbors(n_neighbors=5, metric='cosine')
     knn_engine.fit(X_train_proc)
     
