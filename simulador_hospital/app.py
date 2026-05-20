@@ -838,12 +838,18 @@ else:
                 st.warning(f"🔍 Technical Context: {str(e)}")
 
 # ==========================================
-# 7. GLOBAL INTERPRETABILITY (PDP) - BINARY AWARE
+# 7. GLOBAL INTERPRETABILITY (PDP GRID) - HIGH SECURITY & PERSISTENT
 # ==========================================
+import os
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
 st.markdown("---")
 st.subheader("Global Interpretability (Partial Dependence Plots)")
+st.markdown("Analysis of the model's behavior across all evolution metrics simultaneously against the cohort distribution.")
 
-# Lista de variables que provienen de datos binarios (rango -1 a 1)
+# Configuración de variables fijas para la grilla
 binary_deltas = [
     'DELTA_alteracion_mental', 
     'DELTA_dependencia_funcional', 
@@ -851,65 +857,108 @@ binary_deltas = [
 ]
 
 delta_ui_dict = {
-    'DELTA_dolor_eva': 'Pain Delta', 'DELTA_gravedad_percibida': 'Severity Delta',
+    'DELTA_dolor_eva': 'Pain Delta', 
+    'DELTA_gravedad_percibida': 'Severity Delta',
     'DELTA_alteracion_mental': 'Mental Alteration Delta', 
     'DELTA_dependencia_funcional': 'Functional Dependency Delta',
     'DELTA_portador_dispositivos': 'Device Bearer Delta'
 }
 
-var_a_graficar = st.selectbox("Select variable for PDP analysis:", list(delta_ui_dict.keys()), format_func=lambda x: delta_ui_dict[x])
+# --- CONTROL DE PERSISTENCIA (UI FIX) ---
+if 'mostrar_pdp' not in st.session_state:
+    st.session_state.mostrar_pdp = False
 
-if st.button("Generate PDP"):
+col_btn, _ = st.columns([1, 3])
+with col_btn:
+    if st.button("Generate All PDPs", type="secondary"):
+        st.session_state.mostrar_pdp = True
+
+# El bloque se renderiza de forma persistente si el estado es True
+if st.session_state.mostrar_pdp:
     plt.close('all')
     
     try:
         from sklearn.inspection import PartialDependenceDisplay
-        fig, ax = plt.subplots(figsize=(8, 4))
         
-        # 1. Generamos el gráfico
-        disp = PartialDependenceDisplay.from_estimator(
-            pipeline, 
-            df_train_sample, 
-            features=[var_a_graficar],
-            ax=ax,
-            kind='average',
-            subsample=100
-        )
-        
-        ax_real = disp.axes_[0][0]
-        
-        # 2. Obtenemos el valor del paciente
-        valor_paciente = float(df_paciente[var_a_graficar].iloc[0])
-        
-        # 3. Dibujamos la línea del paciente (zorder=10 para que esté al frente)
-        ax_real.axvline(x=valor_paciente, color='red', linestyle='--', linewidth=3, 
-                        label=f'Patient: {valor_paciente:.2f}', zorder=10)
-        
-        # 4. LÓGICA DE EJES: Binarios vs Continuos
-        if var_a_graficar in binary_deltas:
-            # Fuerza rango [-1.1, 1.1] para binarios
-            ax_real.set_xlim(-1.1, 1.1)
-            # Opcional: ajustar ticks para que solo muestre -1, 0, 1
-            ax_real.set_xticks([-1, 0, 1])
-        else:
-            # Rango automático para continuos
-            curr_min, curr_max = ax_real.get_xlim()
-            new_min = min(curr_min, valor_paciente - 1)
-            new_max = max(curr_max, valor_paciente + 1)
-            ax_real.set_xlim(new_min, new_max)
+        with st.spinner("Reconstructing cohort alignment and generating visualization grid..."):
+            # 1. CARGA SEGURA MEDIANTE RUTAS ABSOLUTAS
+            BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+            ruta_ext = os.path.join(BASE_DIR, 'matriz_extended_display.npy')
+            ruta_cols = os.path.join(BASE_DIR, 'columnas_display.npy')
             
-        # 5. Estilo y Etiquetas
-        ax_real.legend(loc='best', frameon=True)
-        ax_real.set_title(f"PDP: {delta_ui_dict[var_a_graficar]} vs Risk")
-        ax_real.set_xlabel(delta_ui_dict[var_a_graficar])
-        ax_real.set_ylabel("Partial Dependence (Risk)")
-        ax_real.grid(True, linestyle='--', alpha=0.6, zorder=0)
-        
-        st.pyplot(fig)
-        
+            matriz_extended = np.load(ruta_ext, allow_pickle=True)
+            nombres_columnas = np.load(ruta_cols, allow_pickle=True)
+            
+            # 2. ALINEACIÓN MAESTRA DEL DATAFRAME DE TRASFONDO
+            df_background_raw = pd.DataFrame(matriz_extended, columns=nombres_columnas)
+            columnas_modelo = df_paciente.columns.tolist()
+            
+            df_pdp_train = pd.DataFrame(index=range(len(df_background_raw)))
+            
+            # 3. BLINDAJE DE DTYPES Y MAPEO DEFENSIVO DE NULOS
+            for col in columnas_modelo:
+                if df_paciente[col].dtype == object:
+                    # Si la variable es categórica, estandarizamos texto pero preservamos NaNs reales para el Imputer
+                    df_pdp_train[col] = df_background_raw[col].apply(
+                        lambda x: np.nan if pd.isna(x) or str(x).strip().upper() in ['NAN', 'NONE', 'NULL', ''] 
+                        else str(x).strip().upper()
+                    )
+                else:
+                    # Si es numérica, forzamos casteo numérico limpio
+                    df_pdp_train[col] = pd.to_numeric(df_background_raw[col], errors='coerce')
+            
+            # 4. GENERACIÓN DE LA GRILLA PDP (Layout optimizado de 3 columnas)
+            features_to_plot = list(delta_ui_dict.keys())
+            
+            disp = PartialDependenceDisplay.from_estimator(
+                pipeline, 
+                df_pdp_train, 
+                features=features_to_plot,
+                ncols=3,
+                kind='average',
+                subsample=150, # Muestra representativa segura para la CPU del servidor
+                random_state=42
+            )
+            
+            fig = disp.figure_
+            fig.set_size_inches(15, 9)
+            axes_flat = disp.axes_.flatten()
+            
+            # 5. PERSONALIZACIÓN INDIVIDUAL DE SUBPLOTS
+            for idx, var in enumerate(features_to_plot):
+                ax_real = axes_flat[idx]
+                
+                # Rescatamos el valor actual de este paciente específico
+                valor_paciente = float(df_paciente[var].iloc[0])
+                
+                # Inyección de la directriz del paciente (Línea roja discontinua frontal)
+                ax_real.axvline(x=valor_paciente, color='#FF0000', linestyle='--', linewidth=2.5, 
+                                label=f'Patient: {valor_paciente:.1f}', zorder=10)
+                
+                # Ajuste adaptativo de los límites de los ejes (Especial para deltas binarios)
+                if var in binary_deltas:
+                    ax_real.set_xlim(-1.1, 1.1)
+                    ax_real.set_xticks([-1, 0, 1])
+                else:
+                    curr_min, curr_max = ax_real.get_xlim()
+                    ax_real.set_xlim(min(curr_min, valor_paciente - 1), max(curr_max, valor_paciente + 1))
+                
+                # Formateo estético y traducción de etiquetas
+                ax_real.set_title(f"{delta_ui_dict[var]} vs Risk", fontsize=11, fontweight='bold')
+                ax_real.set_xlabel(delta_ui_dict[var], fontsize=9)
+                ax_real.set_ylabel("Partial Dependence (Risk)", fontsize=9)
+                ax_real.grid(True, linestyle='--', alpha=0.5, zorder=0)
+                ax_real.legend(loc='best', frameon=True, fontsize=8)
+            
+            # 6. BLINDAJE VISUAL: Ocultamos el cuadrante sobrante de la cuadrícula de 2x3
+            if len(axes_flat) > len(features_to_plot):
+                axes_flat[-1].axis('off')
+                
+            fig.tight_layout()
+            st.pyplot(fig)
+            
     except Exception as e:
-        st.error(f"Error generating PDP: {e}")
-
+        st.error(f"Error generating parallel global interpretability suite: {str(e)}")
 
 # ==========================================
 # 8. CLINICAL SIMILARITY NETWORK (ARCHEGO ADVANCED UI)
