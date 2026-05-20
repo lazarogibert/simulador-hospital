@@ -635,31 +635,29 @@ with col_der:
         else:
             nombres_limpios_traducidos.append(shap_ui_dict.get(nombre, nombre))
 
-    # 🌟 CÁLCULO SHAP
+    # 🌟 CÁLCULO SHAP SEGURO Y EXTRACCIÓN DE DATOS (API MODERNA)
     try:
+        explainer = shap.Explainer(clf)
+        shap_obj = explainer(X_proc)
+        valores_brutos = shap_obj.values
+        
+        # Extracción segura a 1D
+        if len(valores_brutos.shape) == 3:
+            valores_shap_1d = valores_brutos[0, :, 1]
+        elif len(valores_brutos.shape) == 2:
+            valores_shap_1d = valores_brutos[0, :]
+        else:
+            valores_shap_1d = valores_brutos.flatten()
+    except:
+        # Fallback al TreeExplainer antiguo
         explainer = shap.TreeExplainer(clf)
         shap_vals_raw = explainer.shap_values(X_proc)
-    except:
-        explainer = shap.LinearExplainer(clf, X_proc) if hasattr(clf, 'coef_') else shap.Explainer(clf, X_proc)
-        shap_vals_raw = explainer.shap_values(X_proc)
-        
-    # 🌟 BLINDAJE 2: Extracción matemática estricta a 1D (aislando la clase 1)
-    
-    # 1. Si es una lista (formato antiguo de Random Forest), sacamos la clase 1
-    if isinstance(shap_vals_raw, list): 
-        shap_vals_raw = shap_vals_raw[1]
-        
-    shap_vals_array = np.array(shap_vals_raw)
-    
-    # 2. Si el array tiene 3 dimensiones (formato nuevo), extraemos la clase 1
-    if len(shap_vals_array.shape) > 2:
-        shap_vals_array = shap_vals_array[:, :, 1]
-        
-    # 3. Ahora sí aplanamos a 1D de forma segura y limpiamos nulos
-    valores_shap_1d = shap_vals_array.flatten()
-    valores_shap_1d = np.nan_to_num(valores_shap_1d.astype(float))
+        if isinstance(shap_vals_raw, list): 
+            shap_vals_raw = shap_vals_raw[1]
+        valores_shap_1d = np.array(shap_vals_raw).flatten()
 
-    # 4. Paracaídas de seguridad: forzar que las longitudes coincidan exactamente
+    # Paracaídas de dimensiones exactas y limpieza de NaNs
+    valores_shap_1d = np.nan_to_num(valores_shap_1d.astype(float))
     if len(valores_shap_1d) > len(nombres_limpios_traducidos):
         valores_shap_1d = valores_shap_1d[-len(nombres_limpios_traducidos):]
     elif len(valores_shap_1d) < len(nombres_limpios_traducidos):
@@ -671,23 +669,29 @@ with col_der:
         'SHAP_Value': valores_shap_1d
     })
     
-    # Ordenamos por peso absoluto
     df_shap_custom['Abs_Value'] = df_shap_custom['SHAP_Value'].abs()
     df_top_shap = df_shap_custom.sort_values(by='Abs_Value', ascending=False).head(8)
     df_top_shap = df_top_shap.sort_values(by='Abs_Value', ascending=True)
     
-    # 🌟 BLINDAJE 3: Desvinculación de Pandas extrayendo a listas nativas
     eje_y_nombres = df_top_shap['Feature'].tolist()
     eje_x_valores = df_top_shap['SHAP_Value'].tolist()
     
     colores_barras = ['#FF0051' if val > 0 else '#008BFB' for val in eje_x_valores]
     
-    # 🌟 RENDERIZADO DEL GRÁFICO CUSTOM
+    # 🌟 RENDERIZADO DEL GRÁFICO CUSTOM (NÚMEROS PUROS, CERO BUGS DE MATPLOTLIB)
     plt.close('all')
     fig, ax = plt.subplots(figsize=(8, 4))
     
-    # Pasamos explícitamente y y width como listas puras
-    ax.barh(y=eje_y_nombres, width=eje_x_valores, color=colores_barras, edgecolor='white', linewidth=1.5)
+    # 🚨 FIX DEFINITIVO: Usamos coordenadas numéricas estrictas para el eje Y
+    posiciones_y = np.arange(len(eje_y_nombres))
+    
+    # Dibujamos físicamente las barras en las coordenadas 0 a 7
+    ax.barh(y=posiciones_y, width=eje_x_valores, color=colores_barras, edgecolor='white', linewidth=1.5)
+    
+    # Ahora sí asignamos los textos a esas posiciones numéricas
+    ax.set_yticks(posiciones_y)
+    ax.set_yticklabels(eje_y_nombres)
+    
     ax.axvline(x=0, color='black', linewidth=1.5, linestyle='-')
     
     # Eje simétrico garantizado
