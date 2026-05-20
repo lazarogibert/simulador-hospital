@@ -594,7 +594,7 @@ with col_der:
     clf = pipeline.named_steps["clasificador"]
     prep = pipeline.named_steps["preprocesador"]
 
-    # Tomar solo el paciente actual
+    # Paciente actual
     df_row = df_paciente.iloc[[0]].copy()
 
     # Transformación
@@ -643,22 +643,6 @@ with col_der:
             return f"Age: {trad}"
         return shap_ui_dict.get(n, n)
 
-    def agrupar_feature(nombre):
-        n = nombre.replace("num__", "").replace("cat__", "")
-        if n.startswith("CIE10_MACRO_"):
-            return "Diagnosis"
-        if n.startswith("rango_edad_"):
-            return "Age Group"
-        if n.startswith("ING_"):
-            return "Initial status"
-        if n.startswith("EVO_"):
-            return "Current status"
-        if n.startswith("DELTA_"):
-            return "Evolution / delta"
-        if n.startswith("LLM_"):
-            return "Long-term history"
-        return "Other clinical variables"
-
     # SHAP
     try:
         explainer = shap.TreeExplainer(clf)
@@ -667,7 +651,7 @@ with col_der:
         explainer = shap.Explainer(clf, X_proc)
         shap_raw = explainer(X_proc)
 
-    # Extraer valores de clase positiva en binario
+    # Extraer clase positiva
     if isinstance(shap_raw, list):
         shap_values_paciente = shap_raw[1][0]
     elif hasattr(shap_raw, "values"):
@@ -679,40 +663,32 @@ with col_der:
     else:
         shap_values_paciente = shap_raw[0]
 
-    # Forzar vector 1D
+    # Forzar 1D
     shap_values_paciente = np.asarray(shap_values_paciente).ravel()
     nombres_crudos = np.asarray(nombres_crudos).ravel()
 
-    # Ajuste por seguridad si hay desajuste de longitudes
+    # Ajustar longitudes por seguridad
     n_min = min(len(nombres_crudos), len(shap_values_paciente))
     nombres_crudos = nombres_crudos[:n_min]
     shap_values_paciente = shap_values_paciente[:n_min]
 
+    # DataFrame con tus nombres traducidos originales
     df_shap = pd.DataFrame({
         "Feature": [limpiar_nombre(n) for n in nombres_crudos],
-        "Group": [agrupar_feature(n) for n in nombres_crudos],
         "SHAP_Value": shap_values_paciente
     })
 
-    # Agrupar por bloque clínico
-    df_group = (
-        df_shap.groupby("Group", as_index=False)["SHAP_Value"]
-        .sum()
-    )
-    df_group["Abs"] = df_group["SHAP_Value"].abs()
+    # Top variables individuales, sin agrupar
+    df_shap["Abs"] = df_shap["SHAP_Value"].abs()
+    df_top = df_shap.sort_values("Abs", ascending=False).head(8).sort_values("Abs", ascending=True)
 
-    df_top = (
-        df_group.sort_values("Abs", ascending=False)
-        .head(8)
-        .sort_values("SHAP_Value", ascending=True)
-    )
-
+    # Gráfico custom
     plt.close("all")
     fig, ax = plt.subplots(figsize=(9, 4.8))
 
     colores = ["#FF0051" if v > 0 else "#008BFB" for v in df_top["SHAP_Value"]]
     ax.barh(
-        y=df_top["Group"],
+        y=df_top["Feature"],
         width=df_top["SHAP_Value"],
         color=colores,
         edgecolor="white",
