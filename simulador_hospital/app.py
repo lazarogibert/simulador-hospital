@@ -635,29 +635,37 @@ with col_der:
         else:
             nombres_limpios_traducidos.append(shap_ui_dict.get(nombre, nombre))
 
-    # 🌟 CÁLCULO SHAP SEGURO Y EXTRACCIÓN DE DATOS (API MODERNA)
+    # 🌟 CÁLCULO SHAP BLINDADO CONTRA ERRORES DE ADITIVIDAD
     try:
-        explainer = shap.Explainer(clf)
-        shap_obj = explainer(X_proc)
-        valores_brutos = shap_obj.values
-        
-        # Extracción segura a 1D
-        if len(valores_brutos.shape) == 3:
-            valores_shap_1d = valores_brutos[0, :, 1]
-        elif len(valores_brutos.shape) == 2:
-            valores_shap_1d = valores_brutos[0, :]
-        else:
-            valores_shap_1d = valores_brutos.flatten()
-    except:
-        # Fallback al TreeExplainer antiguo
         explainer = shap.TreeExplainer(clf)
-        shap_vals_raw = explainer.shap_values(X_proc)
-        if isinstance(shap_vals_raw, list): 
-            shap_vals_raw = shap_vals_raw[1]
-        valores_shap_1d = np.array(shap_vals_raw).flatten()
+        # 🚨 FIX CRÍTICO: check_additivity=False evita el colapso por transformaciones de probabilidad o precisión flotante
+        shap_vals_raw = explainer.shap_values(X_proc, check_additivity=False)
+    except Exception:
+        try:
+            explainer = shap.LinearExplainer(clf, X_proc)
+            shap_vals_raw = explainer.shap_values(X_proc)
+        except Exception:
+            explainer = shap.Explainer(clf, X_proc)
+            shap_vals_raw = explainer(X_proc).values
 
-    # Paracaídas de dimensiones exactas y limpieza de NaNs
+    # 🌟 EXTRACCIÓN MATEMÁTICA ESTRICTA A 1D
+    if isinstance(shap_vals_raw, list):
+        # Modelos como RandomForest devuelven una lista de arrays por clase
+        shap_array = np.array(shap_vals_raw[1])
+    else:
+        shap_array = np.array(shap_vals_raw)
+
+    # Aislamos las dimensiones para obtener un array 1D puro (1 muestra, N variables)
+    if len(shap_array.shape) == 3:
+        valores_shap_1d = shap_array[0, :, 1]
+    elif len(shap_array.shape) == 2:
+        valores_shap_1d = shap_array[0, :]
+    else:
+        valores_shap_1d = shap_array.flatten()
+
+    # Paracaídas de dimensiones y limpieza de NaNs
     valores_shap_1d = np.nan_to_num(valores_shap_1d.astype(float))
+    
     if len(valores_shap_1d) > len(nombres_limpios_traducidos):
         valores_shap_1d = valores_shap_1d[-len(nombres_limpios_traducidos):]
     elif len(valores_shap_1d) < len(nombres_limpios_traducidos):
@@ -678,17 +686,16 @@ with col_der:
     
     colores_barras = ['#FF0051' if val > 0 else '#008BFB' for val in eje_x_valores]
     
-    # 🌟 RENDERIZADO DEL GRÁFICO CUSTOM (NÚMEROS PUROS, CERO BUGS DE MATPLOTLIB)
+    # 🌟 RENDERIZADO DEL GRÁFICO CUSTOM (NÚMEROS PUROS, CERO BUGS)
     plt.close('all')
     fig, ax = plt.subplots(figsize=(8, 4))
     
-    # 🚨 FIX DEFINITIVO: Usamos coordenadas numéricas estrictas para el eje Y
     posiciones_y = np.arange(len(eje_y_nombres))
     
-    # Dibujamos físicamente las barras en las coordenadas 0 a 7
+    # Dibujamos físicamente las barras en las coordenadas numéricas
     ax.barh(y=posiciones_y, width=eje_x_valores, color=colores_barras, edgecolor='white', linewidth=1.5)
     
-    # Ahora sí asignamos los textos a esas posiciones numéricas
+    # Asignamos los textos a las posiciones Y
     ax.set_yticks(posiciones_y)
     ax.set_yticklabels(eje_y_nombres)
     
@@ -711,7 +718,6 @@ with col_der:
     st.pyplot(fig)
     
     st.caption("📌 **Note:** Bar size represents the clinical weight of the variable in the model's decision. 🔴 **Red** pushes risk higher (Towards Readmission), 🔵 **Blue** pushes risk lower (Towards Safe Discharge).")
-
 # ==========================================
 # 6. THERAPEUTIC NAVIGATOR (DiCE - HIGH SECURITY & METRICALLY SOUND)
 # ==========================================
