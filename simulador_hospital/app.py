@@ -660,31 +660,40 @@ with col_der:
         return "Other clinical variables"
 
     # SHAP
-    try:
-        explainer = shap.TreeExplainer(clf)
-        shap_raw = explainer.shap_values(X_proc, check_additivity=False)
-    except Exception:
-        explainer = shap.Explainer(clf, X_proc)
-        shap_raw = explainer(X_proc)
+try:
+    explainer = shap.TreeExplainer(clf)
+    shap_raw = explainer.shap_values(X_proc, check_additivity=False)
+except Exception:
+    explainer = shap.Explainer(clf, X_proc)
+    shap_raw = explainer(X_proc)
 
-    # Extraer valores de clase positiva en binario
-    if isinstance(shap_raw, list):
-        shap_values_paciente = shap_raw[1][0]
-    elif hasattr(shap_raw, "values"):
-        vals = shap_raw.values
-        if vals.ndim == 3:
-            shap_values_paciente = vals[0, :, 1]
-        else:
-            shap_values_paciente = vals[0]
+# Extraer valores de clase positiva en binario
+if isinstance(shap_raw, list):
+    shap_values_paciente = shap_raw[1][0]
+elif hasattr(shap_raw, "values"):
+    vals = shap_raw.values
+    if vals.ndim == 3:
+        shap_values_paciente = vals[0, :, 1]
     else:
-        shap_values_paciente = shap_raw[0]
+        shap_values_paciente = vals[0]
+else:
+    shap_values_paciente = shap_raw[0]
 
-    # DataFrame SHAP
-    df_shap = pd.DataFrame({
-        "Feature": [limpiar_nombre(n) for n in nombres_crudos],
-        "Group": [agrupar_feature(n) for n in nombres_crudos],
-        "SHAP_Value": shap_values_paciente
-    })
+# Forzar vector 1D
+shap_values_paciente = np.asarray(shap_values_paciente).ravel()
+nombres_crudos = np.asarray(nombres_crudos).ravel()
+
+# Si por alguna razón no coincide el número de features, cortar al mínimo
+n_min = min(len(nombres_crudos), len(shap_values_paciente))
+nombres_crudos = nombres_crudos[:n_min]
+shap_values_paciente = shap_values_paciente[:n_min]
+
+# DataFrame SHAP
+df_shap = pd.DataFrame({
+    "Feature": [limpiar_nombre(n) for n in nombres_crudos],
+    "Group": [agrupar_feature(n) for n in nombres_crudos],
+    "SHAP_Value": shap_values_paciente
+})
 
     # Agregar por grupo para evitar que salga una lista larga de diagnósticos/dummies
     df_group = (
