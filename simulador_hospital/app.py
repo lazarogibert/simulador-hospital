@@ -660,56 +660,53 @@ with col_der:
         return "Other clinical variables"
 
     # SHAP
-try:
-    explainer = shap.TreeExplainer(clf)
-    shap_raw = explainer.shap_values(X_proc, check_additivity=False)
-except Exception:
-    explainer = shap.Explainer(clf, X_proc)
-    shap_raw = explainer(X_proc)
+    try:
+        explainer = shap.TreeExplainer(clf)
+        shap_raw = explainer.shap_values(X_proc, check_additivity=False)
+    except Exception:
+        explainer = shap.Explainer(clf, X_proc)
+        shap_raw = explainer(X_proc)
 
-# Extraer valores de clase positiva en binario
-if isinstance(shap_raw, list):
-    shap_values_paciente = shap_raw[1][0]
-elif hasattr(shap_raw, "values"):
-    vals = shap_raw.values
-    if vals.ndim == 3:
-        shap_values_paciente = vals[0, :, 1]
+    # Extraer valores de clase positiva en binario
+    if isinstance(shap_raw, list):
+        shap_values_paciente = shap_raw[1][0]
+    elif hasattr(shap_raw, "values"):
+        vals = shap_raw.values
+        if vals.ndim == 3:
+            shap_values_paciente = vals[0, :, 1]
+        else:
+            shap_values_paciente = vals[0]
     else:
-        shap_values_paciente = vals[0]
-else:
-    shap_values_paciente = shap_raw[0]
+        shap_values_paciente = shap_raw[0]
 
-# Forzar vector 1D
-shap_values_paciente = np.asarray(shap_values_paciente).ravel()
-nombres_crudos = np.asarray(nombres_crudos).ravel()
+    # Forzar vector 1D
+    shap_values_paciente = np.asarray(shap_values_paciente).ravel()
+    nombres_crudos = np.asarray(nombres_crudos).ravel()
 
-# Si por alguna razón no coincide el número de features, cortar al mínimo
-n_min = min(len(nombres_crudos), len(shap_values_paciente))
-nombres_crudos = nombres_crudos[:n_min]
-shap_values_paciente = shap_values_paciente[:n_min]
+    # Ajuste por seguridad si hay desajuste de longitudes
+    n_min = min(len(nombres_crudos), len(shap_values_paciente))
+    nombres_crudos = nombres_crudos[:n_min]
+    shap_values_paciente = shap_values_paciente[:n_min]
 
-# DataFrame SHAP
-df_shap = pd.DataFrame({
-    "Feature": [limpiar_nombre(n) for n in nombres_crudos],
-    "Group": [agrupar_feature(n) for n in nombres_crudos],
-    "SHAP_Value": shap_values_paciente
-})
+    df_shap = pd.DataFrame({
+        "Feature": [limpiar_nombre(n) for n in nombres_crudos],
+        "Group": [agrupar_feature(n) for n in nombres_crudos],
+        "SHAP_Value": shap_values_paciente
+    })
 
-    # Agregar por grupo para evitar que salga una lista larga de diagnósticos/dummies
+    # Agrupar por bloque clínico
     df_group = (
         df_shap.groupby("Group", as_index=False)["SHAP_Value"]
         .sum()
     )
     df_group["Abs"] = df_group["SHAP_Value"].abs()
 
-    # Top contribuciones
     df_top = (
         df_group.sort_values("Abs", ascending=False)
         .head(8)
         .sort_values("SHAP_Value", ascending=True)
     )
 
-    # Gráfico custom
     plt.close("all")
     fig, ax = plt.subplots(figsize=(9, 4.8))
 
