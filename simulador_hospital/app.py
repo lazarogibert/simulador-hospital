@@ -1192,6 +1192,23 @@ if st.session_state.mostrar_grafo:
                 
                 st.markdown("#### Clinical Profile")
                 st.markdown(f"**Secondary Diagnoses:**\n{diagsec_en}")
+                # --- TRADUCCIÓN DINÁMICA DE LA LISTA DE FÁRMACOS ---
+                farmacos_raw = data['farmacos']
+                if str(farmacos_raw).strip().upper() in ('NINGUNO', '', 'NONE'):
+                    farmacos_en = 'None'
+                else:
+                    # Dividimos el string por la coma para traducir cada familia por separado
+                    lista_farmacos = [f.strip() for f in str(farmacos_raw).split(',')]
+                    
+                    # Traducimos usando el diccionario maestro (si no se encuentra, mantiene el original)
+                    lista_traducida = [FARMACOS_TRANSLATION_DICT.get(f, f) for f in lista_farmacos]
+                    
+                    # Unimos de nuevo en un string con saltos de línea para que quede ordenado en la interfaz
+                    farmacos_en = "\n".join([f"- {f}" for f in lista_traducida])
+
+                # --- RENDERIZADO FINAL EN LA UI ---
+                st.markdown("#### Clinical Profile")
+                st.markdown(f"**Secondary Diagnoses:**\n{diagsec_en}")
                 st.markdown(f"**Medications:**\n{farmacos_en}")
 
     except Exception as e:
