@@ -506,9 +506,15 @@ with col_izq:
     st.metric(label="15-Day Probability", value=f"{riesgo*100:.1f}%")
     
     if riesgo > umbral:
-        st.error(f"⚠️ **CLINICAL ALERT**\n\nThe patient exceeds the strict safety threshold ({umbral*100:.1f}%).")
+        st.error(
+            f"⚠️ **CLINICAL ALERT**\n\n"
+            f"The patient exceeds the strict safety threshold ({umbral*100:.1f}%)."
+        )
     else:
-        st.success(f"✅ **SAFE DISCHARGE**\n\nRisk controlled within the permitted threshold.")
+        st.success(
+            "✅ **SAFE DISCHARGE**\n\n"
+            "Risk controlled within the permitted threshold."
+        )
 
     # UI Translation Dictionary for CIE-10
     cie10_ui_dict = {
@@ -579,22 +585,25 @@ with col_izq:
         categoria_cie10_ingles = "N/A"
     else:
         categoria_cie10_ingles = cie10_ui_dict.get(categoria_cie10, categoria_cie10)
-    
+
     st.info(f"**Mapped Diagnosis:** {categoria_cie10_ingles} (Code: {codigo_normalizado})")
 
 with col_der:
     st.subheader("Decision Audit (SHAP)")
-    clf = pipeline.named_steps['clasificador']
-    prep = pipeline.named_steps['preprocesador']
-    
-    # 🌟 BLINDAJE 1: Destruimos la matriz dispersa forzando un array denso
-    X_proc = prep.transform(df_paciente)
+
+    clf = pipeline.named_steps["clasificador"]
+    prep = pipeline.named_steps["preprocesador"]
+
+    # Tomar solo el paciente actual
+    df_row = df_paciente.iloc[[0]].copy()
+
+    # Transformación
+    X_proc = prep.transform(df_row)
     if hasattr(X_proc, "toarray"):
         X_proc = X_proc.toarray()
-        
+
     nombres_crudos = prep.get_feature_names_out()
-    nombres_limpios = [nombre.replace('num__', '').replace('cat__', '') for nombre in nombres_crudos]
-    
+
     shap_ui_dict = {
         'dias_internados': 'Hospitalization Days', 'pluripatologico': 'Pluripathological',
         'ING_dolor_eva': 'Initial Pain', 'ING_gravedad_percibida': 'Initial Severity',
@@ -620,74 +629,106 @@ with col_der:
         'LLM_tabaquismo_activo': 'Chronic: Active Smoking'
     }
 
-    nombres_limpios_traducidos = []
-    for nombre in nombres_limpios:
-        if "CIE10_MACRO" in nombre:
-            cat_val = nombre.replace("CIE10_MACRO_", "")
-            nombres_limpios_traducidos.append(f"Diagnosis: {cie10_ui_dict.get(cat_val, cat_val)}")
-        elif "rango_edad" in nombre:
-            cat_val = nombre.replace("rango_edad_", "")
+    def limpiar_nombre(nombre):
+        n = nombre.replace("num__", "").replace("cat__", "")
+        if "CIE10_MACRO_" in n:
+            cat_val = n.replace("CIE10_MACRO_", "")
+            return f"Diagnosis: {cie10_ui_dict.get(cat_val, cat_val)}"
+        if "rango_edad_" in n:
+            cat_val = n.replace("rango_edad_", "")
             try:
                 trad = next((k for k, v in opciones_edad_dict.items() if v.upper() == cat_val.upper()), cat_val)
-            except NameError:
+            except Exception:
                 trad = cat_val
-            nombres_limpios_traducidos.append(f"Age: {trad}")
-        else:
-            nombres_limpios_traducidos.append(shap_ui_dict.get(nombre, nombre))
+            return f"Age: {trad}"
+        return shap_ui_dict.get(n, n)
 
-    # 🌟 CÁLCULO SHAP ESTRICTO (SOLO PACIENTE ACTUAL)
+    def agrupar_feature(nombre):
+        n = nombre.replace("num__", "").replace("cat__", "")
+        if n.startswith("CIE10_MACRO_"):
+            return "Diagnosis"
+        if n.startswith("rango_edad_"):
+            return "Age Group"
+        if n.startswith("ING_"):
+            return "Initial status"
+        if n.startswith("EVO_"):
+            return "Current status"
+        if n.startswith("DELTA_"):
+            return "Evolution / delta"
+        if n.startswith("LLM_"):
+            return "Long-term history"
+        return "Other clinical variables"
+
+    # SHAP
     try:
         explainer = shap.TreeExplainer(clf)
-        # Extraemos SHAP values específicamente para nuestra fila 0
-        shap_values = explainer.shap_values(X_proc, check_additivity=False)
-    except:
+        shap_raw = explainer.shap_values(X_proc, check_additivity=False)
+    except Exception:
         explainer = shap.Explainer(clf, X_proc)
-        shap_values = explainer(X_proc).values
+        shap_raw = explainer(X_proc)
 
-    # 🚨 EXTRACCIÓN LÓGICA DE CLASE 1 (BINARIA)
-    # Si es lista (TreeExplainer), tomamos el índice 1 (clase positiva)
-    if isinstance(shap_values, list):
-        shap_array = shap_values[1] # Esto es (n_samples, n_features)
-    elif len(shap_values.shape) == 3:
-        shap_array = shap_values[:, :, 1] # Esto es (n_samples, n_features)
+    # Extraer valores de clase positiva en binario
+    if isinstance(shap_raw, list):
+        shap_values_paciente = shap_raw[1][0]
+    elif hasattr(shap_raw, "values"):
+        vals = shap_raw.values
+        if vals.ndim == 3:
+            shap_values_paciente = vals[0, :, 1]
+        else:
+            shap_values_paciente = vals[0]
     else:
-        shap_array = shap_values # Esto ya es (n_samples, n_features)
+        shap_values_paciente = shap_raw[0]
 
-    # 🚨 FILTRO DE PACIENTE: Tomamos SOLAMENTE la fila 0 (el paciente actual)
-    valores_paciente_1d = shap_array[0, :] 
-
-    # 🌟 CREACIÓN DEL DATAFRAME DE PESOS
+    # DataFrame SHAP
     df_shap = pd.DataFrame({
-        'Feature': nombres_limpios_traducidos,
-        'SHAP_Value': valores_paciente_1d
+        "Feature": [limpiar_nombre(n) for n in nombres_crudos],
+        "Group": [agrupar_feature(n) for n in nombres_crudos],
+        "SHAP_Value": shap_values_paciente
     })
-    
-    # 🌟 FILTRADO Y ORDEN
-    df_shap['Abs'] = df_shap['SHAP_Value'].abs()
-    df_top = df_shap.sort_values(by='Abs', ascending=False).head(8).sort_values(by='Abs', ascending=True)
-    
-    # 🌟 RENDERIZADO
-    plt.close('all')
-    fig, ax = plt.subplots(figsize=(8, 4))
-    
-    # Colores: Rojo (aumenta riesgo) / Azul (reduce riesgo)
-    colores = ['#FF0051' if v > 0 else '#008BFB' for v in df_top['SHAP_Value']]
-    
-    ax.barh(y=df_top['Feature'], width=df_top['SHAP_Value'], color=colores, edgecolor='white', height=0.6)
-    ax.axvline(x=0, color='black', linewidth=1.2)
-    
-    # Ajustes finales
-    ax.set_xlabel("Relative Impact on Risk (SHAP)", fontsize=9, fontweight='bold')
+
+    # Agregar por grupo para evitar que salga una lista larga de diagnósticos/dummies
+    df_group = (
+        df_shap.groupby("Group", as_index=False)["SHAP_Value"]
+        .sum()
+    )
+    df_group["Abs"] = df_group["SHAP_Value"].abs()
+
+    # Top contribuciones
+    df_top = (
+        df_group.sort_values("Abs", ascending=False)
+        .head(8)
+        .sort_values("SHAP_Value", ascending=True)
+    )
+
+    # Gráfico custom
+    plt.close("all")
+    fig, ax = plt.subplots(figsize=(9, 4.8))
+
+    colores = ["#FF0051" if v > 0 else "#008BFB" for v in df_top["SHAP_Value"]]
+    ax.barh(
+        y=df_top["Group"],
+        width=df_top["SHAP_Value"],
+        color=colores,
+        edgecolor="white",
+        height=0.6
+    )
+    ax.axvline(x=0, color="black", linewidth=1.2)
+
+    ax.set_xlabel("Relative Impact on Risk (SHAP)", fontsize=9, fontweight="bold")
     ax.set_xticks([])
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.spines['bottom'].set_visible(False)
-    ax.spines['left'].set_color('#DDDDDD')
-    
+    ax.set_ylabel("")
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["bottom"].set_visible(False)
+    ax.spines["left"].set_color("#DDDDDD")
+
     fig.tight_layout()
     st.pyplot(fig)
-    
-    st.caption("📌 **Note:** Bar size represents the clinical weight of the variable in the model's decision. 🔴 **Red** pushes risk higher (Towards Readmission), 🔵 **Blue** pushes risk lower (Towards Safe Discharge).")
+
+    st.caption(
+        "📌 **Note:** Bar size represents the clinical weight of the variable in the model's decision. "
+        "🔴 **Red** pushes risk higher (towards readmission), 🔵 **Blue** pushes risk lower (towards safe discharge)."
+    )
 
 # ==========================================
 # 6. THERAPEUTIC NAVIGATOR (DiCE - HIGH SECURITY & METRICALLY SOUND)
