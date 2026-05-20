@@ -638,7 +638,6 @@ with col_der:
     # 🌟 CÁLCULO SHAP BLINDADO CONTRA ERRORES DE ADITIVIDAD
     try:
         explainer = shap.TreeExplainer(clf)
-        # 🚨 FIX CRÍTICO: check_additivity=False evita el colapso por transformaciones de probabilidad o precisión flotante
         shap_vals_raw = explainer.shap_values(X_proc, check_additivity=False)
     except Exception:
         try:
@@ -648,13 +647,13 @@ with col_der:
             explainer = shap.Explainer(clf, X_proc)
             shap_vals_raw = explainer(X_proc).values
 
-    # 🌟 EXTRACCIÓN MATEMÁTICA ESTRICTA A 1D
+    # 🌟 EXTRACCIÓN Y ALINEACIÓN (GARANTIZANDO ESTRUCTURA)
     if isinstance(shap_vals_raw, list):
-        # Modelos como RandomForest devuelven una lista de arrays por clase
         shap_array = np.array(shap_vals_raw[1])
     else:
-        # 1. EXTRACCIÓN Y ALINEACIÓN SEGURA
-    shap_array = np.array(shap_vals_raw)
+        shap_array = np.array(shap_vals_raw)
+        
+    # Aplanamos correctamente al primer registro (tu paciente)
     if len(shap_array.shape) == 3:
         valores_shap_1d = shap_array[0, :, 1]
     elif len(shap_array.shape) == 2:
@@ -662,47 +661,49 @@ with col_der:
     else:
         valores_shap_1d = shap_array.flatten()
 
-    # 🚨 BLINDAJE DE DIMENSIONES: Fuerza la coincidencia exacta
+    # Paracaídas de dimensiones: forzamos que las longitudes coincidan exactamente
     n_features = len(nombres_limpios_traducidos)
     n_shap = len(valores_shap_1d)
     
     if n_shap != n_features:
-        # Si SHAP devuelve más o menos valores que nombres, ajustamos para que no colapse
         if n_shap > n_features:
-            valores_shap_1d = valores_shap_1d[:n_features]
+            valores_shap_1d = valores_shap_1d[-n_features:]
         else:
             valores_shap_1d = np.pad(valores_shap_1d, (0, n_features - n_shap), 'constant')
 
-    # 2. CREACIÓN DEL DATAFRAME VINCULADO
+    # 🌟 ARMADO DEL DATAFRAME
     df_shap_full = pd.DataFrame({
         'Feature': nombres_limpios_traducidos, 
         'SHAP_Value': valores_shap_1d
     })
 
-    # 3. FILTRADO Y ORDENAMIENTO
+    # Filtramos y ordenamos
     df_shap_full['Abs_Value'] = df_shap_full['SHAP_Value'].abs()
     df_top_shap = df_shap_full.sort_values(by='Abs_Value', ascending=False).head(8)
     df_top_shap = df_top_shap.sort_values(by='Abs_Value', ascending=True)
     
-    # 4. EXTRACCIÓN A LISTAS PURAS (Evita que Matplotlib se confunda con índices)
+    # 🌟 EXTRACCIÓN A LISTAS PURAS (Evita que Matplotlib se confunda)
     eje_y_nombres = df_top_shap['Feature'].tolist()
     eje_x_valores = df_top_shap['SHAP_Value'].tolist()
     colores_barras = ['#FF0051' if val > 0 else '#008BFB' for val in eje_x_valores]
 
-    # 5. RENDERIZADO ROBUSTO
+    # 🌟 RENDERIZADO DEL GRÁFICO (COORDS NUMÉRICAS)
     plt.close('all')
     fig, ax = plt.subplots(figsize=(8, 4))
     
     posiciones_y = np.arange(len(eje_y_nombres))
     ax.barh(y=posiciones_y, width=eje_x_valores, color=colores_barras, edgecolor='white', linewidth=1.5)
     
-    # Etiquetas de texto fijas
+    # Asignamos etiquetas de forma explícita
     ax.set_yticks(posiciones_y)
     ax.set_yticklabels(eje_y_nombres, fontsize=9)
     
     ax.axvline(x=0, color='black', linewidth=1.5, linestyle='-')
     
-    # Ejes limpios
+    # Eje simétrico garantizado
+    max_impact = max([abs(v) for v in eje_x_valores]) if eje_x_valores else 1
+    ax.set_xlim(-max_impact * 1.15, max_impact * 1.15)
+    
     ax.set_xticks([])
     ax.set_xlabel("Relative Impact on Risk Decision", fontsize=10, fontweight='bold')
     ax.spines['top'].set_visible(False)
