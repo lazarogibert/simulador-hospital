@@ -638,16 +638,12 @@ with col_der:
     if isinstance(shap_vals, list): shap_vals = shap_vals[1]
     if len(shap_vals.shape) > 2: shap_vals = shap_vals[:, :, 1]
     
-    # 🌟 CORRECCIÓN DE TIPO: Forzamos el valor base a float escalar único
     raw_exp = explainer.expected_value
     base_val = float(raw_exp[1]) if isinstance(raw_exp, (list, np.ndarray)) else float(raw_exp)
     
-    # 🌟 LIMPIEZA DE MEMORIA: Previene el texto superpuesto eliminando cachés previas
     plt.close('all')
-    
     fig, ax = plt.subplots(figsize=(8, 4))
     
-    # Renderizado nativo: No manipulamos texto, garantizamos integridad
     shap.waterfall_plot(shap.Explanation(
         values=shap_vals[0], 
         base_values=base_val, 
@@ -656,9 +652,19 @@ with col_der:
         show=False, max_display=8
     )
     
-    st.pyplot(fig)
-    st.caption("📌 **Note:** SHAP values represent the impact on readmission risk (e.g., 0.19 = 19% increase).")
+    # 🌟 NUEVO BLINDAJE: Ocultar los valores numéricos crudos (log-odds) de las barras y ejes
+    for txt in ax.texts:
+        txt.set_visible(False)
     
+    # Limpiamos también el texto del valor base y final en el eje X para evitar confusión matemática
+    ax.set_xticklabels([]) 
+    ax.set_xlabel("Relative Impact on Risk Decision")
+    
+    st.pyplot(fig)
+    
+    # 🌟 NUEVO CAPTION CUALITATIVO PARA MÉDICOS
+    st.caption("📌 **Note:** Bar size represents the clinical weight of the variable in the model's decision. 🔴 **Red** pushes risk higher (Towards Readmission), 🔵 **Blue** pushes risk lower (Towards Safe Discharge).")    
+
 # ==========================================
 # 6. THERAPEUTIC NAVIGATOR (DiCE - HIGH SECURITY & METRICALLY SOUND)
 # ==========================================
