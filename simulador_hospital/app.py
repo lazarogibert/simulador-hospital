@@ -642,36 +642,41 @@ with col_der:
     base_val = float(raw_exp[1]) if isinstance(raw_exp, (list, np.ndarray)) else float(raw_exp)
     
     # 🌟 EXTRACCIÓN Y ORDENAMIENTO DE SHAP VALUES
-    # Armamos un DataFrame temporal para vincular los nombres con sus valores matemáticos
+    # Aseguramos que sea un array plano y limpio
+    valores_shap_1d = np.array(shap_vals[0]).flatten()
+    
     df_shap_custom = pd.DataFrame({
         'Feature': nombres_limpios_traducidos,
-        'SHAP_Value': shap_vals[0]
+        'SHAP_Value': valores_shap_1d
     })
     
-    # Calculamos el valor absoluto para encontrar las variables con más impacto (ya sea positivo o negativo)
+    # Ordenamos por impacto absoluto
     df_shap_custom['Abs_Value'] = df_shap_custom['SHAP_Value'].abs()
-    
-    # Nos quedamos con las 8 variables más importantes y las ordenamos para el gráfico
     df_top_shap = df_shap_custom.sort_values(by='Abs_Value', ascending=False).head(8)
-    df_top_shap = df_top_shap.sort_values(by='Abs_Value', ascending=True) # Invertimos para que la más grande quede arriba
+    df_top_shap = df_top_shap.sort_values(by='Abs_Value', ascending=True) 
     
-    # Asignamos colores: Rojo intenso (Aumenta riesgo) y Azul SHAP (Baja riesgo)
-    colores_barras = ['#FF0051' if val > 0 else '#008BFB' for val in df_top_shap['SHAP_Value']]
+    # 🚨 FIX CRÍTICO: Extraemos a listas puras para destruir el índice mezclado de Pandas
+    eje_y_nombres = df_top_shap['Feature'].tolist()
+    eje_x_valores = df_top_shap['SHAP_Value'].tolist()
+    
+    colores_barras = ['#FF0051' if val > 0 else '#008BFB' for val in eje_x_valores]
     
     # 🌟 RENDERIZADO DEL GRÁFICO CUSTOM
     plt.close('all')
     fig, ax = plt.subplots(figsize=(8, 4))
     
-    # Dibujamos las barras horizontales
-    ax.barh(df_top_shap['Feature'], df_top_shap['SHAP_Value'], color=colores_barras, edgecolor='white', linewidth=1.5)
+    # Dibujamos las barras usando las listas puras (ahora se apilarán del 0 al 7 correctamente)
+    ax.barh(eje_y_nombres, eje_x_valores, color=colores_barras, edgecolor='white', linewidth=1.5)
     
     # Dibujamos la línea central del valor base
     ax.axvline(x=0, color='black', linewidth=1.5, linestyle='-')
     
-    # Eliminamos por completo el eje numérico X para evitar confusiones matemáticas
-    ax.set_xticks([])
+    # 🚨 FIX CRÍTICO 2: Forzamos límites simétricos en X para centrar la línea negra
+    max_impact = max(abs(v) for v in eje_x_valores) if eje_x_valores else 1
+    ax.set_xlim(-max_impact * 1.15, max_impact * 1.15)
     
-    # Estética profesional
+    # Estética profesional y limpieza de números
+    ax.set_xticks([])
     ax.set_xlabel("Relative Impact on Risk Decision", fontsize=10, fontweight='bold')
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
