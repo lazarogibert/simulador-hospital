@@ -643,13 +643,27 @@ with col_der:
         explainer = shap.LinearExplainer(clf, X_proc) if hasattr(clf, 'coef_') else shap.Explainer(clf, X_proc)
         shap_vals_raw = explainer.shap_values(X_proc)
         
-    # 🌟 BLINDAJE 2: Extracción matemática estricta a 1D aislando la clase 1
+    # 🌟 BLINDAJE 2: Extracción matemática estricta a 1D (aislando la clase 1)
+    
+    # 1. Si es una lista (formato antiguo de Random Forest), sacamos la clase 1
     if isinstance(shap_vals_raw, list): 
         shap_vals_raw = shap_vals_raw[1]
         
-    # Aplanamos y forzamos a float puro
-    valores_shap_1d = np.array(shap_vals_raw).flatten()
+    shap_vals_array = np.array(shap_vals_raw)
+    
+    # 2. Si el array tiene 3 dimensiones (formato nuevo), extraemos la clase 1
+    if len(shap_vals_array.shape) > 2:
+        shap_vals_array = shap_vals_array[:, :, 1]
+        
+    # 3. Ahora sí aplanamos a 1D de forma segura y limpiamos nulos
+    valores_shap_1d = shap_vals_array.flatten()
     valores_shap_1d = np.nan_to_num(valores_shap_1d.astype(float))
+
+    # 4. Paracaídas de seguridad: forzar que las longitudes coincidan exactamente
+    if len(valores_shap_1d) > len(nombres_limpios_traducidos):
+        valores_shap_1d = valores_shap_1d[-len(nombres_limpios_traducidos):]
+    elif len(valores_shap_1d) < len(nombres_limpios_traducidos):
+        valores_shap_1d = np.pad(valores_shap_1d, (0, len(nombres_limpios_traducidos) - len(valores_shap_1d)))
 
     # 🌟 ARMADO DEL DATAFRAME
     df_shap_custom = pd.DataFrame({
