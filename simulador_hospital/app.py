@@ -653,9 +653,8 @@ with col_der:
         # Modelos como RandomForest devuelven una lista de arrays por clase
         shap_array = np.array(shap_vals_raw[1])
     else:
-        shap_array = np.array(shap_vals_raw)
-
-    # Aislamos las dimensiones para obtener un array 1D puro (1 muestra, N variables)
+        # 1. EXTRACCIÓN Y ALINEACIÓN SEGURA
+    shap_array = np.array(shap_vals_raw)
     if len(shap_array.shape) == 3:
         valores_shap_1d = shap_array[0, :, 1]
     elif len(shap_array.shape) == 2:
@@ -663,50 +662,47 @@ with col_der:
     else:
         valores_shap_1d = shap_array.flatten()
 
-    # Paracaídas de dimensiones y limpieza de NaNs
-    valores_shap_1d = np.nan_to_num(valores_shap_1d.astype(float))
+    # 🚨 BLINDAJE DE DIMENSIONES: Fuerza la coincidencia exacta
+    n_features = len(nombres_limpios_traducidos)
+    n_shap = len(valores_shap_1d)
     
-    if len(valores_shap_1d) > len(nombres_limpios_traducidos):
-        valores_shap_1d = valores_shap_1d[-len(nombres_limpios_traducidos):]
-    elif len(valores_shap_1d) < len(nombres_limpios_traducidos):
-        valores_shap_1d = np.pad(valores_shap_1d, (0, len(nombres_limpios_traducidos) - len(valores_shap_1d)))
+    if n_shap != n_features:
+        # Si SHAP devuelve más o menos valores que nombres, ajustamos para que no colapse
+        if n_shap > n_features:
+            valores_shap_1d = valores_shap_1d[:n_features]
+        else:
+            valores_shap_1d = np.pad(valores_shap_1d, (0, n_features - n_shap), 'constant')
 
-    # 🌟 ARMADO DEL DATAFRAME
-    df_shap_custom = pd.DataFrame({
-        'Feature': nombres_limpios_traducidos,
+    # 2. CREACIÓN DEL DATAFRAME VINCULADO
+    df_shap_full = pd.DataFrame({
+        'Feature': nombres_limpios_traducidos, 
         'SHAP_Value': valores_shap_1d
     })
-    
-    df_shap_custom['Abs_Value'] = df_shap_custom['SHAP_Value'].abs()
-    df_top_shap = df_shap_custom.sort_values(by='Abs_Value', ascending=False).head(8)
+
+    # 3. FILTRADO Y ORDENAMIENTO
+    df_shap_full['Abs_Value'] = df_shap_full['SHAP_Value'].abs()
+    df_top_shap = df_shap_full.sort_values(by='Abs_Value', ascending=False).head(8)
     df_top_shap = df_top_shap.sort_values(by='Abs_Value', ascending=True)
     
+    # 4. EXTRACCIÓN A LISTAS PURAS (Evita que Matplotlib se confunda con índices)
     eje_y_nombres = df_top_shap['Feature'].tolist()
     eje_x_valores = df_top_shap['SHAP_Value'].tolist()
-    
     colores_barras = ['#FF0051' if val > 0 else '#008BFB' for val in eje_x_valores]
-    
-    # 🌟 RENDERIZADO DEL GRÁFICO CUSTOM (NÚMEROS PUROS, CERO BUGS)
+
+    # 5. RENDERIZADO ROBUSTO
     plt.close('all')
     fig, ax = plt.subplots(figsize=(8, 4))
     
     posiciones_y = np.arange(len(eje_y_nombres))
-    
-    # Dibujamos físicamente las barras en las coordenadas numéricas
     ax.barh(y=posiciones_y, width=eje_x_valores, color=colores_barras, edgecolor='white', linewidth=1.5)
     
-    # Asignamos los textos a las posiciones Y
+    # Etiquetas de texto fijas
     ax.set_yticks(posiciones_y)
-    ax.set_yticklabels(eje_y_nombres)
+    ax.set_yticklabels(eje_y_nombres, fontsize=9)
     
     ax.axvline(x=0, color='black', linewidth=1.5, linestyle='-')
     
-    # Eje simétrico garantizado
-    max_impact = max([abs(v) for v in eje_x_valores]) if eje_x_valores else 1
-    if max_impact == 0: max_impact = 1
-    ax.set_xlim(-max_impact * 1.15, max_impact * 1.15)
-    
-    # Limpieza visual
+    # Ejes limpios
     ax.set_xticks([])
     ax.set_xlabel("Relative Impact on Risk Decision", fontsize=10, fontweight='bold')
     ax.spines['top'].set_visible(False)
@@ -718,6 +714,7 @@ with col_der:
     st.pyplot(fig)
     
     st.caption("📌 **Note:** Bar size represents the clinical weight of the variable in the model's decision. 🔴 **Red** pushes risk higher (Towards Readmission), 🔵 **Blue** pushes risk lower (Towards Safe Discharge).")
+
 # ==========================================
 # 6. THERAPEUTIC NAVIGATOR (DiCE - HIGH SECURITY & METRICALLY SOUND)
 # ==========================================
