@@ -719,21 +719,25 @@ else:
                 df_dice_train = df_background_raw[columnas_modelo].copy()
                 df_dice_train['target'] = df_background_raw['target'].astype(int)
                 
-                # 3. ALINEACIÓN ESTRICTA DE DTYPES
+                # 3. ALINEACIÓN ESTRICTA DE DTYPES (Fix contra residuos de texto en NumPy)
                 for col in columnas_modelo:
-                    df_dice_train[col] = df_dice_train[col].astype(df_paciente[col].dtype)
+                    if df_paciente[col].dtype == object:
+                        df_dice_train[col] = df_background_raw[col].astype(str).str.strip().str.upper()
+                    else:
+                        # Forzamos conversión limpia a números para eliminar formatos como '0.0' en texto
+                        df_dice_train[col] = pd.to_numeric(df_background_raw[col], errors='coerce')
                 
                 # Downsampling estratégico para conservar la fluidez del servidor
                 df_dice_train = df_dice_train.sample(n=min(1000, len(df_dice_train)), random_state=42)
                 
                 # Inyectamos al paciente actual en el subset estructural de DiCE
                 df_paciente_para_dice = df_paciente.copy()
-                df_paciente_para_dice['target'] = int(modelo_blindado_global.predict(df_paciente)[0]) if 'modelo_blindado_global' in globals() else 1
+                df_paciente_para_dice['target'] = 1 # Frontera de riesgo para el paciente actual
                 df_dice_train = pd.concat([df_dice_train, df_paciente_para_dice], ignore_index=True)
                 
-                # 4. SEGREGACIÓN METODOLÓGICA DE ESPACIOS DE BÚSQUEDA
-                # Separamos qué es verdaderamente continuo y qué es categórico/binario
-                features_continuas = [col for col in columnas_modelo if 'dolor' in col or 'gravedad' in col or 'dias_' in col]
+                # 4. SEGREGACIÓN METODOLÓGICA BLINDADA
+                # Metemos TODAS las variables numéricas (incluyendo binarias) como continuas para DiCE
+                features_continuas = df_paciente.select_dtypes(include=[np.number]).columns.tolist()
                 features_categoricas = [col for col in columnas_modelo if col not in features_continuas]
                 
                 # 5. INICIALIZACIÓN DEL ENTORNO DiCE CON APOYO DUAL
@@ -807,7 +811,8 @@ else:
                                     val_orig = df_paciente.iloc[0][col]
                                     val_cf = cf_df.iloc[r_idx][col]
                                     
-                                    if col in features_categoricas:
+                                    # 🚨 CAMBIO 1: Verificamos el tipo numérico entero en el df_paciente nativo
+                                    if col in features_continuas and df_paciente[col].dtype in [np.int64, np.int32, int]:
                                         val_cf = round(val_cf)
                                     
                                     if val_orig != val_cf:
@@ -817,10 +822,14 @@ else:
                                         if 'dolor' in col or 'gravedad' in col:
                                             st.write(f"- 💊 **{col_en}**: Reduce from [{val_orig:.0f}] ➔ Target: **[{val_cf:.0f}]**")
                                         else:
-                                            st.write(f"- 💊 **{col_en}**: Resolve complication ➔ **[Absent]**")
+                                            # 🚨 CAMBIO 2: Evaluamos dinámicamente el estado binario objetivo
+                                            status_en = "Absent" if val_cf == 0 else "Present"
+                                            st.write(f"- 💊 **{col_en}**: Target status ➔ **[{status_en}]**")
                                             
                                 if cambios_detectados == 0:
                                     st.write("This alternative suggests maintaining current parameters based on marginal risk stability.")
+                    
+                    
                     else:
                         st.error("No mathematically viable routes were found using only clinical modifications.")
                         
