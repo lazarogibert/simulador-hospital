@@ -950,9 +950,10 @@ if st.session_state.mostrar_pdp:
                 ax_real.grid(True, linestyle='--', alpha=0.5, zorder=0)
                 ax_real.legend(loc='best', frameon=True, fontsize=8)
             
-            # 6. BLINDAJE VISUAL: Ocultamos el cuadrante sobrante de la cuadrícula de 2x3
-            if len(axes_flat) > len(features_to_plot):
-                axes_flat[-1].axis('off')
+            # 6. BLINDAJE VISUAL: Ocultamos de forma segura los cuadrantes sobrantes de la cuadrícula
+            for ax_sobrante in axes_flat[len(features_to_plot):]:
+                if ax_sobrante is not None:
+                    ax_sobrante.axis('off')
                 
             fig.tight_layout()
             st.pyplot(fig)
