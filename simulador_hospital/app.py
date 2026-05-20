@@ -587,7 +587,11 @@ with col_der:
     clf = pipeline.named_steps['clasificador']
     prep = pipeline.named_steps['preprocesador']
     
+    # 🌟 BLINDAJE 1: Destruimos la matriz dispersa forzando un array denso
     X_proc = prep.transform(df_paciente)
+    if hasattr(X_proc, "toarray"):
+        X_proc = X_proc.toarray()
+        
     nombres_crudos = prep.get_feature_names_out()
     nombres_limpios = [nombre.replace('num__', '').replace('cat__', '') for nombre in nombres_crudos]
     
@@ -623,39 +627,42 @@ with col_der:
             nombres_limpios_traducidos.append(f"Diagnosis: {cie10_ui_dict.get(cat_val, cat_val)}")
         elif "rango_edad" in nombre:
             cat_val = nombre.replace("rango_edad_", "")
-            trad = next((k for k, v in opciones_edad_dict.items() if v.upper() == cat_val.upper()), cat_val)
+            try:
+                trad = next((k for k, v in opciones_edad_dict.items() if v.upper() == cat_val.upper()), cat_val)
+            except NameError:
+                trad = cat_val
             nombres_limpios_traducidos.append(f"Age: {trad}")
         else:
             nombres_limpios_traducidos.append(shap_ui_dict.get(nombre, nombre))
 
+    # 🌟 CÁLCULO SHAP
     try:
         explainer = shap.TreeExplainer(clf)
-        shap_vals = explainer.shap_values(X_proc)
+        shap_vals_raw = explainer.shap_values(X_proc)
     except:
         explainer = shap.LinearExplainer(clf, X_proc) if hasattr(clf, 'coef_') else shap.Explainer(clf, X_proc)
-        shap_vals = explainer(X_proc).values
-    
-    if isinstance(shap_vals, list): shap_vals = shap_vals[1]
-    if len(shap_vals.shape) > 2: shap_vals = shap_vals[:, :, 1]
-    
-    raw_exp = explainer.expected_value
-    base_val = float(raw_exp[1]) if isinstance(raw_exp, (list, np.ndarray)) else float(raw_exp)
-    
-    # 🌟 EXTRACCIÓN Y ORDENAMIENTO DE SHAP VALUES
-    # Aseguramos que sea un array plano y limpio
-    valores_shap_1d = np.array(shap_vals[0]).flatten()
-    
+        shap_vals_raw = explainer.shap_values(X_proc)
+        
+    # 🌟 BLINDAJE 2: Extracción matemática estricta a 1D aislando la clase 1
+    if isinstance(shap_vals_raw, list): 
+        shap_vals_raw = shap_vals_raw[1]
+        
+    # Aplanamos y forzamos a float puro
+    valores_shap_1d = np.array(shap_vals_raw).flatten()
+    valores_shap_1d = np.nan_to_num(valores_shap_1d.astype(float))
+
+    # 🌟 ARMADO DEL DATAFRAME
     df_shap_custom = pd.DataFrame({
         'Feature': nombres_limpios_traducidos,
         'SHAP_Value': valores_shap_1d
     })
     
-    # Ordenamos por impacto absoluto
+    # Ordenamos por peso absoluto
     df_shap_custom['Abs_Value'] = df_shap_custom['SHAP_Value'].abs()
     df_top_shap = df_shap_custom.sort_values(by='Abs_Value', ascending=False).head(8)
-    df_top_shap = df_top_shap.sort_values(by='Abs_Value', ascending=True) 
+    df_top_shap = df_top_shap.sort_values(by='Abs_Value', ascending=True)
     
-    # 🚨 FIX CRÍTICO: Extraemos a listas puras para destruir el índice mezclado de Pandas
+    # 🌟 BLINDAJE 3: Desvinculación de Pandas extrayendo a listas nativas
     eje_y_nombres = df_top_shap['Feature'].tolist()
     eje_x_valores = df_top_shap['SHAP_Value'].tolist()
     
@@ -665,17 +672,16 @@ with col_der:
     plt.close('all')
     fig, ax = plt.subplots(figsize=(8, 4))
     
-    # Dibujamos las barras usando las listas puras (ahora se apilarán del 0 al 7 correctamente)
-    ax.barh(eje_y_nombres, eje_x_valores, color=colores_barras, edgecolor='white', linewidth=1.5)
-    
-    # Dibujamos la línea central del valor base
+    # Pasamos explícitamente y y width como listas puras
+    ax.barh(y=eje_y_nombres, width=eje_x_valores, color=colores_barras, edgecolor='white', linewidth=1.5)
     ax.axvline(x=0, color='black', linewidth=1.5, linestyle='-')
     
-    # 🚨 FIX CRÍTICO 2: Forzamos límites simétricos en X para centrar la línea negra
-    max_impact = max(abs(v) for v in eje_x_valores) if eje_x_valores else 1
+    # Eje simétrico garantizado
+    max_impact = max([abs(v) for v in eje_x_valores]) if eje_x_valores else 1
+    if max_impact == 0: max_impact = 1
     ax.set_xlim(-max_impact * 1.15, max_impact * 1.15)
     
-    # Estética profesional y limpieza de números
+    # Limpieza visual
     ax.set_xticks([])
     ax.set_xlabel("Relative Impact on Risk Decision", fontsize=10, fontweight='bold')
     ax.spines['top'].set_visible(False)
@@ -686,7 +692,6 @@ with col_der:
     fig.tight_layout()
     st.pyplot(fig)
     
-    # Caption cualitativo
     st.caption("📌 **Note:** Bar size represents the clinical weight of the variable in the model's decision. 🔴 **Red** pushes risk higher (Towards Readmission), 🔵 **Blue** pushes risk lower (Towards Safe Discharge).")
 
 # ==========================================
