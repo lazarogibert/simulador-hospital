@@ -1293,7 +1293,7 @@ if st.session_state.mostrar_grafo:
                 
                 st.markdown("#### Clinical Profile")
                 st.markdown(f"**Secondary Diagnoses:**\n{diagsec_en}")
-                # --- TRADUCCIÓN DINÁMICA DE LA LISTA DE FÁRMACOS ---
+                # --- TRADUCCIÓN DINÁMICA DE LA LISTA DE FÁRMACOS (CASE-INSENSITIVE) ---
                 farmacos_raw = data['farmacos']
                 if str(farmacos_raw).strip().upper() in ('NINGUNO', '', 'NONE'):
                     farmacos_en = 'None'
@@ -1301,16 +1301,24 @@ if st.session_state.mostrar_grafo:
                     # Dividimos el string por la coma para traducir cada familia por separado
                     lista_farmacos = [f.strip() for f in str(farmacos_raw).split(',')]
                     
-                    # Traducimos usando el diccionario maestro (si no se encuentra, mantiene el original)
-                    lista_traducida = [FARMACOS_TRANSLATION_DICT.get(f, f) for f in lista_farmacos]
+                    # 🚨 FIX: Creamos un diccionario temporal con las claves en mayúsculas para emparejar
+                    dict_farmacos_upper = {k.upper(): v for k, v in FARMACOS_TRANSLATION_DICT.items()}
+                    
+                    # Buscamos forzando mayúsculas, si no se encuentra preservamos el formato original limpio
+                    lista_traducida = [dict_farmacos_upper.get(f.upper(), f.strip().title()) for f in lista_farmacos]
                     
                     # Unimos de nuevo en un string con saltos de línea para que quede ordenado en la interfaz
-                    farmacos_en = "\n".join([f"- {f}" for f in lista_traducida])
+                    farmacos_en = "\n".join([f"{f}" for f in lista_traducida])
 
                 # --- RENDERIZADO FINAL EN LA UI ---
                 st.markdown("#### Clinical Profile")
                 st.markdown(f"**Secondary Diagnoses:**\n{diagsec_en}")
-                st.markdown(f"**Medications:**\n{farmacos_en}")
-
+                st.markdown(f"**Medications:**")
+                # Usamos st.markdown o st.write para renderizar la lista limpia
+                if farmacos_en == 'None':
+                    st.markdown("None")
+                else:
+                    for f in lista_traducida:
+                        st.markdown(f"- {f}")
     except Exception as e:
         st.error(f"Error generating similarity graph: {str(e)}")
