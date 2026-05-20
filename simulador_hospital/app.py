@@ -1001,4 +1001,13 @@ if st.session_state.mostrar_grafo:
                 st.markdown(f"**Complexity:** {data['complejidad']}")
                 
                 st.markdown("#### Healthcare Utilization")
-                # CORRECCIÓN DE ROBUSTEZ:
+                # CORRECCIÓN DE ROBUSTEZ: Uso de función segura
+                st.markdown(f"**Prior ER Visits (6m):** {safe_int(data['guardia'])}")
+                st.markdown(f"**Consultations:** {safe_int(data['interconsultas'])}")
+                
+                st.markdown("#### Clinical Profile")
+                st.markdown(f"**Secondary Diagnoses:**\n{data['diagsec']}")
+                st.markdown(f"**Medications:**\n{data['farmacos']}")
+
+    except Exception as e:
+        st.error(f"Error generating similarity graph: {str(e)}")
