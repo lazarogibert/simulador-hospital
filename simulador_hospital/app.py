@@ -594,15 +594,70 @@ with col_der:
     clf = pipeline.named_steps["clasificador"]
     prep = pipeline.named_steps["preprocesador"]
 
-    # Paciente actual
-    df_row = df_paciente.iloc[[0]].copy()
-
-    # Transformación
-    X_proc = prep.transform(df_row)
-    if hasattr(X_proc, "toarray"):
-        X_proc = X_proc.toarray()
-
-    nombres_crudos = prep.get_feature_names_out()
+    # 1. Definición de tus diccionarios originales
+    cie10_ui_dict = {
+        "Tuberculosis": "Tuberculosis", "Lepra": "Leprosy", "Sífilis": "Syphilis", 
+        "Otras infecciosas (A)": "Other infectious (A)", "Hepatitis viral": "Viral hepatitis", 
+        "Enfermedad por VIH": "HIV disease", "Enfermedad de Chagas": "Chagas disease", 
+        "Toxoplasmosis": "Toxoplasmosis", "Equinococosis / Hidatidosis": "Echinococcosis / Hydatidosis", 
+        "Secuelas de enfermedades infecciosas": "Sequelae of infectious diseases", "Otras infecciosas (B)": "Other infectious (B)",
+        "Cáncer de labio / boca / faringe": "Lip / mouth / pharynx cancer", "Cáncer digestivo": "Digestive cancer", 
+        "Cáncer respiratorio / intratorácico": "Respiratory / intrathoracic cancer", "Cáncer de hueso / cartílago": "Bone / cartilage cancer", 
+        "Melanoma / Cáncer de piel": "Melanoma / Skin cancer", "Cáncer de mama": "Breast cancer", 
+        "Cáncer genital femenino": "Female genital cancer", "Cáncer genital masculino": "Male genital cancer", 
+        "Cáncer de vías urinarias": "Urinary tract cancer", "Cáncer de sistema nervioso central": "Central nervous system cancer", 
+        "Cáncer linfoide / hematopoyético": "Lymphoid / hematopoietic cancer", "Otros tumores malignos": "Other malignant tumors", 
+        "Tumores in situ o benignos": "In situ or benign tumors", "Anemias nutricionales": "Nutritional anemias", 
+        "Anemias hemolíticas": "Hemolytic anemias", "Aplasias y otras anemias": "Aplasias and other anemias", 
+        "Defectos de coagulación / púrpura": "Coagulation defects / purpura", "Trastornos de inmunodeficiencia": "Immunodeficiency disorders", 
+        "Otros trastornos de la sangre": "Other blood disorders",
+        "Tiroides": "Thyroid", "Diabetes": "Diabetes", "Glucosa / hipoglucemia": "Glucose / hypoglycemia", 
+        "Otros endocrinos y metabólicos": "Other endocrine and metabolic", "Obesidad y trastornos de hiperalimentación": "Obesity and hyperalimentation disorders", 
+        "Dislipidemia": "Dyslipidemia", "Fibrosis quística": "Cystic fibrosis", "Trastornos metabólicos": "Metabolic disorders", 
+        "Otros metabólicos / nutricionales": "Other metabolic / nutritional",
+        "Trastornos mentales orgánicos (Demencias)": "Organic mental disorders (Dementias)", "Trastornos por uso de sustancias": "Substance use disorders", 
+        "Esquizofrenia y trastornos psicóticos": "Schizophrenia and psychotic disorders", "Trastornos del humor (Afectivos)": "Mood (Affective) disorders", 
+        "Trastornos neuróticos y de ansiedad": "Neurotic and anxiety disorders", "Trastornos de la conducta alimentaria / sueño": "Eating / sleep disorders", 
+        "Trastornos de la personalidad": "Personality disorders", "Discapacidad intelectual": "Intellectual disability", 
+        "Trastornos del desarrollo psicobiológico (Autismo)": "Psychobiological development disorders (Autism)", "Otros trastornos mentales": "Other mental disorders",
+        "Atrofias sistémicas del SNC": "Systemic atrophies of CNS", "Trastornos extrapiramidales y del movimiento (Parkinson)": "Extrapyramidal and movement disorders (Parkinson's)", 
+        "Enfermedades degenerativas (Alzheimer)": "Degenerative diseases (Alzheimer's)", "Enfermedades desmielinizantes (Esclerosis Múltiple)": "Demyelinating diseases (Multiple Sclerosis)", 
+        "Trastornos episódicos y paroxísticos (Epilepsia, Migraña)": "Episodic and paroxysmal disorders (Epilepsy, Migraine)", "Trastornos de nervios y plexos": "Nerve and plexus disorders", 
+        "Polineuropatías": "Polyneuropathies", "Enfermedades de la unión neuromuscular (Miastenia)": "Diseases of the neuromuscular junction (Myasthenia)", 
+        "Parálisis cerebral y síndromes paralíticos": "Cerebral palsy and paralytic syndromes", "Otros trastornos neurológicos": "Other neurological disorders",
+        "Ojo": "Eye", "Oído": "Ear", "Otros órganos de los sentidos": "Other sense organs",
+        "Hipertensión": "Hypertension", "Cardiopatía isquémica": "Ischemic heart disease", "Enfermedad cardiopulmonar": "Cardiopulmonary disease", 
+        "Otras enfermedades del corazón (Insuficiencia Cardíaca)": "Other heart diseases (Heart Failure)", "Cerebrovascular": "Cerebrovascular", 
+        "Enfermedades de arterias y capilares": "Diseases of arteries and capillaries", "Enfermedades de venas y vasos linfáticos": "Diseases of veins and lymphatic vessels", 
+        "Otros circulatorios": "Other circulatory",
+        "Vías respiratorias altas": "Upper respiratory tract", "Infecciones agudas / neumonía / influenza": "Acute infections / pneumonia / influenza", 
+        "Infecciones respiratorias bajas": "Lower respiratory infections", "Enfermedades de vías respiratorias superiores": "Diseases of upper respiratory tract", 
+        "Asma / EPOC / bronquitis": "Asthma / COPD / bronchitis", "Enfermedades del pulmón por agentes externos (Neumoconiosis)": "Lung diseases due to external agents (Neumoconiosis)", 
+        "Enfermedades pulmonares intersticiales": "Interstitial lung diseases", "Otros respiratorios": "Other respiratory",
+        "Boca / dientes / faringe": "Mouth / teeth / pharynx", "Esófago / estómago / duodeno": "Esophagus / stomach / duodenum", 
+        "Apendicitis": "Appendicitis", "Hernias": "Hernias", "Enfermedad de Crohn y colitis": "Crohn's disease and colitis", 
+        "Otras enfermedades de los intestinos": "Other diseases of the intestines", "Hígado": "Liver", 
+        "Vesícula / vías biliares / páncreas": "Gallbladder / biliary tract / pancreas", "Otros digestivos": "Other digestive",
+        "Dermatitis y eczema": "Dermatitis and eczema", "Trastornos papuloescamosos (Psoriasis)": "Papulosquamous disorders (Psoriasis)", 
+        "Urticaria y eritema": "Urticaria and erythema", "Trastornos de las faneras / Otros trastornos de piel": "Disorders of skin appendages / Other skin disorders", 
+        "Otras enfermedades de la piel": "Other skin diseases",
+        "Artropatías": "Arthropathies", "Tejido conectivo (Lupus, etc.)": "Connective tissue (Lupus, etc.)", "Dorsopatías": "Dorsopathies", 
+        "Tejidos blandos": "Soft tissues", "Osteopatías y condropatías (Osteoporosis)": "Osteopathies and chondropathies (Osteoporosis)", 
+        "Otros osteomusculares": "Other musculoskeletal",
+        "Riñón (Insuficiencia Renal Crónica)": "Kidney (Chronic Renal Failure)", "Vías urinarias bajas": "Lower urinary tract", 
+        "Genital masculino (Hiperplasia Prostática)": "Male genital (Prostatic Hyperplasia)", "Mama": "Breast", 
+        "Genital femenino (Endometriosis, etc.)": "Female genital (Endometriosis, etc.)", "Otros genitourinarios": "Other genitourinary",
+        "Malformaciones del sistema nervioso (Espina bífida)": "Malformations of the nervous system (Spina bifida)", "Malformaciones cardíacas congénitas": "Congenital heart malformations", 
+        "Anomalías cromosómicas (Síndrome de Down)": "Chromosomal abnormalities (Down Syndrome)", "Otras malformaciones congénitas": "Other congenital malformations",
+        "Enfermedad respiratoria crónica perinatal": "Chronic perinatal respiratory disease", 
+        "Secuelas crónicas de traumatismos": "Chronic sequelae of injuries",
+        "Síndrome Post-COVID (Long COVID)": "Post-COVID Syndrome (Long COVID)", "Otras condiciones especiales (U)": "Other special conditions (U)",
+        "Historia personal de tumores / enfermedades": "Personal history of tumors / diseases", "Ausencia adquirida de miembros / órganos": "Acquired absence of limbs / organs", 
+        "Aberturas artificiales (Ostomías)": "Artificial openings (Ostomies)", "Estado de órgano trasplantado": "Transplanted organ status", 
+        "Presencia de implantes cardíacos / vasculares": "Presence of cardiac / vascular implants", "Dependencia de máquinas (diálisis, oxígeno)": "Machine dependence (dialysis, oxygen)", 
+        "Otros factores de salud": "Other health factors",
+        "DESCONOCIDO": "UNKNOWN"
+    }
 
     shap_ui_dict = {
         'dias_internados': 'Hospitalization Days', 'pluripatologico': 'Pluripathological',
@@ -636,77 +691,53 @@ with col_der:
             return f"Diagnosis: {cie10_ui_dict.get(cat_val, cat_val)}"
         if "rango_edad_" in n:
             cat_val = n.replace("rango_edad_", "")
-            try:
-                trad = next((k for k, v in opciones_edad_dict.items() if v.upper() == cat_val.upper()), cat_val)
-            except Exception:
-                trad = cat_val
-            return f"Age: {trad}"
+            # Usamos opciones_edad_dict solo si existe, sino devolvemos el valor limpio
+            return f"Age: {cat_val}"
         return shap_ui_dict.get(n, n)
 
-    # SHAP
+    # 2. Preparación y cálculo
+    X_proc = prep.transform(df_paciente.iloc[[0]].copy())
+    if hasattr(X_proc, "toarray"): X_proc = X_proc.toarray()
+    
+    # 3. Cálculo SHAP
     try:
         explainer = shap.TreeExplainer(clf)
-        shap_raw = explainer.shap_values(X_proc, check_additivity=False)
-    except Exception:
+        shap_values = explainer.shap_values(X_proc, check_additivity=False)
+        base_value = explainer.expected_value
+    except:
         explainer = shap.Explainer(clf, X_proc)
-        shap_raw = explainer(X_proc)
+        shap_obj = explainer(X_proc)
+        shap_values = shap_obj.values
+        base_value = shap_obj.base_values[0]
 
-    # Extraer clase positiva
-    if isinstance(shap_raw, list):
-        shap_values_paciente = shap_raw[1][0]
-    elif hasattr(shap_raw, "values"):
-        vals = shap_raw.values
-        if vals.ndim == 3:
-            shap_values_paciente = vals[0, :, 1]
-        else:
-            shap_values_paciente = vals[0]
+    # 4. Extracción estricta para paciente 0
+    if isinstance(shap_values, list):
+        shap_vals_paciente = shap_values[1][0]
+        base_val = base_value[1]
+    elif len(np.array(shap_values).shape) == 3:
+        shap_vals_paciente = np.array(shap_values)[0, :, 1]
+        base_val = base_value[0, 1] if isinstance(base_value, np.ndarray) else base_value
     else:
-        shap_values_paciente = shap_raw[0]
+        shap_vals_paciente = np.array(shap_values)[0]
+        base_val = base_value[0] if isinstance(base_value, np.ndarray) else base_value
 
-    # Forzar 1D
-    shap_values_paciente = np.asarray(shap_values_paciente).ravel()
-    nombres_crudos = np.asarray(nombres_crudos).ravel()
+    # 5. Aplicar limpieza a los nombres técnicos ANTES de graficar
+    nombres_traducidos = [limpiar_nombre(n) for n in prep.get_feature_names_out()]
 
-    # Ajustar longitudes por seguridad
-    n_min = min(len(nombres_crudos), len(shap_values_paciente))
-    nombres_crudos = nombres_crudos[:n_min]
-    shap_values_paciente = shap_values_paciente[:n_min]
-
-    # DataFrame con tus nombres traducidos originales
-    df_shap = pd.DataFrame({
-        "Feature": [limpiar_nombre(n) for n in nombres_crudos],
-        "SHAP_Value": shap_values_paciente
-    })
-
-    # Top variables individuales, sin agrupar
-    df_shap["Abs"] = df_shap["SHAP_Value"].abs()
-    df_top = df_shap.sort_values("Abs", ascending=False).head(8).sort_values("Abs", ascending=True)
-
-    # Gráfico custom
-    plt.close("all")
-    fig, ax = plt.subplots(figsize=(9, 4.8))
-
-    colores = ["#FF0051" if v > 0 else "#008BFB" for v in df_top["SHAP_Value"]]
-    ax.barh(
-        y=df_top["Feature"],
-        width=df_top["SHAP_Value"],
-        color=colores,
-        edgecolor="white",
-        height=0.6
+    # 6. Renderizado NATIVO vinculando nombres traducidos
+    plt.close('all')
+    shap_explanation = shap.Explanation(
+        values=shap_vals_paciente,
+        base_values=base_val,
+        data=X_proc[0],
+        feature_names=nombres_traducidos
     )
-    ax.axvline(x=0, color="black", linewidth=1.2)
-
-    ax.set_xlabel("Relative Impact on Risk (SHAP)", fontsize=9, fontweight="bold")
-    ax.set_xticks([])
-    ax.set_ylabel("")
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    ax.spines["bottom"].set_visible(False)
-    ax.spines["left"].set_color("#DDDDDD")
-
-    fig.tight_layout()
-    st.pyplot(fig)
-
+    
+    fig, ax = plt.subplots()
+    shap.plots.waterfall(shap_explanation, show=False, max_display=8)
+    st.pyplot(plt.gcf())
+    
+    
     st.caption(
         "📌 **Note:** Bar size represents the clinical weight of the variable in the model's decision. "
         "🔴 **Red** pushes risk higher (towards readmission), 🔵 **Blue** pushes risk lower (towards safe discharge)."
