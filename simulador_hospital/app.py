@@ -861,8 +861,16 @@ if st.button("Generate PDP"):
 
 
 # ==========================================
-# 8. CLINICAL SIMILARITY NETWORK (ADVANCED UI)
+# 8. CLINICAL SIMILARITY NETWORK (ARCHEGO ADVANCED UI)
 # ==========================================
+import os
+import numpy as np
+import pandas as pd
+import networkx as nx
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+from sklearn.neighbors import NearestNeighbors
+
 st.markdown("---")
 st.subheader("Clinical Similarity Network")
 st.markdown("Topological visualization of historical cases. Nodes are sized by clinical similarity.")
@@ -877,29 +885,23 @@ def safe_int(value, default="N/A"):
     except (ValueError, TypeError):
         return default
 
-# --- CARGA SEGURA DE ACTIVOS (Caché y Rutas Absolutas) ---
+# --- CARGA SEGURA DE ACTIVOS DINÁMICOS (Caché y Rutas Absolutas) ---
 @st.cache_resource
 def load_similarity_assets():
-    import numpy as np
-    import os
-    from sklearn.neighbors import NearestNeighbors
-    
-    # 1. Obtenemos la ruta absoluta de la carpeta donde está tu app.py
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    
-    # 2. Construimos la ruta exacta a los archivos
     ruta_x = os.path.join(BASE_DIR, 'X_train_proc.npy')
     ruta_ext = os.path.join(BASE_DIR, 'matriz_extended_display.npy')
+    ruta_cols = os.path.join(BASE_DIR, 'columnas_display.npy')
     
-    # 3. Cargamos las matrices usando las rutas blindadas
     X_train_proc = np.load(ruta_x)
     matriz_ext = np.load(ruta_ext, allow_pickle=True)
+    nombres_columnas = np.load(ruta_cols, allow_pickle=True)
     
-    # 4. Entrenamos el buscador en la memoria RAM
+    # Búsqueda ampliada a 20 vecinos
     knn_engine = NearestNeighbors(n_neighbors=20, metric='cosine')
     knn_engine.fit(X_train_proc)
     
-    return knn_engine, matriz_ext
+    return knn_engine, matriz_ext, nombres_columnas
 
 # --- GESTIÓN DE ESTADO DE STREAMLIT (UI FIX) ---
 if 'mostrar_grafo' not in st.session_state:
@@ -908,36 +910,40 @@ if 'mostrar_grafo' not in st.session_state:
 if st.button("Generate Advanced Graph"):
     st.session_state.mostrar_grafo = True
 
-# Todo el bloque se ejecuta si el estado es True, independientemente del botón
+# Todo el bloque se ejecuta si el estado es True, protegiendo el panel lateral
 if st.session_state.mostrar_grafo:
     plt.close('all')
     
     try:
-        import networkx as nx
-        import matplotlib.patches as mpatches
-        import numpy as np
-
-        knn, matriz_extended = load_similarity_assets()
+        # 1. Cargamos el motor y los datos dinámicos
+        knn, matriz_extended, nombres_columnas = load_similarity_assets()
         
+        # Transformamos al paciente actual (Asumiendo que df_paciente y pipeline están en scope)
         prep = pipeline.named_steps['preprocesador']
         X_paciente_proc = prep.transform(df_paciente)
         
         # Ejecutamos la búsqueda
         distancias, indices = knn.kneighbors(X_paciente_proc)
-        
         vecinos_idx = indices[0]
         distancias_vecinos = distancias[0]
         
+        # 2. MAPEO DINÁMICO DE ÍNDICES
+        col_idx = {col: i for i, col in enumerate(nombres_columnas)}
+        
+        # Identificamos dinámicamente las columnas en común usando tu lista blanca
+        prefijos_nlp = ('LLM_', 'ING_', 'EVO_', 'DELTA_', 'rango_', 'pluripatologico', 'dias_', 'CIE10_MACRO')
+        columnas_comunes_dinamicas = [col for col in nombres_columnas if str(col).startswith(prefijos_nlp)]
+        
         # 3. CONFIGURACIÓN VISUAL Y ESCALADO
         COLOR_NEW_PATIENT = '#87CEEB' 
-        COLOR_HIST_READMIT = '#FF0000' # 🔴 Rojo Puro para reingresos
-        COLOR_HIST_SAFE = '#228B22'    # 🟢 Verde para altas seguras
+        COLOR_HIST_READMIT = '#FF0000' # Rojo para reingresos
+        COLOR_HIST_SAFE = '#228B22'    # Verde para altas seguras
         
-        SIZE_NEW_PATIENT = 2000 # Aumentamos el nodo central para que siempre sea el rey
-        SIZE_MAX_TWIN = 1400    # Gemelo idéntico
-        SIZE_MIN_TWIN = 150     # Gemelo lejano (muy pequeño para forzar contraste)
+        SIZE_NEW_PATIENT = 2000 
+        SIZE_MAX_TWIN = 1400    
+        SIZE_MIN_TWIN = 150     
 
-        # Pre-calculamos las similitudes y buscamos los límites locales
+        # Pre-calculamos las similitudes corregidas (evitando negativos) y buscamos límites
         similitudes_brutas = [max(0, (1 - d)) * 100 for d in distancias_vecinos]
         sim_max = max(similitudes_brutas)
         sim_min = min(similitudes_brutas)
@@ -948,52 +954,44 @@ if st.session_state.mostrar_grafo:
         
         info_inspeccion = {}
         
-        IDX_AREA = 0
-        IDX_SEXO = 1
-        IDX_INTERCONSULTAS = 2
-        IDX_GUARDIA = 3
-        IDX_COMPLEJIDAD = 4
-        IDX_FARMACOS = 5
-        IDX_DIAGSEC = 6
-        IDX_TARGET = 7
-        
         for i, (idx, similitud_pct) in enumerate(zip(vecinos_idx, similitudes_brutas)):
-            reingreso_real = float(matriz_extended[idx, IDX_TARGET])
+            reingreso_real = float(matriz_extended[idx, col_idx['target']])
             color_nodo = COLOR_HIST_READMIT if reingreso_real == 1.0 else COLOR_HIST_SAFE
             
-            # --- MAGIA VISUAL: Escalado Dinámico Exagerado ---
+            # Escalado Dinámico Exagerado
             if sim_max > sim_min:
-                # Normalizamos de 0.0 a 1.0 dentro de este micro-grupo
-                factor_normalizado = (similitud_pct - sim_min) / (sim_max - sim_min)
-                # Elevamos a la potencia de 1.5 para exagerar la caída de volumen en los nodos menos similares
-                factor_exagerado = factor_normalizado ** 1.5 
+                factor_exagerado = ((similitud_pct - sim_min) / (sim_max - sim_min)) ** 1.5 
             else:
                 factor_exagerado = 1.0
                 
             scaled_size = SIZE_MIN_TWIN + factor_exagerado * (SIZE_MAX_TWIN - SIZE_MIN_TWIN)
-            # -------------------------------------------------
-
             label_grafo = f"Twin {i+1}\n({similitud_pct:.1f}%)"
+            
             G.add_node(label_grafo, color=color_nodo, size=scaled_size)
+            G.add_edge("Current\nPatient", label_grafo, weight=(0.5 + (factor_exagerado * 2.5)))
             
-            # El grosor de la línea también se beneficia del factor exagerado
-            grosor_linea = 0.5 + (factor_exagerado * 2.5)
-            G.add_edge("Current\nPatient", label_grafo, weight=grosor_linea)
-            
-            info_inspeccion[f"Twin {i+1}"] = {
+            # 5. EXTRACCIÓN DE DATOS PARA EL PANEL
+            datos_gemelo = {
                 "similitud": similitud_pct,
                 "outcome_text": "Readmitted" if reingreso_real == 1.0 else "Safe Discharge",
-                "area": matriz_extended[idx, IDX_AREA],
-                "sexo": matriz_extended[idx, IDX_SEXO],
-                "interconsultas": matriz_extended[idx, IDX_INTERCONSULTAS],
-                "guardia": matriz_extended[idx, IDX_GUARDIA],
-                "complejidad": matriz_extended[idx, IDX_COMPLEJIDAD],
-                "farmacos": matriz_extended[idx, IDX_FARMACOS],
-                "diagsec": matriz_extended[idx, IDX_DIAGSEC]
+                "area": matriz_extended[idx, col_idx.get('Area', -1)] if 'Area' in col_idx else "N/A",
+                "sexo": matriz_extended[idx, col_idx.get('sexo', -1)] if 'sexo' in col_idx else "N/A",
+                "interconsultas": matriz_extended[idx, col_idx.get('cantidad_interconsultas', -1)] if 'cantidad_interconsultas' in col_idx else "N/A",
+                "guardia": matriz_extended[idx, col_idx.get('visitas_guardia_6meses_previos', -1)] if 'visitas_guardia_6meses_previos' in col_idx else "N/A",
+                "complejidad": matriz_extended[idx, col_idx.get('IN_COMPLEJIDAD', -1)] if 'IN_COMPLEJIDAD' in col_idx else "N/A",
+                "farmacos": matriz_extended[idx, col_idx.get('FARMACOS_TEXTO', -1)] if 'FARMACOS_TEXTO' in col_idx else "N/A",
+                "diagsec": matriz_extended[idx, col_idx.get('DIAGNOSTICOS_SEC_ACTIVOS', -1)] if 'DIAGNOSTICOS_SEC_ACTIVOS' in col_idx else "N/A",
+                "datos_comunes": {}
             }
+            
+            for col_comun in columnas_comunes_dinamicas:
+                datos_gemelo["datos_comunes"][col_comun] = matriz_extended[idx, col_idx[col_comun]]
+                
+            info_inspeccion[f"Twin {i+1}"] = datos_gemelo
 
-        fig, ax = plt.subplots(figsize=(8, 5))
-        pos = nx.spring_layout(G, seed=42, k=0.6)
+        # 6. RENDERIZADO DEL GRAFO (Ajustado para 20 nodos)
+        fig, ax = plt.subplots(figsize=(10, 8))
+        pos = nx.spring_layout(G, seed=42, k=0.9) # k=0.9 separa más los nodos
         
         node_colors = [data['color'] for node, data in G.nodes(data=True)]
         node_sizes = [data['size'] for node, data in G.nodes(data=True)]
@@ -1002,9 +1000,10 @@ if st.session_state.mostrar_grafo:
         nx.draw_networkx_edges(G, pos, ax=ax, width=edge_weights, alpha=0.4, edge_color='#999999')
         nx.draw_networkx_nodes(G, pos, ax=ax, node_color=node_colors, node_size=node_sizes, 
                                edgecolors='white', linewidths=2, alpha=0.9)
-        nx.draw_networkx_labels(G, pos, ax=ax, font_size=10, font_weight='bold', font_color='black')
+        nx.draw_networkx_labels(G, pos, ax=ax, font_size=9, font_weight='bold', font_color='black')
         ax.axis('off')
         
+        # 7. INTERFAZ DEL PANEL LATERAL
         col_grafo, col_panel = st.columns([2, 1])
         
         with col_grafo:
@@ -1024,13 +1023,19 @@ if st.session_state.mostrar_grafo:
                     st.success(f"**Outcome:** {data['outcome_text']}")
                 
                 st.markdown("---")
-                st.markdown("#### Patient Details")
-                st.markdown(f"**Sex:** {data['sexo']}")
-                st.markdown(f"**Area:** {data['area']}")
-                st.markdown(f"**Complexity:** {data['complejidad']}")
                 
-                st.markdown("#### Healthcare Utilization")
-                # CORRECCIÓN DE ROBUSTEZ: Uso de función segura
+                # 🤝 SECCIÓN 1: LO QUE TIENEN EN COMÚN (Dinámico)
+                st.markdown("#### 🤝 Shared Matching Criteria")
+                with st.expander("View Clinical Profile Core", expanded=True):
+                    for nombre_var, valor_var in data['datos_comunes'].items():
+                        st.markdown(f"**{nombre_var}:** {valor_var}")
+                
+                st.markdown("---")
+                
+                # 🏥 SECCIÓN 2: LA INFORMACIÓN ADICIONAL
+                st.markdown("#### 🏥 Retrospective Extra Details")
+                st.markdown(f"**Sex:** {data['sexo']} | **Area:** {data['area']}")
+                st.markdown(f"**Complexity:** {data['complejidad']}")
                 st.markdown(f"**Prior ER Visits (6m):** {safe_int(data['guardia'])}")
                 st.markdown(f"**Consultations:** {safe_int(data['interconsultas'])}")
                 
