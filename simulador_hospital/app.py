@@ -506,17 +506,11 @@ with col_izq:
     st.metric(label="15-Day Probability", value=f"{riesgo*100:.1f}%")
     
     if riesgo > umbral:
-        st.error(
-            f"⚠️ **CLINICAL ALERT**\n\n"
-            f"The patient exceeds the strict safety threshold ({umbral*100:.1f}%)."
-        )
+        st.error(f"⚠️ **CLINICAL ALERT**\n\nThe patient exceeds the strict safety threshold ({umbral*100:.1f}%).")
     else:
-        st.success(
-            "✅ **SAFE DISCHARGE**\n\n"
-            "Risk controlled within the permitted threshold."
-        )
+        st.success(f"✅ **SAFE DISCHARGE**\n\nRisk controlled within the permitted threshold.")
 
-    # UI Translation Dictionary for CIE-10
+    # DICCIONARIO UI EXHAUSTIVO PARA LA TRADUCCIÓN DEL CIE-10
     cie10_ui_dict = {
         "Tuberculosis": "Tuberculosis", "Lepra": "Leprosy", "Sífilis": "Syphilis", 
         "Otras infecciosas (A)": "Other infectious (A)", "Hepatitis viral": "Viral hepatitis", 
@@ -554,7 +548,7 @@ with col_izq:
         "Otros circulatorios": "Other circulatory",
         "Vías respiratorias altas": "Upper respiratory tract", "Infecciones agudas / neumonía / influenza": "Acute infections / pneumonia / influenza", 
         "Infecciones respiratorias bajas": "Lower respiratory infections", "Enfermedades de vías respiratorias superiores": "Diseases of upper respiratory tract", 
-        "Asma / EPOC / bronquitis": "Asthma / COPD / bronchitis", "Enfermedades del pulmón por agentes externos (Neumoconiosis)": "Lung diseases due to external agents (Neumoconiosis)", 
+        "Asma / EPOC / bronquitis": "Asthma / COPD / bronchitis", "Enfermedades del pulmón por agentes externos (Neumoconiosis)": "Lung diseases due to external agents (Pneumoconiosis)", 
         "Enfermedades pulmonares intersticiales": "Interstitial lung diseases", "Otros respiratorios": "Other respiratory",
         "Boca / dientes / faringe": "Mouth / teeth / pharynx", "Esófago / estómago / duodeno": "Esophagus / stomach / duodenum", 
         "Apendicitis": "Appendicitis", "Hernias": "Hernias", "Enfermedad de Crohn y colitis": "Crohn's disease and colitis", 
@@ -585,71 +579,115 @@ with col_izq:
         categoria_cie10_ingles = "N/A"
     else:
         categoria_cie10_ingles = cie10_ui_dict.get(categoria_cie10, categoria_cie10)
-
+    
     st.info(f"**Mapped Diagnosis:** {categoria_cie10_ingles} (Code: {codigo_normalizado})")
 
 with col_der:
     st.subheader("Decision Audit (SHAP)")
-
-    clf = pipeline.named_steps["clasificador"]
-    prep = pipeline.named_steps["preprocesador"]
-
-    # 1. Preparación del paciente (df_row)
-    df_row = df_paciente.iloc[[0]].copy()
-    X_proc = prep.transform(df_row)
-    if hasattr(X_proc, "toarray"): X_proc = X_proc.toarray()
+    clf = pipeline.named_steps['clasificador']
+    prep = pipeline.named_steps['preprocesador']
+    
+    X_proc = prep.transform(df_paciente)
     
     nombres_crudos = prep.get_feature_names_out()
-
-    # --- TUS DICCIONARIOS ORIGINALES (INTACTOS) ---
+    nombres_limpios = [nombre.replace('num__', '').replace('cat__', '') for nombre in nombres_crudos]
     
+    # 🌟 DICCIONARIO UI PARA TRADUCIR LAS VARIABLES DE SHAP
     shap_ui_dict = {
-        'dias_internados': 'Hospitalization Days', 'pluripatologico': 'Pluripathological',
-        'ING_dolor_eva': 'Initial Pain', 'ING_gravedad_percibida': 'Initial Severity',
-        'EVO_dolor_eva': 'Current Pain', 'EVO_gravedad_percibida': 'Current Severity',
-        'DELTA_dolor_eva': 'Pain Delta', 'DELTA_gravedad_percibida': 'Severity Delta',
-        'DELTA_alteracion_mental': 'Mental Alt. Delta', 'DELTA_dependencia_funcional': 'Func. Dep. Delta',
-        'DELTA_portador_dispositivos': 'Device Bearer Delta', 'ING_alteracion_mental': 'Initial Mental Alt.',
-        'ING_consultas_reiteradas': 'Initial Repeated Consults', 'ING_dependencia_funcional': 'Initial Func. Dep.',
-        'ING_portador_dispositivos': 'Initial Device Bearer', 'ING_riesgo_hemorragico': 'Initial Hemorrhagic Risk',
-        'EVO_aislamiento_infeccioso': 'Current Infect. Isolation', 'EVO_alteracion_mental': 'Current Mental Alt.',
-        'EVO_complicacion_internacion': 'Current Hosp. Complication', 'EVO_cuidados_paliativos': 'Current Palliat. Care',
-        'EVO_dependencia_funcional': 'Current Func. Dep.', 'EVO_fuga_o_alta_irregular': 'Current Irreg. Discharge',
-        'EVO_portador_dispositivos': 'Current Device Bearer', 'EVO_ulceras_presion': 'Current Pressure Ulcers',
-        'LLM_AF_autoinmune': 'Fam. Hist: Autoimmune', 'LLM_AF_cardiovascular_otro': 'Fam. Hist: Other CV',
-        'LLM_AF_diabetes': 'Fam. Hist: Diabetes', 'LLM_AF_hipertension': 'Fam. Hist: Hypertension',
-        'LLM_AF_metabolico_otro': 'Fam. Hist: Other Metabolic', 'LLM_AF_neurologico': 'Fam. Hist: Neurological',
-        'LLM_AF_oncologico': 'Fam. Hist: Oncological', 'LLM_AF_psiquiatrico': 'Fam. Hist: Psychiatric',
-        'LLM_AF_renal': 'Fam. Hist: Renal', 'LLM_AF_respiratorio': 'Fam. Hist: Respiratory',
-        'LLM_abandono_medicacion': 'Chronic: Med. Abandonment', 'LLM_alcoholismo': 'Chronic: Alcoholism',
-        'LLM_desnutricion_severa': 'Chronic: Severe Malnutrition', 'LLM_drogas_ilicitas': 'Chronic: Illicit Drugs',
-        'LLM_fragilidad_geriatrica': 'Chronic: Geriatric Frailty', 'LLM_historial_caidas': 'Chronic: History of Falls',
-        'LLM_oxigenodependiente': 'Chronic: Oxygen Dependent', 'LLM_polifarmacia': 'Chronic: Polypharmacy',
+        'dias_internados': 'Hospitalization Days',
+        'pluripatologico': 'Pluripathological',
+        'ING_dolor_eva': 'Initial Pain',
+        'ING_gravedad_percibida': 'Initial Severity',
+        'EVO_dolor_eva': 'Current Pain',
+        'EVO_gravedad_percibida': 'Current Severity',
+        'DELTA_dolor_eva': 'Pain Delta',
+        'DELTA_gravedad_percibida': 'Severity Delta',
+        'DELTA_alteracion_mental': 'Mental Alt. Delta',
+        'DELTA_dependencia_funcional': 'Func. Dep. Delta',
+        'DELTA_portador_dispositivos': 'Device Bearer Delta',
+        'ING_alteracion_mental': 'Initial Mental Alt.',
+        'ING_consultas_reiteradas': 'Initial Repeated Consults',
+        'ING_dependencia_funcional': 'Initial Func. Dep.',
+        'ING_portador_dispositivos': 'Initial Device Bearer',
+        'ING_riesgo_hemorragico': 'Initial Hemorrhagic Risk',
+        'EVO_aislamiento_infeccioso': 'Current Infect. Isolation',
+        'EVO_alteracion_mental': 'Current Mental Alt.',
+        'EVO_complicacion_internacion': 'Current Hosp. Complication',
+        'EVO_cuidados_paliativos': 'Current Palliat. Care',
+        'EVO_dependencia_funcional': 'Current Func. Dep.',
+        'EVO_fuga_o_alta_irregular': 'Current Irreg. Discharge',
+        'EVO_portador_dispositivos': 'Current Device Bearer',
+        'EVO_ulceras_presion': 'Current Pressure Ulcers',
+        'LLM_AF_autoinmune': 'Fam. Hist: Autoimmune',
+        'LLM_AF_cardiovascular_otro': 'Fam. Hist: Other CV',
+        'LLM_AF_diabetes': 'Fam. Hist: Diabetes',
+        'LLM_AF_hipertension': 'Fam. Hist: Hypertension',
+        'LLM_AF_metabolico_otro': 'Fam. Hist: Other Metabolic',
+        'LLM_AF_neurologico': 'Fam. Hist: Neurological',
+        'LLM_AF_oncologico': 'Fam. Hist: Oncological',
+        'LLM_AF_psiquiatrico': 'Fam. Hist: Psychiatric',
+        'LLM_AF_renal': 'Fam. Hist: Renal',
+        'LLM_AF_respiratorio': 'Fam. Hist: Respiratory',
+        'LLM_abandono_medicacion': 'Chronic: Med. Abandonment',
+        'LLM_alcoholismo': 'Chronic: Alcoholism',
+        'LLM_desnutricion_severa': 'Chronic: Severe Malnutrition',
+        'LLM_drogas_ilicitas': 'Chronic: Illicit Drugs',
+        'LLM_fragilidad_geriatrica': 'Chronic: Geriatric Frailty',
+        'LLM_historial_caidas': 'Chronic: History of Falls',
+        'LLM_oxigenodependiente': 'Chronic: Oxygen Dependent',
+        'LLM_polifarmacia': 'Chronic: Polypharmacy',
         'LLM_tabaquismo_activo': 'Chronic: Active Smoking'
     }
 
-    def limpiar_nombre(nombre):
-        n = nombre.replace("num__", "").replace("cat__", "")
-        if "CIE10_MACRO_" in n:
-            cat_val = n.replace("CIE10_MACRO_", "")
-            return f"Diagnosis: {cie10_ui_dict.get(cat_val, cat_val)}"
-        return shap_ui_dict.get(n, n)
+    # 🌟 TRADUCCIÓN DINÁMICA DE LA LISTA DE VARIABLES
+    nombres_limpios_traducidos = []
+    for nombre in nombres_limpios:
+        if "CIE10_MACRO" in nombre:
+            # Captura variables One-Hot (ej. CIE10_MACRO_Diabetes) y traduce la enfermedad
+            cat_val = nombre.replace("CIE10_MACRO_", "")
+            trad = cie10_ui_dict.get(cat_val, cat_val)
+            nombres_limpios_traducidos.append(f"Diagnosis: {trad}")
+        elif "rango_edad" in nombre:
+            # Traduce la variable de edad haciendo búsqueda inversa en tu diccionario
+            cat_val = nombre.replace("rango_edad_", "")
+            trad = cat_val
+            for en, es in opciones_edad_dict.items():
+                if es.upper() == cat_val.upper():
+                    trad = en
+                    break
+            nombres_limpios_traducidos.append(f"Age: {trad}")
+        else:
+            # Mapea cualquier otra variable cruda al inglés
+            nombres_limpios_traducidos.append(shap_ui_dict.get(nombre, nombre))
 
-    # 3. CÁLCULO SHAP ROBUSTO (API moderna unificada)
-    explainer = shap.Explainer(clf, X_proc)
-    shap_obj = explainer(X_proc) # Esto devuelve un objeto Explanation listo para graficar
-
-    # 4. RENDERIZADO NATIVO
-    plt.close('all')
+    try:
+        explainer = shap.TreeExplainer(clf)
+        shap_vals = explainer.shap_values(X_proc)
+    except Exception:
+        explainer = shap.LinearExplainer(clf, X_proc) if hasattr(clf, 'coef_') else shap.Explainer(clf, X_proc)
+        shap_vals = explainer(X_proc).values
     
-    # Aplicamos limpieza de nombres al objeto Explanation directamente
-    shap_obj.feature_names = [limpiar_nombre(n) for n in nombres_crudos]
+    if isinstance(shap_vals, list): shap_vals = shap_vals[1]
+    if len(shap_vals.shape) > 2: shap_vals = shap_vals[:, :, 1]
     
-    shap.plots.waterfall(shap_obj[0], show=False, max_display=8)
+    exp_val = explainer.expected_value
+    if isinstance(exp_val, (list, np.ndarray)):
+        exp_val = exp_val[1] if len(exp_val) > 1 else exp_val[0]
     
-    st.pyplot(plt.gcf())
-     
+    # 🌟 ESCALADO MATEMÁTICO A PORCENTAJES (Transformación x100)
+    shap_vals_pct = shap_vals[0] * 100
+    exp_val_pct = exp_val * 100
     
+    fig, ax = plt.subplots(figsize=(8, 4))
+    
+    shap.waterfall_plot(shap.Explanation(
+        values=shap_vals_pct, 
+        base_values=exp_val_pct, 
+        data=X_proc[0], 
+        feature_names=nombres_limpios_traducidos), 
+        show=False, max_display=8
+    )
+    st.pyplot(fig)
     st.caption(
         "📌 **Note:** Bar size represents the clinical weight of the variable in the model's decision. "
         "🔴 **Red** pushes risk higher (towards readmission), 🔵 **Blue** pushes risk lower (towards safe discharge)."
