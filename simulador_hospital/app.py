@@ -914,7 +914,7 @@ if st.session_state.mostrar_pdp:
                 pipeline, 
                 df_pdp_train, 
                 features=features_to_plot,
-                ncols=3,
+                n_cols=3,
                 kind='average',
                 subsample=150, # Muestra representativa segura para la CPU del servidor
                 random_state=42
