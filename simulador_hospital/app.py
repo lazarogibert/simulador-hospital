@@ -865,9 +865,41 @@ if st.button("Generate PDP"):
 # ==========================================
 st.markdown("---")
 st.subheader("Clinical Similarity Network")
-st.markdown("Topological visualization of historical cases. Nodos are sized by clinical similarity.")
+st.markdown("Topological visualization of historical cases. Nodes are sized by clinical similarity.")
+
+# --- FUNCIÓN SEGURA DE CONVERSIÓN ---
+def safe_int(value, default="N/A"):
+    """Evita que la app se rompa si hay NaNs o strings vacíos en los datos numéricos."""
+    try:
+        if pd.isna(value) or value == "":
+            return default
+        return int(float(value))
+    except (ValueError, TypeError):
+        return default
+
+# --- CARGA SEGURA DE ACTIVOS ---
+@st.cache_resource
+def load_similarity_assets():
+    import numpy as np
+    from sklearn.neighbors import NearestNeighbors
+    
+    X_train_proc = np.load('X_train_proc.npy')
+    matriz_ext = np.load('matriz_extended_display.npy', allow_pickle=True)
+    
+    knn_engine = NearestNeighbors(n_neighbors=5, metric='cosine')
+    knn_engine.fit(X_train_proc)
+    
+    return knn_engine, matriz_ext
+
+# --- GESTIÓN DE ESTADO DE STREAMLIT (UI FIX) ---
+if 'mostrar_grafo' not in st.session_state:
+    st.session_state.mostrar_grafo = False
 
 if st.button("Generate Advanced Graph"):
+    st.session_state.mostrar_grafo = True
+
+# Todo el bloque se ejecuta si el estado es True, independientemente del botón
+if st.session_state.mostrar_grafo:
     plt.close('all')
     
     try:
@@ -875,127 +907,98 @@ if st.button("Generate Advanced Graph"):
         import matplotlib.patches as mpatches
         import numpy as np
 
-        # --- PARTE 0: CARGA DE DATOS SEGUROS (.npy) ---
-        # Asumimos que estos archivos se generaron localmente y subieron al servidor
-        # X_train_proc = np.load('X_train_proc.npy') # Matriz de búsqueda
-        # matriz_extended = np.load('matriz_extended_display.npy') # Datos visuales
+        knn, matriz_extended = load_similarity_assets()
         
-        # --- PARTE 1: BÚSQUEDA KNN (Simulación) ---
-        # (Se asume que el buscador KNN ya corrió sobre X_paciente_proc)
-        # vecinos_idx = [42, 108, 15, 200, 50] # Índices de ejemplo
-        # distancias_vecinos = [0.05, 0.1, 0.15, 0.2, 0.25] # Distancias de ejemplo
+        prep = pipeline.named_steps['preprocesador']
+        X_paciente_proc = prep.transform(df_paciente)
         
-        # --- PARTE 2: CONFIGURACIÓN VISUAL (CONSTANTES) ---
+        distancias, indices = knn.kneighbors(X_paciente_proc)
         
-        # Definición de Colores (Estándar Web/Matplotlib)
-        COLOR_NEW_PATIENT = '#87CEEB' # Celeste (SkyBlue)
-        COLOR_HIST_READMIT = '#0000CD' # Azul Medio (MediumBlue) - Mejor contraste que Pure Blue
-        COLOR_HIST_SAFE = '#228B22'    # Verde Foresta (ForestGreen)
+        vecinos_idx = indices[0]
+        distancias_vecinos = distancias[0]
         
-        # Definición de Tamaños (Área del nodo)
-        SIZE_NEW_PATIENT = 1500 # Nodo central (Referencia máxima)
-        SIZE_MAX_TWIN = 1300    # Máximo tamaño para un gemelo (Estrictamente menor que central)
-        SIZE_MIN_TWIN = 500     # Mínimo tamaño para un gemelo (Similitud baja)
+        COLOR_NEW_PATIENT = '#87CEEB' 
+        COLOR_HIST_READMIT = '#0000CD' 
+        COLOR_HIST_SAFE = '#228B22'    
+        
+        SIZE_NEW_PATIENT = 1500 
+        SIZE_MAX_TWIN = 1300    
+        SIZE_MIN_TWIN = 500     
 
-        # --- PARTE 3: CONSTRUCCIÓN DEL GRAFO ---
         G = nx.Graph()
+        G.add_node("Current\nPatient", color=COLOR_NEW_PATIENT, size=SIZE_NEW_PATIENT)
         
-        # A. Añadir Nodo Central (Paciente Nuevo)
-        G.add_node("Current\nPatient", color=COLOR_NEW_PATIENT, size=SIZE_NEW_PATIENT, type='new')
-        
-        # Diccionario para el panel de inspección lateral
         info_inspeccion = {}
         
-        # Supongamos que en matriz_extended, la columna 6 es 'reingreso_efectivo' (1=Sí, 0=No)
-        # Y la columna 0 es 'edad'. Esto debe alinearse con tu exportación local.
-        idx_reingreso = 6 
+        IDX_AREA = 0
+        IDX_SEXO = 1
+        IDX_INTERCONSULTAS = 2
+        IDX_GUARDIA = 3
+        IDX_COMPLEJIDAD = 4
+        IDX_FARMACOS = 5
+        IDX_DIAGSEC = 6
+        IDX_TARGET = 7
         
-        # B. Añadir Nodos Gemelos Históricos
         for i, (idx, dist) in enumerate(zip(vecinos_idx, distancias_vecinos)):
-            # Cálculo de Similitud
-            similitud_pct = (1 - dist) * 100
+            # CORRECCIÓN METODOLÓGICA: Evitar similitudes negativas
+            similitud_pct = max(0, (1 - dist)) * 100
+            reingreso_real = float(matriz_extended[idx, IDX_TARGET])
             
-            # Obtención de datos reales de la matriz extendida
-            reingreso_real = matriz_extended[idx, idx_reingreso]
-            edad_hist = matriz_extended[idx, 0]
-            
-            # Lógica de Color (Reingreso)
-            color_nodo = COLOR_HIST_READMIT if reingreso_real == 1 else COLOR_HIST_SAFE
-            
-            # Lógica de Tamaño (Escalado Lineal de similitud [0-100] a rango [min_size-max_size])
-            # Fórmula: min + (pct/100) * (max - min)
+            color_nodo = COLOR_HIST_READMIT if reingreso_real == 1.0 else COLOR_HIST_SAFE
             scaled_size = SIZE_MIN_TWIN + (similitud_pct / 100) * (SIZE_MAX_TWIN - SIZE_MIN_TWIN)
             
-            # Etiqueta limpia para el grafo
             label_grafo = f"Twin {i+1}\n({similitud_pct:.1f}%)"
-            
-            # Añadir nodo con atributos visuales
-            G.add_node(label_grafo, color=color_nodo, size=scaled_size, type='hist')
-            
-            # Añadir arista (grosor proporcional a la similitud)
+            G.add_node(label_grafo, color=color_nodo, size=scaled_size)
             G.add_edge("Current\nPatient", label_grafo, weight=(similitud_pct / 20))
             
-            # Guardar datos extendidos para el Inspector Lateral
             info_inspeccion[f"Twin {i+1}"] = {
                 "similitud": similitud_pct,
-                "outcome_text": "Readmitted" if reingreso_real == 1 else "Safe Discharge",
-                "edad": edad_hist,
-                "matrix_idx": idx # Guardamos índice por si acaso
+                "outcome_text": "Readmitted" if reingreso_real == 1.0 else "Safe Discharge",
+                "area": matriz_extended[idx, IDX_AREA],
+                "sexo": matriz_extended[idx, IDX_SEXO],
+                "interconsultas": matriz_extended[idx, IDX_INTERCONSULTAS],
+                "guardia": matriz_extended[idx, IDX_GUARDIA],
+                "complejidad": matriz_extended[idx, IDX_COMPLEJIDAD],
+                "farmacos": matriz_extended[idx, IDX_FARMACOS],
+                "diagsec": matriz_extended[idx, IDX_DIAGSEC]
             }
 
-        # --- PARTE 4: RENDERIZADO Matplotlib ---
         fig, ax = plt.subplots(figsize=(8, 5))
-        
-        # Layout orgánico
         pos = nx.spring_layout(G, seed=42, k=0.6)
         
-        # Extraer atributos de los nodos para el dibujado
         node_colors = [data['color'] for node, data in G.nodes(data=True)]
         node_sizes = [data['size'] for node, data in G.nodes(data=True)]
         edge_weights = [G[u][v]['weight'] for u,v in G.edges()]
         
-        # Dibujar Aristas
         nx.draw_networkx_edges(G, pos, ax=ax, width=edge_weights, alpha=0.4, edge_color='#999999')
-        
-        # Dibujar Nodos (con borde blanco para destacar)
         nx.draw_networkx_nodes(G, pos, ax=ax, node_color=node_colors, node_size=node_sizes, 
                                edgecolors='white', linewidths=2, alpha=0.9)
-        
-        # Dibujar Etiquetas
         nx.draw_networkx_labels(G, pos, ax=ax, font_size=10, font_weight='bold', font_color='black')
-        
         ax.axis('off')
         
-        # --- PARTE 5: INTERFAZ HÍBRIDA (Grafo + Panel Inspector) ---
         col_grafo, col_panel = st.columns([2, 1])
         
         with col_grafo:
-            st.pyplot(fig) # Visualización limpia del grafo
+            st.pyplot(fig)
             
         with col_panel:
             st.markdown("### 🔍 Case Inspector")
-            st.markdown("Select a twin node to view full retrospective history.")
+            seleccion = st.selectbox("Inspect Patient Twin:", list(info_inspeccion.keys()))
             
-            # Reemplazo del "clic" por selector nativo
-            opciones_selector = list(info_inspeccion.keys())
-            if opciones_selector:
-                seleccion = st.selectbox("Inspect Patient:", opciones_selector)
+            if seleccion:
                 data = info_inspeccion[seleccion]
-                
-                # UI Profesional con st.metric y markdown
                 st.metric(label="Clinical Match", value=f"{data['similitud']:.1f}%")
                 
-                # Despliegue de variables extendidas
-                st.markdown("#### Retrospective Details")
-                st.markdown(f"**Age:** {int(data['edad'])} years")
-                
-                # Alerta visual según desenlace real
                 if data['outcome_text'] == "Readmitted":
                     st.error(f"**Outcome:** {data['outcome_text']}")
-                    st.markdown("⚠️ *This historical case required readmission.*")
                 else:
                     st.success(f"**Outcome:** {data['outcome_text']}")
-                    st.markdown("✅ *This case had a safe hospital discharge.*")
-
-    except Exception as e:
-        st.error(f"Error generating similarity graph: {str(e)}")
+                
+                st.markdown("---")
+                st.markdown("#### Patient Details")
+                st.markdown(f"**Sex:** {data['sexo']}")
+                st.markdown(f"**Area:** {data['area']}")
+                st.markdown(f"**Complexity:** {data['complejidad']}")
+                
+                st.markdown("#### Healthcare Utilization")
+                # CORRECCIÓN DE ROBUSTEZ:
