@@ -656,12 +656,10 @@ with col_der:
         nombres_limpios_traducidos = []
         for nombre in nombres_limpios:
             if "CIE10_MACRO" in nombre:
-                # Captura variables One-Hot (ej. CIE10_MACRO_Diabetes) y traduce la enfermedad
                 cat_val = nombre.replace("CIE10_MACRO_", "")
                 trad = cie10_ui_dict.get(cat_val, cat_val)
                 nombres_limpios_traducidos.append(f"Diagnosis: {trad}")
             elif "rango_edad" in nombre:
-                # Traduce la variable de edad haciendo búsqueda inversa en tu diccionario
                 cat_val = nombre.replace("rango_edad_", "")
                 trad = cat_val
                 if 'opciones_edad_dict' in locals() or 'opciones_edad_dict' in globals():
@@ -671,10 +669,8 @@ with col_der:
                             break
                 nombres_limpios_traducidos.append(f"Age: {trad}")
             else:
-                # Mapea cualquier otra variable cruda al inglés
                 nombres_limpios_traducidos.append(shap_ui_dict.get(nombre, nombre))
 
-        # 🌟 CÁLCULO SHAP CON INDENTACIÓN CORREGIDA
         try:
             explainer = shap.TreeExplainer(clf)
             shap_vals = explainer.shap_values(X_proc, check_additivity=False)
@@ -687,23 +683,27 @@ with col_der:
                 shap_vals = explainer(X_proc, check_additivity=False).values
         
         if isinstance(shap_vals, list): shap_vals = shap_vals[1]
-        if len(shap_vals.shape) > 2: shap_vals = shap_vals[:, :, 1]
+        if len(np.array(shap_vals).shape) > 2: shap_vals = np.array(shap_vals)[:, :, 1]
         
         exp_val = explainer.expected_value
         if isinstance(exp_val, (list, np.ndarray)):
             exp_val = exp_val[1] if len(exp_val) > 1 else exp_val[0]
         
-        # 🌟 ESCALADO MATEMÁTICO A PORCENTAJES (Transformación x100)
-        shap_vals_pct = shap_vals[0] * 100
-        exp_val_pct = exp_val * 100
+        # 🌟 EXTRACCIÓN SEGURA Y APLANAMIENTO (El fix a tu problema de diagnósticos genéricos)
+        shap_vals_1d = np.asarray(shap_vals[0]).ravel()
+        data_1d = X_proc[0].toarray().ravel() if hasattr(X_proc[0], "toarray") else np.asarray(X_proc[0]).ravel()
+        
+        # ESCALADO MATEMÁTICO A PORCENTAJES
+        shap_vals_pct = shap_vals_1d * 100
+        exp_val_pct = float(exp_val) * 100
         
         fig_shap, ax_shap = plt.subplots(figsize=(8, 4))
         
-        # 🌟 TU GRÁFICO NATIVO
+        # GRÁFICO NATIVO WATERFALL CON ALINEACIÓN FORZADA 1D
         shap.waterfall_plot(shap.Explanation(
             values=shap_vals_pct, 
             base_values=exp_val_pct, 
-            data=X_proc[0], 
+            data=data_1d, 
             feature_names=nombres_limpios_traducidos), 
             show=False, max_display=8
         )
