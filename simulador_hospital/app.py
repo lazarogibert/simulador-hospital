@@ -890,7 +890,7 @@ if riesgo <= umbral:
 else:
     st.warning("High risk detected. Click the button to calculate clinical stabilization routes that allow crossing the safety threshold.")
     
-    if st.button("Generate Prescription (DiCE)", type="primary"):
+    if st.button("Calculate Stabilization Targets for Discharge", type="primary"):
         with st.spinner("Calculating multiple clinically viable alternatives from historical matrix..."):
             try:
                 # 1. RUTAS ABSOLUTAS CONTROLADAS
