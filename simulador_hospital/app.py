@@ -594,7 +594,7 @@ with col_der:
     ])
 
     # ==========================================
-    # PESTAÑA 1: EXPLICABILIDAD BLINDADA (1D Dense Array)
+    # PESTAÑA 1: EXPLICABILIDAD BLINDADA (SHAP Feature Consolidation)
     # ==========================================
     with tab_shap:
         try:
@@ -602,8 +602,6 @@ with col_der:
             prep = pipeline.named_steps['preprocesador']
             
             X_proc = prep.transform(df_paciente)
-            
-            # Convert to dense array to prevent SHAP indexing errors
             if hasattr(X_proc, 'toarray'):
                 X_proc_dense = X_proc.toarray()
             else:
@@ -612,70 +610,58 @@ with col_der:
             X_paciente_1d = X_proc_dense[0] 
             
             nombres_crudos = prep.get_feature_names_out()
-            nombres_limpios = [nombre.replace('num__', '').replace('cat__', '') for nombre in nombres_crudos]
             
             shap_ui_dict = {
-                'dias_internados': 'Hospitalization Days',
-                'pluripatologico': 'Pluripathological',
-                'ING_dolor_eva': 'Initial Pain',
-                'ING_gravedad_percibida': 'Initial Severity',
-                'EVO_dolor_eva': 'Current Pain',
-                'EVO_gravedad_percibida': 'Current Severity',
-                'DELTA_dolor_eva': 'Pain Delta',
-                'DELTA_gravedad_percibida': 'Severity Delta',
-                'DELTA_alteracion_mental': 'Mental Alt. Delta',
-                'DELTA_dependencia_funcional': 'Func. Dep. Delta',
-                'DELTA_portador_dispositivos': 'Device Bearer Delta',
-                'ING_alteracion_mental': 'Initial Mental Alt.',
-                'ING_consultas_reiteradas': 'Initial Repeated Consults',
-                'ING_dependencia_funcional': 'Initial Func. Dep.',
-                'ING_portador_dispositivos': 'Initial Device Bearer',
-                'ING_riesgo_hemorragico': 'Initial Hemorrhagic Risk',
-                'EVO_aislamiento_infeccioso': 'Current Infect. Isolation',
-                'EVO_alteracion_mental': 'Current Mental Alt.',
-                'EVO_complicacion_internacion': 'Current Hosp. Complication',
-                'EVO_cuidados_paliativos': 'Current Palliat. Care',
-                'EVO_dependencia_funcional': 'Current Func. Dep.',
-                'EVO_fuga_o_alta_irregular': 'Current Irreg. Discharge',
-                'EVO_portador_dispositivos': 'Current Device Bearer',
-                'EVO_ulceras_presion': 'Current Pressure Ulcers',
-                'LLM_AF_autoinmune': 'Fam. Hist: Autoimmune',
-                'LLM_AF_cardiovascular_otro': 'Fam. Hist: Other CV',
-                'LLM_AF_diabetes': 'Fam. Hist: Diabetes',
-                'LLM_AF_hipertension': 'Fam. Hist: Hypertension',
-                'LLM_AF_metabolico_otro': 'Fam. Hist: Other Metabolic',
-                'LLM_AF_neurologico': 'Fam. Hist: Neurological',
-                'LLM_AF_oncologico': 'Fam. Hist: Oncological',
-                'LLM_AF_psiquiatrico': 'Fam. Hist: Psychiatric',
-                'LLM_AF_renal': 'Fam. Hist: Renal',
-                'LLM_AF_respiratorio': 'Fam. Hist: Respiratory',
-                'LLM_abandono_medicacion': 'Chronic: Med. Abandonment',
-                'LLM_alcoholismo': 'Chronic: Alcoholism',
-                'LLM_desnutricion_severa': 'Chronic: Severe Malnutrition',
-                'LLM_drogas_ilicitas': 'Chronic: Illicit Drugs',
-                'LLM_fragilidad_geriatrica': 'Chronic: Geriatric Frailty',
-                'LLM_historial_caidas': 'Chronic: History of Falls',
-                'LLM_oxigenodependiente': 'Chronic: Oxygen Dependent',
-                'LLM_polifarmacia': 'Chronic: Polypharmacy',
+                'dias_internados': 'Hospitalization Days', 'pluripatologico': 'Pluripathological',
+                'ING_dolor_eva': 'Initial Pain', 'ING_gravedad_percibida': 'Initial Severity',
+                'EVO_dolor_eva': 'Current Pain', 'EVO_gravedad_percibida': 'Current Severity',
+                'DELTA_dolor_eva': 'Pain Delta', 'DELTA_gravedad_percibida': 'Severity Delta',
+                'DELTA_alteracion_mental': 'Mental Alt. Delta', 'DELTA_dependencia_funcional': 'Func. Dep. Delta',
+                'DELTA_portador_dispositivos': 'Device Bearer Delta', 'ING_alteracion_mental': 'Initial Mental Alt.',
+                'ING_consultas_reiteradas': 'Initial Repeated Consults', 'ING_dependencia_funcional': 'Initial Func. Dep.',
+                'ING_portador_dispositivos': 'Initial Device Bearer', 'ING_riesgo_hemorragico': 'Initial Hemorrhagic Risk',
+                'EVO_aislamiento_infeccioso': 'Current Infect. Isolation', 'EVO_alteracion_mental': 'Current Mental Alt.',
+                'EVO_complicacion_internacion': 'Current Hosp. Complication', 'EVO_cuidados_paliativos': 'Current Palliat. Care',
+                'EVO_dependencia_funcional': 'Current Func. Dep.', 'EVO_fuga_o_alta_irregular': 'Current Irreg. Discharge',
+                'EVO_portador_dispositivos': 'Current Device Bearer', 'EVO_ulceras_presion': 'Current Pressure Ulcers',
+                'LLM_AF_autoinmune': 'Fam. Hist: Autoimmune', 'LLM_AF_cardiovascular_otro': 'Fam. Hist: Other CV',
+                'LLM_AF_diabetes': 'Fam. Hist: Diabetes', 'LLM_AF_hipertension': 'Fam. Hist: Hypertension',
+                'LLM_AF_metabolico_otro': 'Fam. Hist: Other Metabolic', 'LLM_AF_neurologico': 'Fam. Hist: Neurological',
+                'LLM_AF_oncologico': 'Fam. Hist: Oncological', 'LLM_AF_psiquiatrico': 'Fam. Hist: Psychiatric',
+                'LLM_AF_renal': 'Fam. Hist: Renal', 'LLM_AF_respiratorio': 'Fam. Hist: Respiratory',
+                'LLM_abandono_medicacion': 'Chronic: Med. Abandonment', 'LLM_alcoholismo': 'Chronic: Alcoholism',
+                'LLM_desnutricion_severa': 'Chronic: Severe Malnutrition', 'LLM_drogas_ilicitas': 'Chronic: Illicit Drugs',
+                'LLM_fragilidad_geriatrica': 'Chronic: Geriatric Frailty', 'LLM_historial_caidas': 'Chronic: History of Falls',
+                'LLM_oxigenodependiente': 'Chronic: Oxygen Dependent', 'LLM_polifarmacia': 'Chronic: Polypharmacy',
                 'LLM_tabaquismo_activo': 'Chronic: Active Smoking'
             }
 
             nombres_limpios_traducidos = []
-            for nombre in nombres_limpios:
-                if "CIE10_MACRO" in nombre:
-                    cat_val = nombre.replace("CIE10_MACRO_", "")
-                    trad = cie10_ui_dict.get(cat_val, cat_val)
-                    nombres_limpios_traducidos.append(f"Diagnosis: {trad}")
-                elif "rango_edad" in nombre:
-                    cat_val = nombre.replace("rango_edad_", "")
-                    trad = cat_val
-                    for en, es in opciones_edad_dict.items():
-                        if es.upper() == cat_val.upper():
-                            trad = en
+            for nombre_crudo in nombres_crudos:
+                traducido = nombre_crudo.split('__')[-1]
+                
+                match_cie10 = False
+                for enf_es, enf_en in cie10_ui_dict.items():
+                    if enf_es in nombre_crudo:
+                        traducido = f"Diagnosis: {enf_en}"
+                        match_cie10 = True
+                        break
+                
+                if not match_cie10:
+                    match_edad = False
+                    for en_edad, es_edad in opciones_edad_dict.items():
+                        if es_edad.upper().replace(' ', '_') in nombre_crudo.upper().replace(' ', '_'):
+                            traducido = f"Age: {en_edad}"
+                            match_edad = True
                             break
-                    nombres_limpios_traducidos.append(f"Age: {trad}")
-                else:
-                    nombres_limpios_traducidos.append(shap_ui_dict.get(nombre, nombre))
+                    
+                    if not match_edad:
+                        for var_es, var_en in shap_ui_dict.items():
+                            if var_es in nombre_crudo:
+                                traducido = var_en
+                                break
+                                
+                nombres_limpios_traducidos.append(traducido)
 
             try:
                 explainer = shap.TreeExplainer(clf)
@@ -693,7 +679,50 @@ with col_der:
             
             shap_vals_pct = shap_vals[0] * 100
             exp_val_pct = exp_val * 100
+
+            # 🌟 FIX CRÍTICO: CONSOLIDACIÓN DE VARIABLES ONE-HOT (Elimina la basura visual)
             
+            # 1. Consolidar Diagnósticos
+            idx_diag_inactivos = []
+            idx_diag_activo = -1
+            for i, nombre in enumerate(nombres_limpios_traducidos):
+                if nombre.startswith("Diagnosis:"):
+                    if float(X_paciente_1d[i]) == 0.0:
+                        idx_diag_inactivos.append(i)
+                    else:
+                        idx_diag_activo = i
+
+            if idx_diag_activo != -1:
+                # Sumamos el peso de no tener los otros diagnósticos al diagnóstico principal
+                for i in idx_diag_inactivos:
+                    shap_vals_pct[idx_diag_activo] += shap_vals_pct[i]
+                    shap_vals_pct[i] = 0.0
+            else:
+                # Si no hay diagnóstico mapeado, lo absorbemos en el valor base
+                for i in idx_diag_inactivos:
+                    exp_val_pct += shap_vals_pct[i]
+                    shap_vals_pct[i] = 0.0
+
+            # 2. Consolidar Edades
+            idx_edad_inactivos = []
+            idx_edad_activo = -1
+            for i, nombre in enumerate(nombres_limpios_traducidos):
+                if nombre.startswith("Age:"):
+                    if float(X_paciente_1d[i]) == 0.0:
+                        idx_edad_inactivos.append(i)
+                    else:
+                        idx_edad_activo = i
+
+            if idx_edad_activo != -1:
+                for i in idx_edad_inactivos:
+                    shap_vals_pct[idx_edad_activo] += shap_vals_pct[i]
+                    shap_vals_pct[i] = 0.0
+            else:
+                for i in idx_edad_inactivos:
+                    exp_val_pct += shap_vals_pct[i]
+                    shap_vals_pct[i] = 0.0
+
+            # Renderizado final
             fig_shap, ax_shap = plt.subplots(figsize=(8, 4))
             
             shap.waterfall_plot(shap.Explanation(
