@@ -594,10 +594,7 @@ with col_der:
     ])
 
     # ==========================================
-    # PESTAÑA 1: TU CÓDIGO ORIGINAL DE SHAP (INTACTO)
-    # ==========================================
-    # ==========================================
-    # PESTAÑA 1: TU CÓDIGO ORIGINAL DE SHAP (INTACTO)
+    # PESTAÑA 1: TU CÓDIGO ORIGINAL DE SHAP (NATIVO WATERFALL)
     # ==========================================
     with tab_shap:
         clf = pipeline.named_steps['clasificador']
@@ -667,16 +664,17 @@ with col_der:
                 # Traduce la variable de edad haciendo búsqueda inversa en tu diccionario
                 cat_val = nombre.replace("rango_edad_", "")
                 trad = cat_val
-                for en, es in opciones_edad_dict.items():
-                    if es.upper() == cat_val.upper():
-                        trad = en
-                        break
+                if 'opciones_edad_dict' in locals() or 'opciones_edad_dict' in globals():
+                    for en, es in opciones_edad_dict.items():
+                        if es.upper() == cat_val.upper():
+                            trad = en
+                            break
                 nombres_limpios_traducidos.append(f"Age: {trad}")
             else:
                 # Mapea cualquier otra variable cruda al inglés
                 nombres_limpios_traducidos.append(shap_ui_dict.get(nombre, nombre))
 
-        # --- AQUI ESTÁ LA CORRECCIÓN DE INDENTACIÓN ---
+        # 🌟 CÁLCULO SHAP CON INDENTACIÓN CORREGIDA
         try:
             explainer = shap.TreeExplainer(clf)
             shap_vals = explainer.shap_values(X_proc, check_additivity=False)
@@ -687,7 +685,6 @@ with col_der:
             else:
                 explainer = shap.Explainer(clf, X_proc)
                 shap_vals = explainer(X_proc, check_additivity=False).values
-        # ----------------------------------------------
         
         if isinstance(shap_vals, list): shap_vals = shap_vals[1]
         if len(shap_vals.shape) > 2: shap_vals = shap_vals[:, :, 1]
@@ -702,6 +699,7 @@ with col_der:
         
         fig_shap, ax_shap = plt.subplots(figsize=(8, 4))
         
+        # 🌟 TU GRÁFICO NATIVO
         shap.waterfall_plot(shap.Explanation(
             values=shap_vals_pct, 
             base_values=exp_val_pct, 
