@@ -674,10 +674,10 @@ with col_der:
                 nombres_limpios_traducidos.append(shap_ui_dict.get(nombre, nombre))
 
         try: 
-        explainer = shap.TreeExplainer(clf) 
-        # Apagamos la validación estricta acá
-        shap_vals = explainer.shap_values(X_proc, check_additivity=False) 
-    except Exception: 
+            explainer = shap.TreeExplainer(clf) 
+            # Apagamos la validación estricta acá
+            shap_vals = explainer.shap_values(X_proc, check_additivity=False) 
+        except Exception: 
         if hasattr(clf, 'coef_'):
             explainer = shap.LinearExplainer(clf, X_proc)
             shap_vals = explainer.shap_values(X_proc)
