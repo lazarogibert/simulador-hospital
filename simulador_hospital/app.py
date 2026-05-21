@@ -1646,7 +1646,12 @@ else:
                                     val_orig = df_paciente.iloc[0][col]
                                     val_cf = cf_df.iloc[r_idx][col]
                                     
-                                    if col in features_continuas and df_paciente[col].dtype in [np.int64, np.int32, int]:
+                                    # 🌟 FIX DE LÓGICA BINARIA:
+                                    # Si es una complicación (binaria), forzamos el umbral a 0.5.
+                                    # Si es < 0.5, el objetivo es 0 (Absent). Si es >= 0.5, es 1 (Present).
+                                    if col not in ['EVO_dolor_eva', 'EVO_gravedad_percibida']:
+                                        val_cf = 1 if val_cf >= 0.5 else 0
+                                    else:
                                         val_cf = round(val_cf)
                                     
                                     if val_orig != val_cf:
@@ -1656,6 +1661,7 @@ else:
                                         if 'dolor' in col or 'gravedad' in col:
                                             st.write(f"- 🎯 **{col_en}**: Target reduction ➔ **[{val_cf:.0f}]** (Currently: {val_orig:.0f})")
                                         else:
+                                            # Aquí aplicamos la lógica corregida:
                                             status_en = "Resolved/Absent" if val_cf == 0 else "Present"
                                             st.write(f"- 🎯 **{col_en}**: Target status ➔ **[{status_en}]**")
                                             
