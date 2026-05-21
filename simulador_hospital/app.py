@@ -586,7 +586,6 @@ with col_izq:
 with col_der:
     st.subheader("Decision Audit & Clinical Context")
     
-    # 🌟 CREACIÓN DE PESTAÑAS
     tab_shap, tab_traj, tab_context = st.tabs([
         "🔍 Explanability (SHAP)", 
         "📉 Clinical Trajectory", 
@@ -594,211 +593,248 @@ with col_der:
     ])
 
     # ==========================================
-    # PESTAÑA 1: TU CÓDIGO ORIGINAL DE SHAP (INTACTO)
+    # PESTAÑA 1: EXPLICABILIDAD BLINDADA
     # ==========================================
     with tab_shap:
-        clf = pipeline.named_steps['clasificador']
-        prep = pipeline.named_steps['preprocesador']
-        
-        X_proc = prep.transform(df_paciente)
-        
-        nombres_crudos = prep.get_feature_names_out()
-        nombres_limpios = [nombre.replace('num__', '').replace('cat__', '') for nombre in nombres_crudos]
-        
-        # 🌟 DICCIONARIO UI PARA TRADUCIR LAS VARIABLES DE SHAP
-        shap_ui_dict = {
-            'dias_internados': 'Hospitalization Days',
-            'pluripatologico': 'Pluripathological',
-            'ING_dolor_eva': 'Initial Pain',
-            'ING_gravedad_percibida': 'Initial Severity',
-            'EVO_dolor_eva': 'Current Pain',
-            'EVO_gravedad_percibida': 'Current Severity',
-            'DELTA_dolor_eva': 'Pain Delta',
-            'DELTA_gravedad_percibida': 'Severity Delta',
-            'DELTA_alteracion_mental': 'Mental Alt. Delta',
-            'DELTA_dependencia_funcional': 'Func. Dep. Delta',
-            'DELTA_portador_dispositivos': 'Device Bearer Delta',
-            'ING_alteracion_mental': 'Initial Mental Alt.',
-            'ING_consultas_reiteradas': 'Initial Repeated Consults',
-            'ING_dependencia_funcional': 'Initial Func. Dep.',
-            'ING_portador_dispositivos': 'Initial Device Bearer',
-            'ING_riesgo_hemorragico': 'Initial Hemorrhagic Risk',
-            'EVO_aislamiento_infeccioso': 'Current Infect. Isolation',
-            'EVO_alteracion_mental': 'Current Mental Alt.',
-            'EVO_complicacion_internacion': 'Current Hosp. Complication',
-            'EVO_cuidados_paliativos': 'Current Palliat. Care',
-            'EVO_dependencia_funcional': 'Current Func. Dep.',
-            'EVO_fuga_o_alta_irregular': 'Current Irreg. Discharge',
-            'EVO_portador_dispositivos': 'Current Device Bearer',
-            'EVO_ulceras_presion': 'Current Pressure Ulcers',
-            'LLM_AF_autoinmune': 'Fam. Hist: Autoimmune',
-            'LLM_AF_cardiovascular_otro': 'Fam. Hist: Other CV',
-            'LLM_AF_diabetes': 'Fam. Hist: Diabetes',
-            'LLM_AF_hipertension': 'Fam. Hist: Hypertension',
-            'LLM_AF_metabolico_otro': 'Fam. Hist: Other Metabolic',
-            'LLM_AF_neurologico': 'Fam. Hist: Neurological',
-            'LLM_AF_oncologico': 'Fam. Hist: Oncological',
-            'LLM_AF_psiquiatrico': 'Fam. Hist: Psychiatric',
-            'LLM_AF_renal': 'Fam. Hist: Renal',
-            'LLM_AF_respiratorio': 'Fam. Hist: Respiratory',
-            'LLM_abandono_medicacion': 'Chronic: Med. Abandonment',
-            'LLM_alcoholismo': 'Chronic: Alcoholism',
-            'LLM_desnutricion_severa': 'Chronic: Severe Malnutrition',
-            'LLM_drogas_ilicitas': 'Chronic: Illicit Drugs',
-            'LLM_fragilidad_geriatrica': 'Chronic: Geriatric Frailty',
-            'LLM_historial_caidas': 'Chronic: History of Falls',
-            'LLM_oxigenodependiente': 'Chronic: Oxygen Dependent',
-            'LLM_polifarmacia': 'Chronic: Polypharmacy',
-            'LLM_tabaquismo_activo': 'Chronic: Active Smoking'
-        }
-
-        # 🌟 TRADUCCIÓN DINÁMICA DE LA LISTA DE VARIABLES
-        nombres_limpios_traducidos = []
-        for nombre in nombres_limpios:
-            if "CIE10_MACRO" in nombre:
-                # Captura variables One-Hot (ej. CIE10_MACRO_Diabetes) y traduce la enfermedad
-                cat_val = nombre.replace("CIE10_MACRO_", "")
-                trad = cie10_ui_dict.get(cat_val, cat_val)
-                nombres_limpios_traducidos.append(f"Diagnosis: {trad}")
-            elif "rango_edad" in nombre:
-                # Traduce la variable de edad haciendo búsqueda inversa en tu diccionario
-                cat_val = nombre.replace("rango_edad_", "")
-                trad = cat_val
-                for en, es in opciones_edad_dict.items():
-                    if es.upper() == cat_val.upper():
-                        trad = en
-                        break
-                nombres_limpios_traducidos.append(f"Age: {trad}")
-            else:
-                # Mapea cualquier otra variable cruda al inglés
-                nombres_limpios_traducidos.append(shap_ui_dict.get(nombre, nombre))
-
         try:
-            explainer = shap.TreeExplainer(clf)
-            shap_vals = explainer.shap_values(X_proc)
-        except Exception:
-            explainer = shap.LinearExplainer(clf, X_proc) if hasattr(clf, 'coef_') else shap.Explainer(clf, X_proc)
-            shap_vals = explainer(X_proc).values
-        
-        if isinstance(shap_vals, list): shap_vals = shap_vals[1]
-        if len(shap_vals.shape) > 2: shap_vals = shap_vals[:, :, 1]
-        
-        exp_val = explainer.expected_value
-        if isinstance(exp_val, (list, np.ndarray)):
-            exp_val = exp_val[1] if len(exp_val) > 1 else exp_val[0]
-        
-        # 🌟 ESCALADO MATEMÁTICO A PORCENTAJES (Transformación x100)
-        shap_vals_pct = shap_vals[0] * 100
-        exp_val_pct = exp_val * 100
-        
-        fig_shap, ax_shap = plt.subplots(figsize=(8, 4))
-        
-        shap.waterfall_plot(shap.Explanation(
-            values=shap_vals_pct, 
-            base_values=exp_val_pct, 
-            data=X_proc[0], 
-            feature_names=nombres_limpios_traducidos), 
-            show=False, max_display=8
-        )
-        st.pyplot(fig_shap)
-        st.caption(
-            "📌 **Note:** Bar size represents the clinical weight of the variable in the model's decision. "
-            "🔴 **Red** pushes risk higher (towards readmission), 🔵 **Blue** pushes risk lower (towards safe discharge)."
-        )
+            clf = pipeline.named_steps['clasificador']
+            prep = pipeline.named_steps['preprocesador']
+            
+            X_proc = prep.transform(df_paciente)
+            
+            nombres_crudos = prep.get_feature_names_out()
+            nombres_limpios = [nombre.replace('num__', '').replace('cat__', '') for nombre in nombres_crudos]
+            
+            # DICCIONARIO UI PARA TRADUCIR LAS VARIABLES DE SHAP
+            shap_ui_dict = {
+                'dias_internados': 'Hospitalization Days',
+                'pluripatologico': 'Pluripathological',
+                'ING_dolor_eva': 'Initial Pain',
+                'ING_gravedad_percibida': 'Initial Severity',
+                'EVO_dolor_eva': 'Current Pain',
+                'EVO_gravedad_percibida': 'Current Severity',
+                'DELTA_dolor_eva': 'Pain Delta',
+                'DELTA_gravedad_percibida': 'Severity Delta',
+                'DELTA_alteracion_mental': 'Mental Alt. Delta',
+                'DELTA_dependencia_funcional': 'Func. Dep. Delta',
+                'DELTA_portador_dispositivos': 'Device Bearer Delta',
+                'ING_alteracion_mental': 'Initial Mental Alt.',
+                'ING_consultas_reiteradas': 'Initial Repeated Consults',
+                'ING_dependencia_funcional': 'Initial Func. Dep.',
+                'ING_portador_dispositivos': 'Initial Device Bearer',
+                'ING_riesgo_hemorragico': 'Initial Hemorrhagic Risk',
+                'EVO_aislamiento_infeccioso': 'Current Infect. Isolation',
+                'EVO_alteracion_mental': 'Current Mental Alt.',
+                'EVO_complicacion_internacion': 'Current Hosp. Complication',
+                'EVO_cuidados_paliativos': 'Current Palliat. Care',
+                'EVO_dependencia_funcional': 'Current Func. Dep.',
+                'EVO_fuga_o_alta_irregular': 'Current Irreg. Discharge',
+                'EVO_portador_dispositivos': 'Current Device Bearer',
+                'EVO_ulceras_presion': 'Current Pressure Ulcers',
+                'LLM_AF_autoinmune': 'Fam. Hist: Autoimmune',
+                'LLM_AF_cardiovascular_otro': 'Fam. Hist: Other CV',
+                'LLM_AF_diabetes': 'Fam. Hist: Diabetes',
+                'LLM_AF_hipertension': 'Fam. Hist: Hypertension',
+                'LLM_AF_metabolico_otro': 'Fam. Hist: Other Metabolic',
+                'LLM_AF_neurologico': 'Fam. Hist: Neurological',
+                'LLM_AF_oncologico': 'Fam. Hist: Oncological',
+                'LLM_AF_psiquiatrico': 'Fam. Hist: Psychiatric',
+                'LLM_AF_renal': 'Fam. Hist: Renal',
+                'LLM_AF_respiratorio': 'Fam. Hist: Respiratory',
+                'LLM_abandono_medicacion': 'Chronic: Med. Abandonment',
+                'LLM_alcoholismo': 'Chronic: Alcoholism',
+                'LLM_desnutricion_severa': 'Chronic: Severe Malnutrition',
+                'LLM_drogas_ilicitas': 'Chronic: Illicit Drugs',
+                'LLM_fragilidad_geriatrica': 'Chronic: Geriatric Frailty',
+                'LLM_historial_caidas': 'Chronic: History of Falls',
+                'LLM_oxigenodependiente': 'Chronic: Oxygen Dependent',
+                'LLM_polifarmacia': 'Chronic: Polypharmacy',
+                'LLM_tabaquismo_activo': 'Chronic: Active Smoking'
+            }
+
+            nombres_limpios_traducidos = []
+            for nombre in nombres_limpios:
+                if "CIE10_MACRO" in nombre:
+                    cat_val = nombre.replace("CIE10_MACRO_", "")
+                    trad = cie10_ui_dict.get(cat_val, cat_val)
+                    nombres_limpios_traducidos.append(f"Diagnosis: {trad}")
+                elif "rango_edad" in nombre:
+                    cat_val = nombre.replace("rango_edad_", "")
+                    trad = cat_val
+                    for en, es in opciones_edad_dict.items():
+                        if es.upper() == cat_val.upper():
+                            trad = en
+                            break
+                    nombres_limpios_traducidos.append(f"Age: {trad}")
+                else:
+                    nombres_limpios_traducidos.append(shap_ui_dict.get(nombre, nombre))
+
+            try:
+                explainer = shap.TreeExplainer(clf)
+                shap_vals = explainer.shap_values(X_proc)
+            except Exception:
+                explainer = shap.LinearExplainer(clf, X_proc) if hasattr(clf, 'coef_') else shap.Explainer(clf, X_proc)
+                shap_vals = explainer(X_proc).values
+            
+            if isinstance(shap_vals, list): shap_vals = shap_vals[1]
+            if len(shap_vals.shape) > 2: shap_vals = shap_vals[:, :, 1]
+            
+            exp_val = explainer.expected_value
+            if isinstance(exp_val, (list, np.ndarray)):
+                exp_val = exp_val[1] if len(exp_val) > 1 else exp_val[0]
+            
+            shap_vals_pct = shap_vals[0] * 100
+            exp_val_pct = exp_val * 100
+            
+            fig_shap, ax_shap = plt.subplots(figsize=(8, 4))
+            
+            shap.waterfall_plot(shap.Explanation(
+                values=shap_vals_pct, 
+                base_values=exp_val_pct, 
+                data=X_proc[0], 
+                feature_names=nombres_limpios_traducidos), 
+                show=False, max_display=8
+            )
+            st.pyplot(fig_shap)
+            plt.close(fig_shap) # 🌟 BLINDAJE CONTRA LEAKS DE MEMORIA
+            
+            st.caption(
+                "📌 **Note:** Bar size represents the clinical weight of the variable in the model's decision. "
+                "🔴 **Red** pushes risk higher (towards readmission), 🔵 **Blue** pushes risk lower (towards safe discharge)."
+            )
+        except Exception as e:
+            st.warning("Gráfico de impacto no disponible temporalmente.")
+            st.error(f"Detalle técnico SHAP: {str(e)}")
+
     # ==========================================
-    # PESTAÑA 2: GRÁFICO DE PENDIENTES (ANTI-COLISIÓN)
+    # PESTAÑA 2: GRÁFICO DE PENDIENTES
     # ==========================================
     with tab_traj:
-        st.markdown("#### Dynamic Trajectory: Evolution of Tracked Deltas")
-        
-        df_row = df_paciente.iloc[[0]].copy()
-        
-        # 🌟 LOS 5 DELTAS DE TU DICCIONARIO
-        pares_clinicos = {
-            'Pain (VAS)': ('ING_dolor_eva', 'EVO_dolor_eva'),
-            'Severity': ('ING_gravedad_percibida', 'EVO_gravedad_percibida'),
-            'Mental Alt.': ('ING_alteracion_mental', 'EVO_alteracion_mental'),
-            'Func. Dep.': ('ING_dependencia_funcional', 'EVO_dependencia_funcional'),
-            'Devices': ('ING_portador_dispositivos', 'EVO_portador_dispositivos')
-        }
-
-        # Extraemos los valores del paciente actual
-        datos = []
-        for label, (col_ing, col_evo) in pares_clinicos.items():
-            val_ing = float(df_row[col_ing].values[0]) if col_ing in df_row.columns else 0.0
-            val_evo = float(df_row[col_evo].values[0]) if col_evo in df_row.columns else 0.0
-            datos.append({'label': label, 'ing': val_ing, 'evo': val_evo})
-
-        fig_slope, ax_slope = plt.subplots(figsize=(7, 5))
-        ax_slope.set_xlim(-0.5, 1.5)
-        ax_slope.set_xticks([0, 1])
-        ax_slope.set_xticklabels(['Admission', 'Current State'], fontsize=11, fontweight='bold')
-        
-        # 🌟 ALGORITMO ANTI-COLISIÓN PARA LOS TEXTOS
-        def separar_superposiciones(valores, margen=0.45):
-            ordenados = sorted(enumerate(valores), key=lambda x: x[1])
-            res = {}
-            if not ordenados: return res
-            res[ordenados[0][0]] = ordenados[0][1]
-            last_y = ordenados[0][1]
+        try:
+            st.markdown("#### Dynamic Trajectory: Evolution of Tracked Deltas")
             
-            for idx, y in ordenados[1:]:
-                # Si está muy cerca del anterior, lo empujamos hacia arriba
-                nuevo_y = last_y + margen if y < last_y + margen else y
-                res[idx] = nuevo_y
-                last_y = nuevo_y
+            df_row = df_paciente.iloc[[0]].copy()
+            
+            pares_clinicos = {
+                'Pain (VAS)': ('ING_dolor_eva', 'EVO_dolor_eva'),
+                'Severity': ('ING_gravedad_percibida', 'EVO_gravedad_percibida'),
+                'Mental Alt.': ('ING_alteracion_mental', 'EVO_alteracion_mental'),
+                'Func. Dep.': ('ING_dependencia_funcional', 'EVO_dependencia_funcional'),
+                'Devices': ('ING_portador_dispositivos', 'EVO_portador_dispositivos')
+            }
+
+            datos = []
+            for label, (col_ing, col_evo) in pares_clinicos.items():
+                val_ing = float(df_row[col_ing].values[0]) if col_ing in df_row.columns else 0.0
+                val_evo = float(df_row[col_evo].values[0]) if col_evo in df_row.columns else 0.0
+                datos.append({'label': label, 'ing': val_ing, 'evo': val_evo})
+
+            fig_slope, ax_slope = plt.subplots(figsize=(7, 5))
+            ax_slope.set_xlim(-0.5, 1.5)
+            ax_slope.set_xticks([0, 1])
+            ax_slope.set_xticklabels(['Admission', 'Current State'], fontsize=11, fontweight='bold')
+            
+            def separar_superposiciones(valores, margen=0.45):
+                ordenados = sorted(enumerate(valores), key=lambda x: x[1])
+                res = {}
+                if not ordenados: return res
+                res[ordenados[0][0]] = ordenados[0][1]
+                last_y = ordenados[0][1]
                 
-            # Centramos el bloque visualmente para que no quede flotando
-            desplazamiento = (sum(res.values()) - sum(valores)) / len(valores) if valores else 0
-            return {k: v - desplazamiento for k, v in res.items()}
+                for idx, y in ordenados[1:]:
+                    nuevo_y = last_y + margen if y < last_y + margen else y
+                    res[idx] = nuevo_y
+                    last_y = nuevo_y
+                    
+                desplazamiento = (sum(res.values()) - sum(valores)) / len(valores) if valores else 0
+                return {k: v - desplazamiento for k, v in res.items()}
 
-        y_ing_coords = [d['ing'] for d in datos]
-        y_evo_coords = [d['evo'] for d in datos]
-        
-        # Calculamos las coordenadas seguras para que el texto no se pise
-        textos_ing_y = separar_superposiciones(y_ing_coords)
-        textos_evo_y = separar_superposiciones(y_evo_coords)
-
-        min_y, max_y = 0, 0
-
-        # Dibujamos las líneas y los textos
-        for i, d in enumerate(datos):
-            val_ing = d['ing']
-            val_evo = d['evo']
-            label = d['label']
+            y_ing_coords = [d['ing'] for d in datos]
+            y_evo_coords = [d['evo'] for d in datos]
             
-            min_y = min(min_y, val_ing, val_evo)
-            max_y = max(max_y, val_ing, val_evo)
+            textos_ing_y = separar_superposiciones(y_ing_coords)
+            textos_evo_y = separar_superposiciones(y_evo_coords)
 
-            # Verde si mejoró o se mantuvo igual, Rojo si empeoró
-            color_linea = '#00C851' if val_evo <= val_ing else '#FF4444'
+            min_y, max_y = 0, 0
+
+            for i, d in enumerate(datos):
+                val_ing = d['ing']
+                val_evo = d['evo']
+                label = d['label']
+                
+                min_y = min(min_y, val_ing, val_evo)
+                max_y = max(max_y, val_ing, val_evo)
+
+                color_linea = '#00C851' if val_evo <= val_ing else '#FF4444'
+                
+                ax_slope.plot([0, 1], [val_ing, val_evo], color=color_linea, linewidth=2.5, marker='o', markersize=6, zorder=3)
+                
+                y_texto_ing = textos_ing_y[i]
+                y_texto_evo = textos_evo_y[i]
+
+                ax_slope.text(-0.06, y_texto_ing, f"{label} ({val_ing:.1f})", ha='right', va='center', fontsize=9, fontweight='bold', color='#444444')
+                ax_slope.text(1.06, y_texto_evo, f"({val_evo:.1f}) {label}", ha='left', va='center', fontsize=9, fontweight='bold', color=color_linea)
+
+            ax_slope.set_ylim(min_y - 1.5, max_y + 1.5)
+            ax_slope.spines[['top', 'bottom', 'left', 'right']].set_visible(False)
+            ax_slope.get_yaxis().set_visible(False)
             
-            # Línea de la pendiente y puntos base
-            ax_slope.plot([0, 1], [val_ing, val_evo], color=color_linea, linewidth=2.5, marker='o', markersize=6, zorder=3)
+            ax_slope.axvline(x=0, color='#E5E5E5', linestyle='--', linewidth=1.2, zorder=1)
+            ax_slope.axvline(x=1, color='#E5E5E5', linestyle='--', linewidth=1.2, zorder=1)
+
+            fig_slope.tight_layout()
+            st.pyplot(fig_slope)
+            plt.close(fig_slope) # 🌟 BLINDAJE CONTRA LEAKS DE MEMORIA
             
-            # Textos usando las coordenadas pasadas por el algoritmo anti-colisión
-            y_texto_ing = textos_ing_y[i]
-            y_texto_evo = textos_evo_y[i]
+            st.caption(
+                "📌 **Interpretation:** The angle of the slope indicates clinical evolution. "
+                "🟢 **Flat/descending slopes** represent stability or improvement. "
+                "🔴 **Ascending slopes** indicate active decompensation."
+            )
+        except Exception as e:
+            st.error("Error al renderizar las trayectorias clínicas.")
 
-            ax_slope.text(-0.06, y_texto_ing, f"{label} ({val_ing:.1f})", ha='right', va='center', fontsize=9, fontweight='bold', color='#444444')
-            ax_slope.text(1.06, y_texto_evo, f"({val_evo:.1f}) {label}", ha='left', va='center', fontsize=9, fontweight='bold', color=color_linea)
+    # ==========================================
+    # PESTAÑA 3: SCATTER CONTEXTUAL (REAL DATA)
+    # ==========================================
+    with tab_context:
+        try:
+            fig_scat, ax_scat = plt.subplots(figsize=(8, 4))
+            
+            # 🌟 INFERENCIA SOBRE LA COHORTE REAL (df_train_sample cargado en Sección 2)
+            try:
+                riesgos_hist = pipeline.predict_proba(df_train_sample)[:, 1]
+                if 'dias_internados' in df_train_sample.columns:
+                    x_hist = pd.to_numeric(df_train_sample['dias_internados'], errors='coerce').fillna(0)
+                else:
+                    x_hist = np.zeros(len(df_train_sample))
+                    
+                ax_scat.scatter(x_hist, riesgos_hist, color='gray', alpha=0.4, s=30, label='Historical Cohort')
+            except Exception as e:
+                # Fallback seguro si falla la muestra
+                x_hist_sim = np.random.normal(10, 5, 200).clip(1, 40)
+                y_hist_sim = np.random.beta(2, 5, 200)
+                ax_scat.scatter(x_hist_sim, y_hist_sim, color='gray', alpha=0.2, s=20, label='Simulated Cohort (Fallback)')
 
-        ax_slope.set_ylim(min_y - 1.5, max_y + 1.5)
-        ax_slope.spines[['top', 'bottom', 'left', 'right']].set_visible(False)
-        ax_slope.get_yaxis().set_visible(False)
-        
-        # Ejes verticales de guía
-        ax_slope.axvline(x=0, color='#E5E5E5', linestyle='--', linewidth=1.2, zorder=1)
-        ax_slope.axvline(x=1, color='#E5E5E5', linestyle='--', linewidth=1.2, zorder=1)
+            # PACIENTE ACTUAL
+            dias_actual = float(df_row['dias_internados'].values[0]) if 'dias_internados' in df_row.columns else 0
+            ax_scat.scatter(dias_actual, riesgo, color='#008BFB', marker='*', s=500, 
+                            edgecolor='black', label='CURRENT PATIENT', zorder=5)
 
-        fig_slope.tight_layout()
-        st.pyplot(fig_slope)
-        st.caption(
-            "📌 **Interpretation:** The angle of the slope indicates clinical evolution. "
-            "🟢 **Flat/descending slopes** represent stability or improvement. "
-            "🔴 **Ascending slopes** indicate active decompensation."
-        )
+            ax_scat.axhline(y=umbral, color='red', linestyle='--', alpha=0.6, label='Safety Threshold')
 
+            ax_scat.set_xlabel("Days of Hospitalization")
+            ax_scat.set_ylabel("Readmission Risk Probability")
+            ax_scat.set_ylim(-0.05, 1.05)
+            ax_scat.legend(loc='upper right')
+            ax_scat.spines[['top', 'right']].set_visible(False)
+            
+            st.pyplot(fig_scat)
+            plt.close(fig_scat) # 🌟 BLINDAJE CONTRA LEAKS DE MEMORIA
+            
+            st.caption("Star represents the current patient. Compare their risk relative to length of stay.")
+        except Exception as e:
+            st.error("No se pudo cargar el mapa contextual.")
     # ==========================================
     # PESTAÑA 3: SCATTER CONTEXTUAL
     # ==========================================
