@@ -585,59 +585,7 @@ with col_izq:
 
 with col_der:
     st.subheader("Decision Audit & Clinical Context")
-
-    clf = pipeline.named_steps["clasificador"]
-    prep = pipeline.named_steps["preprocesador"]
-
-    # Paciente actual
-    df_row = df_paciente.iloc[[0]].copy()
-
-    # Transformación
-    X_proc = prep.transform(df_row)
-    if hasattr(X_proc, "toarray"):
-        X_proc = X_proc.toarray()
-
-    nombres_crudos = prep.get_feature_names_out()
-
-    shap_ui_dict = {
-        'dias_internados': 'Hospitalization Days', 'pluripatologico': 'Pluripathological',
-        'ING_dolor_eva': 'Initial Pain', 'ING_gravedad_percibida': 'Initial Severity',
-        'EVO_dolor_eva': 'Current Pain', 'EVO_gravedad_percibida': 'Current Severity',
-        'DELTA_dolor_eva': 'Pain Delta', 'DELTA_gravedad_percibida': 'Severity Delta',
-        'DELTA_alteracion_mental': 'Mental Alt. Delta', 'DELTA_dependencia_funcional': 'Func. Dep. Delta',
-        'DELTA_portador_dispositivos': 'Device Bearer Delta', 'ING_alteracion_mental': 'Initial Mental Alt.',
-        'ING_consultas_reiteradas': 'Initial Repeated Consults', 'ING_dependencia_funcional': 'Initial Func. Dep.',
-        'ING_portador_dispositivos': 'Initial Device Bearer', 'ING_riesgo_hemorragico': 'Initial Hemorrhagic Risk',
-        'EVO_aislamiento_infeccioso': 'Current Infect. Isolation', 'EVO_alteracion_mental': 'Current Mental Alt.',
-        'EVO_complicacion_internacion': 'Current Hosp. Complication', 'EVO_cuidados_paliativos': 'Current Palliat. Care',
-        'EVO_dependencia_funcional': 'Current Func. Dep.', 'EVO_fuga_o_alta_irregular': 'Current Irreg. Discharge',
-        'EVO_portador_dispositivos': 'Current Device Bearer', 'EVO_ulceras_presion': 'Current Pressure Ulcers',
-        'LLM_AF_autoinmune': 'Fam. Hist: Autoimmune', 'LLM_AF_cardiovascular_otro': 'Fam. Hist: Other CV',
-        'LLM_AF_diabetes': 'Fam. Hist: Diabetes', 'LLM_AF_hipertension': 'Fam. Hist: Hypertension',
-        'LLM_AF_metabolico_otro': 'Fam. Hist: Other Metabolic', 'LLM_AF_neurologico': 'Fam. Hist: Neurological',
-        'LLM_AF_oncologico': 'Fam. Hist: Oncological', 'LLM_AF_psiquiatrico': 'Fam. Hist: Psychiatric',
-        'LLM_AF_renal': 'Fam. Hist: Renal', 'LLM_AF_respiratorio': 'Fam. Hist: Respiratory',
-        'LLM_abandono_medicacion': 'Chronic: Med. Abandonment', 'LLM_alcoholismo': 'Chronic: Alcoholism',
-        'LLM_desnutricion_severa': 'Chronic: Severe Malnutrition', 'LLM_drogas_ilicitas': 'Chronic: Illicit Drugs',
-        'LLM_fragilidad_geriatrica': 'Chronic: Geriatric Frailty', 'LLM_historial_caidas': 'Chronic: History of Falls',
-        'LLM_oxigenodependiente': 'Chronic: Oxygen Dependent', 'LLM_polifarmacia': 'Chronic: Polypharmacy',
-        'LLM_tabaquismo_activo': 'Chronic: Active Smoking'
-    }
-
-    def limpiar_nombre(nombre):
-        n = nombre.replace("num__", "").replace("cat__", "")
-        if "CIE10_MACRO_" in n:
-            cat_val = n.replace("CIE10_MACRO_", "")
-            return f"Diagnosis: {cie10_ui_dict.get(cat_val, cat_val)}"
-        if "rango_edad_" in n:
-            cat_val = n.replace("rango_edad_", "")
-            try:
-                trad = next((k for k, v in opciones_edad_dict.items() if v.upper() == cat_val.upper()), cat_val)
-            except Exception:
-                trad = cat_val
-            return f"Age: {trad}"
-        return shap_ui_dict.get(n, n)
-
+    
     # 🌟 CREACIÓN DE PESTAÑAS
     tab_shap, tab_traj, tab_context = st.tabs([
         "🔍 Explanability (SHAP)", 
@@ -646,72 +594,113 @@ with col_der:
     ])
 
     # ==========================================
-    # PESTAÑA 1: TU CÓDIGO ORIGINAL (INTACTO)
+    # PESTAÑA 1: TU CÓDIGO ORIGINAL DE SHAP (INTACTO)
     # ==========================================
     with tab_shap:
+        clf = pipeline.named_steps['clasificador']
+        prep = pipeline.named_steps['preprocesador']
+        
+        X_proc = prep.transform(df_paciente)
+        
+        nombres_crudos = prep.get_feature_names_out()
+        nombres_limpios = [nombre.replace('num__', '').replace('cat__', '') for nombre in nombres_crudos]
+        
+        # 🌟 DICCIONARIO UI PARA TRADUCIR LAS VARIABLES DE SHAP
+        shap_ui_dict = {
+            'dias_internados': 'Hospitalization Days',
+            'pluripatologico': 'Pluripathological',
+            'ING_dolor_eva': 'Initial Pain',
+            'ING_gravedad_percibida': 'Initial Severity',
+            'EVO_dolor_eva': 'Current Pain',
+            'EVO_gravedad_percibida': 'Current Severity',
+            'DELTA_dolor_eva': 'Pain Delta',
+            'DELTA_gravedad_percibida': 'Severity Delta',
+            'DELTA_alteracion_mental': 'Mental Alt. Delta',
+            'DELTA_dependencia_funcional': 'Func. Dep. Delta',
+            'DELTA_portador_dispositivos': 'Device Bearer Delta',
+            'ING_alteracion_mental': 'Initial Mental Alt.',
+            'ING_consultas_reiteradas': 'Initial Repeated Consults',
+            'ING_dependencia_funcional': 'Initial Func. Dep.',
+            'ING_portador_dispositivos': 'Initial Device Bearer',
+            'ING_riesgo_hemorragico': 'Initial Hemorrhagic Risk',
+            'EVO_aislamiento_infeccioso': 'Current Infect. Isolation',
+            'EVO_alteracion_mental': 'Current Mental Alt.',
+            'EVO_complicacion_internacion': 'Current Hosp. Complication',
+            'EVO_cuidados_paliativos': 'Current Palliat. Care',
+            'EVO_dependencia_funcional': 'Current Func. Dep.',
+            'EVO_fuga_o_alta_irregular': 'Current Irreg. Discharge',
+            'EVO_portador_dispositivos': 'Current Device Bearer',
+            'EVO_ulceras_presion': 'Current Pressure Ulcers',
+            'LLM_AF_autoinmune': 'Fam. Hist: Autoimmune',
+            'LLM_AF_cardiovascular_otro': 'Fam. Hist: Other CV',
+            'LLM_AF_diabetes': 'Fam. Hist: Diabetes',
+            'LLM_AF_hipertension': 'Fam. Hist: Hypertension',
+            'LLM_AF_metabolico_otro': 'Fam. Hist: Other Metabolic',
+            'LLM_AF_neurologico': 'Fam. Hist: Neurological',
+            'LLM_AF_oncologico': 'Fam. Hist: Oncological',
+            'LLM_AF_psiquiatrico': 'Fam. Hist: Psychiatric',
+            'LLM_AF_renal': 'Fam. Hist: Renal',
+            'LLM_AF_respiratorio': 'Fam. Hist: Respiratory',
+            'LLM_abandono_medicacion': 'Chronic: Med. Abandonment',
+            'LLM_alcoholismo': 'Chronic: Alcoholism',
+            'LLM_desnutricion_severa': 'Chronic: Severe Malnutrition',
+            'LLM_drogas_ilicitas': 'Chronic: Illicit Drugs',
+            'LLM_fragilidad_geriatrica': 'Chronic: Geriatric Frailty',
+            'LLM_historial_caidas': 'Chronic: History of Falls',
+            'LLM_oxigenodependiente': 'Chronic: Oxygen Dependent',
+            'LLM_polifarmacia': 'Chronic: Polypharmacy',
+            'LLM_tabaquismo_activo': 'Chronic: Active Smoking'
+        }
+
+        # 🌟 TRADUCCIÓN DINÁMICA DE LA LISTA DE VARIABLES
+        nombres_limpios_traducidos = []
+        for nombre in nombres_limpios:
+            if "CIE10_MACRO" in nombre:
+                # Captura variables One-Hot (ej. CIE10_MACRO_Diabetes) y traduce la enfermedad
+                cat_val = nombre.replace("CIE10_MACRO_", "")
+                trad = cie10_ui_dict.get(cat_val, cat_val)
+                nombres_limpios_traducidos.append(f"Diagnosis: {trad}")
+            elif "rango_edad" in nombre:
+                # Traduce la variable de edad haciendo búsqueda inversa en tu diccionario
+                cat_val = nombre.replace("rango_edad_", "")
+                trad = cat_val
+                for en, es in opciones_edad_dict.items():
+                    if es.upper() == cat_val.upper():
+                        trad = en
+                        break
+                nombres_limpios_traducidos.append(f"Age: {trad}")
+            else:
+                # Mapea cualquier otra variable cruda al inglés
+                nombres_limpios_traducidos.append(shap_ui_dict.get(nombre, nombre))
+
         try:
             explainer = shap.TreeExplainer(clf)
-            shap_raw = explainer.shap_values(X_proc, check_additivity=False)
+            shap_vals = explainer.shap_values(X_proc)
         except Exception:
-            explainer = shap.Explainer(clf, X_proc)
-            shap_raw = explainer(X_proc)
-
-        # Extraer clase positiva
-        if isinstance(shap_raw, list):
-            shap_values_paciente = shap_raw[1][0]
-        elif hasattr(shap_raw, "values"):
-            vals = shap_raw.values
-            if vals.ndim == 3:
-                shap_values_paciente = vals[0, :, 1]
-            else:
-                shap_values_paciente = vals[0]
-        else:
-            shap_values_paciente = shap_raw[0]
-
-        # Forzar 1D
-        shap_values_paciente = np.asarray(shap_values_paciente).ravel()
-        nombres_crudos = np.asarray(nombres_crudos).ravel()
-
-        # Ajustar longitudes por seguridad
-        n_min = min(len(nombres_crudos), len(shap_values_paciente))
-        nombres_crudos = nombres_crudos[:n_min]
-        shap_values_paciente = shap_values_paciente[:n_min]
-
-        # DataFrame con tus nombres traducidos originales
-        df_shap = pd.DataFrame({
-            "Feature": [limpiar_nombre(n) for n in nombres_crudos],
-            "SHAP_Value": shap_values_paciente
-        })
-
-        # Top variables individuales, sin agrupar
-        df_shap["Abs"] = df_shap["SHAP_Value"].abs()
-        df_top = df_shap.sort_values("Abs", ascending=False).head(8).sort_values("Abs", ascending=True)
-
-        # Gráfico custom
-        plt.close("all")
-        fig, ax = plt.subplots(figsize=(9, 4.8))
-
-        colores = ["#FF0051" if v > 0 else "#008BFB" for v in df_top["SHAP_Value"]]
-        ax.barh(
-            y=df_top["Feature"],
-            width=df_top["SHAP_Value"],
-            color=colores,
-            edgecolor="white",
-            height=0.6
+            explainer = shap.LinearExplainer(clf, X_proc) if hasattr(clf, 'coef_') else shap.Explainer(clf, X_proc)
+            shap_vals = explainer(X_proc).values
+        
+        if isinstance(shap_vals, list): shap_vals = shap_vals[1]
+        if len(shap_vals.shape) > 2: shap_vals = shap_vals[:, :, 1]
+        
+        exp_val = explainer.expected_value
+        if isinstance(exp_val, (list, np.ndarray)):
+            exp_val = exp_val[1] if len(exp_val) > 1 else exp_val[0]
+        
+        # 🌟 ESCALADO MATEMÁTICO A PORCENTAJES (Transformación x100)
+        shap_vals_pct = shap_vals[0] * 100
+        exp_val_pct = exp_val * 100
+        
+        fig_shap, ax_shap = plt.subplots(figsize=(8, 4))
+        
+        shap.waterfall_plot(shap.Explanation(
+            values=shap_vals_pct, 
+            base_values=exp_val_pct, 
+            data=X_proc[0], 
+            feature_names=nombres_limpios_traducidos), 
+            show=False, max_display=8
         )
-        ax.axvline(x=0, color="black", linewidth=1.2)
-
-        ax.set_xlabel("Relative Impact on Risk (SHAP)", fontsize=9, fontweight="bold")
-        ax.set_xticks([])
-        ax.set_ylabel("")
-        ax.spines["top"].set_visible(False)
-        ax.spines["right"].set_visible(False)
-        ax.spines["bottom"].set_visible(False)
-        ax.spines["left"].set_color("#DDDDDD")
-
-        fig.tight_layout()
-        st.pyplot(fig)
-
+        st.pyplot(fig_shap)
         st.caption(
             "📌 **Note:** Bar size represents the clinical weight of the variable in the model's decision. "
             "🔴 **Red** pushes risk higher (towards readmission), 🔵 **Blue** pushes risk lower (towards safe discharge)."
@@ -721,6 +710,7 @@ with col_der:
     # PESTAÑA 2: DUMBBELL PLOT (TRAYECTORIA)
     # ==========================================
     with tab_traj:
+        df_row = df_paciente.iloc[[0]].copy()
         pares_clinicos = {
             'Pain (VAS)': ('ING_dolor_eva', 'EVO_dolor_eva'),
             'Perceived Severity': ('ING_gravedad_percibida', 'EVO_gravedad_percibida'),
@@ -765,7 +755,7 @@ with col_der:
         ax_scat.scatter(dias_actual, riesgo, color='#008BFB', marker='*', s=500, 
                         edgecolor='black', label='CURRENT PATIENT', zorder=5)
 
-        # LÍNEA DE UMBRAL
+        # LÍNEA DE UMBRAL (Asegurate que la variable 'umbral' y 'riesgo' estén definidas arriba de las columnas)
         ax_scat.axhline(y=umbral, color='red', linestyle='--', alpha=0.6, label='Safety Threshold')
 
         ax_scat.set_xlabel("Days of Hospitalization")
