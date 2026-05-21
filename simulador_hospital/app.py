@@ -707,37 +707,72 @@ with col_der:
         )
 
     # ==========================================
-    # PESTAÑA 2: DUMBBELL PLOT (TRAYECTORIA)
+    # PESTAÑA 2: GRÁFICO DE PENDIENTES (SLOPEGRAPH)
     # ==========================================
     with tab_traj:
+        st.markdown("#### Dynamic Trajectory: Evolution of All Tracked Deltas")
+        
         df_row = df_paciente.iloc[[0]].copy()
+        
+        # Todos los deltas desglosados en sus pares originales (Ingreso vs Evolución)
         pares_clinicos = {
-            'Pain (VAS)': ('ING_dolor_eva', 'EVO_dolor_eva'),
-            'Perceived Severity': ('ING_gravedad_percibida', 'EVO_gravedad_percibida'),
-            'Mental Alteration': ('ING_alteracion_mental', 'EVO_alteracion_mental'),
-            'Functional Dependence': ('ING_dependencia_funcional', 'EVO_dependencia_funcional')
+            'Pain (VAS)': ('profile_ING_dolor_eva', 'profile_EVO_dolor_eva'),
+            'Perceived Severity': ('profile_ING_gravedad_percibida', 'profile_EVO_gravedad_percibida'),
+            'Mental Alteration': ('profile_ING_alteracion_mental', 'profile_EVO_alteracion_mental'),
+            'Functional Dependence': ('profile_ING_dependencia_funcional', 'profile_EVO_dependencia_funcional'),
+            'Bearer Devices': ('profile_ING_portador_dispositivos', 'profile_EVO_portador_dispositivos')
         }
+        
+        # Intentamos mapear sin prefijo si las columnas no se encuentran con 'profile_'
+        # por si cambian de nombre en tu dataframe principal
+        primer_par = list(pares_clinicos.values())[0][0]
+        if primer_par not in df_row.columns and primer_par.replace('profile_', '') in df_row.columns:
+            pares_clinicos = {k: (v[0].replace('profile_', ''), v[1].replace('profile_', '')) for k, v in pares_clinicos.items()}
 
-        fig_dumb, ax_dumb = plt.subplots(figsize=(8, 4))
-        y_pos = np.arange(len(pares_clinicos))
+        fig_slope, ax_slope = plt.subplots(figsize=(6.5, 5))
+        
+        # Configuración del espacio del Slopegraph
+        ax_slope.set_xlim(-0.6, 1.6)
+        ax_slope.set_xticks([0, 1])
+        ax_slope.set_xticklabels(['Admission', 'Current State'], fontsize=11, fontweight='bold')
+        
+        # Buscamos los valores mínimos y máximos para ajustar márgenes del lienzo visual
+        valores_y = []
 
-        for i, (label, (col_ing, col_evo)) in enumerate(pares_clinicos.items()):
-            val_ing = float(df_row[col_ing].values[0]) if col_ing in df_row.columns else 0
-            val_evo = float(df_row[col_evo].values[0]) if col_evo in df_row.columns else 0
+        for label, (col_ing, col_evo) in pares_clinicos.items():
+            val_ing = float(df_row[col_ing].values[0]) if col_ing in df_row.columns else 0.0
+            val_evo = float(df_row[col_evo].values[0]) if col_evo in df_row.columns else 0.0
+            valores_y.extend([val_ing, val_evo])
             
+            # 🟢 Menor o igual es estabilidad/mejoría. 🔴 Mayor es deterioro clínico
             color_linea = '#00C851' if val_evo <= val_ing else '#FF4444'
             
-            ax_dumb.plot([val_ing, val_evo], [i, i], color=color_linea, linewidth=3, alpha=0.6)
-            ax_dumb.scatter(val_ing, i, color='#D3D3D3', s=100, edgecolor='black', label='Admission' if i==0 else "", zorder=3)
-            ax_dumb.scatter(val_evo, i, color=color_linea, s=150, edgecolor='black', label='Current' if i==0 else "", zorder=4)
+            # Dibujamos el segmento de línea con sus nodos extremos
+            ax_slope.plot([0, 1], [val_ing, val_evo], color=color_linea, linewidth=2.5, marker='o', markersize=8, zorder=3)
+            
+            # Colocamos las etiquetas numéricas y de texto flotando a los costados
+            ax_slope.text(-0.06, val_ing, f"{label} ({val_ing:.1f})", ha='right', va='center', fontsize=9, fontweight='bold', color='#444444')
+            ax_slope.text(1.06, val_evo, f"({val_evo:.1f}) {label}", ha='left', va='center', fontsize=9, fontweight='bold', color=color_linea)
 
-        ax_dumb.set_yticks(y_pos)
-        ax_dumb.set_yticklabels(pares_clinicos.keys(), fontweight='bold')
-        ax_dumb.set_xlabel("Clinical Score")
-        ax_dumb.legend(loc='lower right')
-        ax_dumb.spines[['top', 'right']].set_visible(False)
-        st.pyplot(fig_dumb)
-        st.caption("Visualizes if the patient's clinical state has 'cooled down' since admission.")
+        # Ajustamos dinámicamente los límites verticales basados en los datos reales del paciente
+        if valores_y:
+            ax_slope.set_ylim(min(valores_y) - 1.0, max(valores_y) + 1.0)
+            
+        # Limpieza visual estricta para formato Slopegraph puro
+        ax_slope.spines[['top', 'bottom', 'left', 'right']].set_visible(False)
+        ax_slope.get_yaxis().set_visible(False)
+        
+        # Ejes verticales tenues de guía
+        ax_slope.axvline(x=0, color='#E5E5E5', linestyle='--', linewidth=1.2, zorder=1)
+        ax_slope.axvline(x=1, color='#E5E5E5', linestyle='--', linewidth=1.2, zorder=1)
+
+        fig_slope.tight_layout()
+        st.pyplot(fig_slope)
+        st.caption(
+            "📌 **Interpretation:** The angle of the slope indicates the pace of clinical evolution. "
+            "🟢 **Flat or descending slopes** represent stability or successful treatment response. "
+            "🔴 **Ascending slopes** indicate active decompensation or worsening variables."
+        )
 
     # ==========================================
     # PESTAÑA 3: SCATTER CONTEXTUAL
