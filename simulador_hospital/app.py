@@ -671,7 +671,7 @@ with col_der:
 
             try:
                 explainer = shap.TreeExplainer(clf)
-                shap_vals = explainer.shap_values(X_proc)
+                shap_vals = explainer.shap_values(X_proc, check_additivity=False)
             except Exception:
                 explainer = shap.LinearExplainer(clf, X_proc) if hasattr(clf, 'coef_') else shap.Explainer(clf, X_proc)
                 shap_vals = explainer(X_proc).values
