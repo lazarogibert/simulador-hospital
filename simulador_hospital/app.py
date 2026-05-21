@@ -594,7 +594,7 @@ with col_der:
     ])
 
     # ==========================================
-    # PESTAÑA 1: EXPLICABILIDAD BLINDADA (SHAP Feature Consolidation)
+    # PESTAÑA 1: EXPLICABILIDAD BLINDADA (Amputación de Arrays)
     # ==========================================
     with tab_shap:
         try:
@@ -602,15 +602,12 @@ with col_der:
             prep = pipeline.named_steps['preprocesador']
             
             X_proc = prep.transform(df_paciente)
-            if hasattr(X_proc, 'toarray'):
-                X_proc_dense = X_proc.toarray()
-            else:
-                X_proc_dense = np.array(X_proc)
-                
+            X_proc_dense = X_proc.toarray() if hasattr(X_proc, 'toarray') else np.array(X_proc)
             X_paciente_1d = X_proc_dense[0] 
             
             nombres_crudos = prep.get_feature_names_out()
             
+            # --- DICCIONARIOS DE TRADUCCIÓN (Omitidos por brevedad, usa los mismos que ya tenías) ---
             shap_ui_dict = {
                 'dias_internados': 'Hospitalization Days', 'pluripatologico': 'Pluripathological',
                 'ING_dolor_eva': 'Initial Pain', 'ING_gravedad_percibida': 'Initial Severity',
@@ -639,14 +636,12 @@ with col_der:
             nombres_limpios_traducidos = []
             for nombre_crudo in nombres_crudos:
                 traducido = nombre_crudo.split('__')[-1]
-                
                 match_cie10 = False
                 for enf_es, enf_en in cie10_ui_dict.items():
                     if enf_es in nombre_crudo:
                         traducido = f"Diagnosis: {enf_en}"
                         match_cie10 = True
                         break
-                
                 if not match_cie10:
                     match_edad = False
                     for en_edad, es_edad in opciones_edad_dict.items():
@@ -654,15 +649,14 @@ with col_der:
                             traducido = f"Age: {en_edad}"
                             match_edad = True
                             break
-                    
                     if not match_edad:
                         for var_es, var_en in shap_ui_dict.items():
                             if var_es in nombre_crudo:
                                 traducido = var_en
                                 break
-                                
                 nombres_limpios_traducidos.append(traducido)
 
+            # 1. Calcular SHAP crudo
             try:
                 explainer = shap.TreeExplainer(clf)
                 shap_vals = explainer.shap_values(X_proc_dense, check_additivity=False)
@@ -674,64 +668,49 @@ with col_der:
             if len(shap_vals.shape) > 2: shap_vals = shap_vals[:, :, 1]
             
             exp_val = explainer.expected_value
-            if isinstance(exp_val, (list, np.ndarray)):
-                exp_val = exp_val[1] if len(exp_val) > 1 else exp_val[0]
+            exp_val = exp_val[1] if isinstance(exp_val, (list, np.ndarray)) and len(exp_val) > 1 else exp_val[0] if isinstance(exp_val, (list, np.ndarray)) else exp_val
             
             shap_vals_pct = shap_vals[0] * 100
             exp_val_pct = exp_val * 100
 
-            # 🌟 FIX CRÍTICO: CONSOLIDACIÓN DE VARIABLES ONE-HOT (Elimina la basura visual)
+            # 🌟 LA SOLUCIÓN DEFINITIVA: FILTRADO FÍSICO DE LOS ARRAYS 🌟
+            indices_activos = []
+            indices_basura = []
             
-            # 1. Consolidar Diagnósticos
-            idx_diag_inactivos = []
-            idx_diag_activo = -1
-            for i, nombre in enumerate(nombres_limpios_traducidos):
-                if nombre.startswith("Diagnosis:"):
-                    if float(X_paciente_1d[i]) == 0.0:
-                        idx_diag_inactivos.append(i)
-                    else:
-                        idx_diag_activo = i
+            # Palabras clave de variables numéricas/escalas que sí pueden valer 0 o negativo y deben mostrarse
+            variables_continuas = ['Days', 'Pain', 'Severity', 'Delta']
 
-            if idx_diag_activo != -1:
-                # Sumamos el peso de no tener los otros diagnósticos al diagnóstico principal
-                for i in idx_diag_inactivos:
-                    shap_vals_pct[idx_diag_activo] += shap_vals_pct[i]
-                    shap_vals_pct[i] = 0.0
-            else:
-                # Si no hay diagnóstico mapeado, lo absorbemos en el valor base
-                for i in idx_diag_inactivos:
-                    exp_val_pct += shap_vals_pct[i]
-                    shap_vals_pct[i] = 0.0
+            for i, (val, nombre) in enumerate(zip(X_paciente_1d, nombres_limpios_traducidos)):
+                es_continua = any(kw in nombre for kw in variables_continuas)
+                # Si la variable tiene un valor distinto de 0, o si es una variable numérica (días, dolor)
+                if val != 0 or es_continua:
+                    indices_activos.append(i)
+                else:
+                    indices_basura.append(i)
 
-            # 2. Consolidar Edades
-            idx_edad_inactivos = []
-            idx_edad_activo = -1
-            for i, nombre in enumerate(nombres_limpios_traducidos):
-                if nombre.startswith("Age:"):
-                    if float(X_paciente_1d[i]) == 0.0:
-                        idx_edad_inactivos.append(i)
-                    else:
-                        idx_edad_activo = i
+            # Sumamos el peso de todas las variables inactivas
+            peso_basura_total = np.sum(shap_vals_pct[indices_basura])
+            
+            # Absorbemos ese peso en el valor esperado base
+            nuevo_exp_val_pct = exp_val_pct + peso_basura_total
 
-            if idx_edad_activo != -1:
-                for i in idx_edad_inactivos:
-                    shap_vals_pct[idx_edad_activo] += shap_vals_pct[i]
-                    shap_vals_pct[i] = 0.0
-            else:
-                for i in idx_edad_inactivos:
-                    exp_val_pct += shap_vals_pct[i]
-                    shap_vals_pct[i] = 0.0
+            # Amputamos los arrays. Ahora SHAP solo recibirá las variables que importan
+            shap_vals_limpio = shap_vals_pct[indices_activos]
+            X_paciente_limpio = X_paciente_1d[indices_activos]
+            nombres_limpios = [nombres_limpios_traducidos[i] for i in indices_activos]
 
-            # Renderizado final
+            # 2. Renderizado Final
             fig_shap, ax_shap = plt.subplots(figsize=(8, 4))
             
-            shap.waterfall_plot(shap.Explanation(
-                values=shap_vals_pct, 
-                base_values=exp_val_pct, 
-                data=X_paciente_1d, 
-                feature_names=nombres_limpios_traducidos), 
-                show=False, max_display=8
+            # Construimos el objeto Explanation solo con los datos recortados
+            explicacion_filtrada = shap.Explanation(
+                values=shap_vals_limpio, 
+                base_values=nuevo_exp_val_pct, 
+                data=X_paciente_limpio, 
+                feature_names=nombres_limpios
             )
+            
+            shap.waterfall_plot(explicacion_filtrada, show=False, max_display=8)
             st.pyplot(fig_shap)
             plt.close(fig_shap)
             
