@@ -673,18 +673,18 @@ with col_der:
                 # Mapea cualquier otra variable cruda al inglés
                 nombres_limpios_traducidos.append(shap_ui_dict.get(nombre, nombre))
 
-        try: 
-            explainer = shap.TreeExplainer(clf) 
-            # Apagamos la validación estricta acá
-            shap_vals = explainer.shap_values(X_proc, check_additivity=False) 
-        except Exception: 
-        if hasattr(clf, 'coef_'):
-            explainer = shap.LinearExplainer(clf, X_proc)
-            shap_vals = explainer.shap_values(X_proc)
-        else:
-            explainer = shap.Explainer(clf, X_proc) 
-            # Y apagamos la validación estricta acá también
-            shap_vals = explainer(X_proc, check_additivity=False).values
+            try: 
+                explainer = shap.TreeExplainer(clf) 
+                # Apagamos la validación estricta acá
+                shap_vals = explainer.shap_values(X_proc, check_additivity=False) 
+            except Exception: 
+            if hasattr(clf, 'coef_'):
+                explainer = shap.LinearExplainer(clf, X_proc)
+                shap_vals = explainer.shap_values(X_proc)
+            else:
+                explainer = shap.Explainer(clf, X_proc) 
+                # Y apagamos la validación estricta acá también
+                shap_vals = explainer(X_proc, check_additivity=False).values
         
         if isinstance(shap_vals, list): shap_vals = shap_vals[1]
         if len(shap_vals.shape) > 2: shap_vals = shap_vals[:, :, 1]
