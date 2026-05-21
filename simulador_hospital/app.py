@@ -596,6 +596,9 @@ with col_der:
     # ==========================================
     # PESTAÑA 1: TU CÓDIGO ORIGINAL DE SHAP (INTACTO)
     # ==========================================
+    # ==========================================
+    # PESTAÑA 1: TU CÓDIGO ORIGINAL DE SHAP (INTACTO)
+    # ==========================================
     with tab_shap:
         clf = pipeline.named_steps['clasificador']
         prep = pipeline.named_steps['preprocesador']
@@ -673,7 +676,8 @@ with col_der:
                 # Mapea cualquier otra variable cruda al inglés
                 nombres_limpios_traducidos.append(shap_ui_dict.get(nombre, nombre))
 
-            try:
+        # --- AQUI ESTÁ LA CORRECCIÓN DE INDENTACIÓN ---
+        try:
             explainer = shap.TreeExplainer(clf)
             shap_vals = explainer.shap_values(X_proc, check_additivity=False)
         except Exception:
@@ -683,6 +687,7 @@ with col_der:
             else:
                 explainer = shap.Explainer(clf, X_proc)
                 shap_vals = explainer(X_proc, check_additivity=False).values
+        # ----------------------------------------------
         
         if isinstance(shap_vals, list): shap_vals = shap_vals[1]
         if len(shap_vals.shape) > 2: shap_vals = shap_vals[:, :, 1]
