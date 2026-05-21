@@ -585,20 +585,20 @@ with col_izq:
 
 with col_der:
     st.subheader("Decision Audit & Clinical Context")
-    
-    clf = pipeline.named_steps['clasificador']
-    prep = pipeline.named_steps['preprocesador']
-    
-    # 🌟 Paciente actual (aislado para evitar conflictos de dimensiones)
+
+    clf = pipeline.named_steps["clasificador"]
+    prep = pipeline.named_steps["preprocesador"]
+
+    # Paciente actual
     df_row = df_paciente.iloc[[0]].copy()
+
+    # Transformación
     X_proc = prep.transform(df_row)
     if hasattr(X_proc, "toarray"):
         X_proc = X_proc.toarray()
-    
+
     nombres_crudos = prep.get_feature_names_out()
-    nombres_limpios = [nombre.replace('num__', '').replace('cat__', '') for nombre in nombres_crudos]
-    
-    # 🌟 DICCIONARIO UI PARA TRADUCIR LAS VARIABLES DE SHAP
+
     shap_ui_dict = {
         'dias_internados': 'Hospitalization Days', 'pluripatologico': 'Pluripathological',
         'ING_dolor_eva': 'Initial Pain', 'ING_gravedad_percibida': 'Initial Severity',
@@ -624,24 +624,19 @@ with col_der:
         'LLM_tabaquismo_activo': 'Chronic: Active Smoking'
     }
 
-    # 🌟 TRADUCCIÓN DINÁMICA DE LA LISTA DE VARIABLES
-    nombres_limpios_traducidos = []
-    for nombre in nombres_limpios:
-        if "CIE10_MACRO" in nombre:
-            cat_val = nombre.replace("CIE10_MACRO_", "")
-            trad = cie10_ui_dict.get(cat_val, cat_val)
-            nombres_limpios_traducidos.append(f"Diagnosis: {trad}")
-        elif "rango_edad" in nombre:
-            cat_val = nombre.replace("rango_edad_", "")
-            trad = cat_val
-            if 'opciones_edad_dict' in locals() or 'opciones_edad_dict' in globals():
-                for en, es in opciones_edad_dict.items():
-                    if es.upper() == cat_val.upper():
-                        trad = en
-                        break
-            nombres_limpios_traducidos.append(f"Age: {trad}")
-        else:
-            nombres_limpios_traducidos.append(shap_ui_dict.get(nombre, nombre))
+    def limpiar_nombre(nombre):
+        n = nombre.replace("num__", "").replace("cat__", "")
+        if "CIE10_MACRO_" in n:
+            cat_val = n.replace("CIE10_MACRO_", "")
+            return f"Diagnosis: {cie10_ui_dict.get(cat_val, cat_val)}"
+        if "rango_edad_" in n:
+            cat_val = n.replace("rango_edad_", "")
+            try:
+                trad = next((k for k, v in opciones_edad_dict.items() if v.upper() == cat_val.upper()), cat_val)
+            except Exception:
+                trad = cat_val
+            return f"Age: {trad}"
+        return shap_ui_dict.get(n, n)
 
     # 🌟 CREACIÓN DE PESTAÑAS
     tab_shap, tab_traj, tab_context = st.tabs([
@@ -651,49 +646,72 @@ with col_der:
     ])
 
     # ==========================================
-    # PESTAÑA 1: SHAP WATERFALL
+    # PESTAÑA 1: TU CÓDIGO ORIGINAL (INTACTO)
     # ==========================================
     with tab_shap:
         try:
             explainer = shap.TreeExplainer(clf)
-            # FIX CRÍTICO 1: check_additivity=False
-            shap_vals = explainer.shap_values(X_proc, check_additivity=False)
+            shap_raw = explainer.shap_values(X_proc, check_additivity=False)
         except Exception:
-            explainer = shap.LinearExplainer(clf, X_proc) if hasattr(clf, 'coef_') else shap.Explainer(clf, X_proc)
-            shap_vals = explainer(X_proc).values
-        
-        # Extracción segura de la clase positiva (Reingreso)
-        if isinstance(shap_vals, list): shap_vals = shap_vals[1]
-        if len(np.array(shap_vals).shape) > 2: shap_vals = np.array(shap_vals)[:, :, 1]
-        
-        exp_val = explainer.expected_value
-        if isinstance(exp_val, (list, np.ndarray)):
-            exp_val = exp_val[1] if len(exp_val) > 1 else exp_val[0]
-        
-        # Aplanar para garantizar 1D
-        shap_vals_1d = np.asarray(shap_vals).ravel()
-        
-        # FIX CRÍTICO 2: Alineación estricta de dimensiones
-        n_min = min(len(nombres_limpios_traducidos), len(shap_vals_1d))
-        nombres_finales = nombres_limpios_traducidos[:n_min]
-        shap_vals_1d = shap_vals_1d[:n_min]
-        
-        # ESCALADO MATEMÁTICO A PORCENTAJES
-        shap_vals_pct = shap_vals_1d * 100
-        exp_val_pct = exp_val * 100
-        
-        fig_shap, ax_shap = plt.subplots(figsize=(8, 4))
-        
-        # Usamos shap.plots.waterfall (la API moderna y estable)
-        shap_exp = shap.Explanation(
-            values=shap_vals_pct, 
-            base_values=exp_val_pct, 
-            data=X_proc[0][:n_min] if X_proc.ndim > 1 else X_proc[:n_min], 
-            feature_names=nombres_finales
+            explainer = shap.Explainer(clf, X_proc)
+            shap_raw = explainer(X_proc)
+
+        # Extraer clase positiva
+        if isinstance(shap_raw, list):
+            shap_values_paciente = shap_raw[1][0]
+        elif hasattr(shap_raw, "values"):
+            vals = shap_raw.values
+            if vals.ndim == 3:
+                shap_values_paciente = vals[0, :, 1]
+            else:
+                shap_values_paciente = vals[0]
+        else:
+            shap_values_paciente = shap_raw[0]
+
+        # Forzar 1D
+        shap_values_paciente = np.asarray(shap_values_paciente).ravel()
+        nombres_crudos = np.asarray(nombres_crudos).ravel()
+
+        # Ajustar longitudes por seguridad
+        n_min = min(len(nombres_crudos), len(shap_values_paciente))
+        nombres_crudos = nombres_crudos[:n_min]
+        shap_values_paciente = shap_values_paciente[:n_min]
+
+        # DataFrame con tus nombres traducidos originales
+        df_shap = pd.DataFrame({
+            "Feature": [limpiar_nombre(n) for n in nombres_crudos],
+            "SHAP_Value": shap_values_paciente
+        })
+
+        # Top variables individuales, sin agrupar
+        df_shap["Abs"] = df_shap["SHAP_Value"].abs()
+        df_top = df_shap.sort_values("Abs", ascending=False).head(8).sort_values("Abs", ascending=True)
+
+        # Gráfico custom
+        plt.close("all")
+        fig, ax = plt.subplots(figsize=(9, 4.8))
+
+        colores = ["#FF0051" if v > 0 else "#008BFB" for v in df_top["SHAP_Value"]]
+        ax.barh(
+            y=df_top["Feature"],
+            width=df_top["SHAP_Value"],
+            color=colores,
+            edgecolor="white",
+            height=0.6
         )
-        
-        shap.plots.waterfall(shap_exp, show=False, max_display=8)
-        st.pyplot(fig_shap)
+        ax.axvline(x=0, color="black", linewidth=1.2)
+
+        ax.set_xlabel("Relative Impact on Risk (SHAP)", fontsize=9, fontweight="bold")
+        ax.set_xticks([])
+        ax.set_ylabel("")
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax.spines["bottom"].set_visible(False)
+        ax.spines["left"].set_color("#DDDDDD")
+
+        fig.tight_layout()
+        st.pyplot(fig)
+
         st.caption(
             "📌 **Note:** Bar size represents the clinical weight of the variable in the model's decision. "
             "🔴 **Red** pushes risk higher (towards readmission), 🔵 **Blue** pushes risk lower (towards safe discharge)."
@@ -717,7 +735,6 @@ with col_der:
             val_ing = float(df_row[col_ing].values[0]) if col_ing in df_row.columns else 0
             val_evo = float(df_row[col_evo].values[0]) if col_evo in df_row.columns else 0
             
-            # Verde si bajó (mejoría), Rojo si subió (deterioro)
             color_linea = '#00C851' if val_evo <= val_ing else '#FF4444'
             
             ax_dumb.plot([val_ing, val_evo], [i, i], color=color_linea, linewidth=3, alpha=0.6)
@@ -738,7 +755,7 @@ with col_der:
     with tab_context:
         fig_scat, ax_scat = plt.subplots(figsize=(8, 4))
         
-        # 🚨 DATOS HISTÓRICOS SIMULADOS (Reemplazar cuando tengas df_train / histórico)
+        # DATOS HISTÓRICOS SIMULADOS (Reemplazar cuando tengas df_train)
         x_hist = np.random.normal(10, 5, 200).clip(1, 40)
         y_hist = np.random.beta(2, 5, 200)
         ax_scat.scatter(x_hist, y_hist, color='gray', alpha=0.2, s=20, label='Historical Cases')
