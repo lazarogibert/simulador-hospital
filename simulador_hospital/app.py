@@ -511,6 +511,7 @@ with col_izq:
         st.success(f"✅ **SAFE DISCHARGE**\n\nRisk controlled within the permitted threshold.")
 
     # DICCIONARIO UI EXHAUSTIVO PARA LA TRADUCCIÓN DEL CIE-10
+    # (Este bloque no se muestra entero en la UI, solo se usa para mapear. Se mantiene igual)
     cie10_ui_dict = {
         "Tuberculosis": "Tuberculosis", "Lepra": "Leprosy", "Sífilis": "Syphilis", 
         "Otras infecciosas (A)": "Other infectious (A)", "Hepatitis viral": "Viral hepatitis", 
@@ -593,7 +594,7 @@ with col_der:
     ])
 
     # ==========================================
-    # PESTAÑA 1: EXPLICABILIDAD BLINDADA
+    # PESTAÑA 1: EXPLICABILIDAD BLINDADA (1D Dense Array)
     # ==========================================
     with tab_shap:
         try:
@@ -602,10 +603,17 @@ with col_der:
             
             X_proc = prep.transform(df_paciente)
             
+            # Convert to dense array to prevent SHAP indexing errors
+            if hasattr(X_proc, 'toarray'):
+                X_proc_dense = X_proc.toarray()
+            else:
+                X_proc_dense = np.array(X_proc)
+                
+            X_paciente_1d = X_proc_dense[0] 
+            
             nombres_crudos = prep.get_feature_names_out()
             nombres_limpios = [nombre.replace('num__', '').replace('cat__', '') for nombre in nombres_crudos]
             
-            # DICCIONARIO UI PARA TRADUCIR LAS VARIABLES DE SHAP
             shap_ui_dict = {
                 'dias_internados': 'Hospitalization Days',
                 'pluripatologico': 'Pluripathological',
@@ -671,10 +679,10 @@ with col_der:
 
             try:
                 explainer = shap.TreeExplainer(clf)
-                shap_vals = explainer.shap_values(X_proc, check_additivity=False)
+                shap_vals = explainer.shap_values(X_proc_dense, check_additivity=False)
             except Exception:
-                explainer = shap.LinearExplainer(clf, X_proc) if hasattr(clf, 'coef_') else shap.Explainer(clf, X_proc)
-                shap_vals = explainer(X_proc).values
+                explainer = shap.LinearExplainer(clf, X_proc_dense) if hasattr(clf, 'coef_') else shap.Explainer(clf, X_proc_dense)
+                shap_vals = explainer(X_proc_dense).values
             
             if isinstance(shap_vals, list): shap_vals = shap_vals[1]
             if len(shap_vals.shape) > 2: shap_vals = shap_vals[:, :, 1]
@@ -691,20 +699,20 @@ with col_der:
             shap.waterfall_plot(shap.Explanation(
                 values=shap_vals_pct, 
                 base_values=exp_val_pct, 
-                data=X_proc[0], 
+                data=X_paciente_1d, 
                 feature_names=nombres_limpios_traducidos), 
                 show=False, max_display=8
             )
             st.pyplot(fig_shap)
-            plt.close(fig_shap) # 🌟 BLINDAJE CONTRA LEAKS DE MEMORIA
+            plt.close(fig_shap)
             
             st.caption(
                 "📌 **Note:** Bar size represents the clinical weight of the variable in the model's decision. "
                 "🔴 **Red** pushes risk higher (towards readmission), 🔵 **Blue** pushes risk lower (towards safe discharge)."
             )
         except Exception as e:
-            st.warning("Gráfico de impacto no disponible temporalmente.")
-            st.error(f"Detalle técnico SHAP: {str(e)}")
+            st.warning("Impact graph temporarily unavailable.")
+            st.error(f"SHAP technical detail: {str(e)}")
 
     # ==========================================
     # PESTAÑA 2: GRÁFICO DE PENDIENTES
@@ -784,7 +792,7 @@ with col_der:
 
             fig_slope.tight_layout()
             st.pyplot(fig_slope)
-            plt.close(fig_slope) # 🌟 BLINDAJE CONTRA LEAKS DE MEMORIA
+            plt.close(fig_slope) 
             
             st.caption(
                 "📌 **Interpretation:** The angle of the slope indicates clinical evolution. "
@@ -792,16 +800,15 @@ with col_der:
                 "🔴 **Ascending slopes** indicate active decompensation."
             )
         except Exception as e:
-            st.error("Error al renderizar las trayectorias clínicas.")
+            st.error("Error rendering clinical trajectories.")
 
     # ==========================================
-    # PESTAÑA 3: SCATTER CONTEXTUAL (REAL DATA)
+    # PESTAÑA 3: SCATTER CONTEXTUAL
     # ==========================================
     with tab_context:
         try:
             fig_scat, ax_scat = plt.subplots(figsize=(8, 4))
             
-            # 🌟 INFERENCIA SOBRE LA COHORTE REAL (df_train_sample cargado en Sección 2)
             try:
                 riesgos_hist = pipeline.predict_proba(df_train_sample)[:, 1]
                 if 'dias_internados' in df_train_sample.columns:
@@ -811,12 +818,10 @@ with col_der:
                     
                 ax_scat.scatter(x_hist, riesgos_hist, color='gray', alpha=0.4, s=30, label='Historical Cohort')
             except Exception as e:
-                # Fallback seguro si falla la muestra
                 x_hist_sim = np.random.normal(10, 5, 200).clip(1, 40)
                 y_hist_sim = np.random.beta(2, 5, 200)
                 ax_scat.scatter(x_hist_sim, y_hist_sim, color='gray', alpha=0.2, s=20, label='Simulated Cohort (Fallback)')
 
-            # PACIENTE ACTUAL
             dias_actual = float(df_row['dias_internados'].values[0]) if 'dias_internados' in df_row.columns else 0
             ax_scat.scatter(dias_actual, riesgo, color='#008BFB', marker='*', s=500, 
                             edgecolor='black', label='CURRENT PATIENT', zorder=5)
@@ -830,38 +835,11 @@ with col_der:
             ax_scat.spines[['top', 'right']].set_visible(False)
             
             st.pyplot(fig_scat)
-            plt.close(fig_scat) # 🌟 BLINDAJE CONTRA LEAKS DE MEMORIA
+            plt.close(fig_scat) 
             
             st.caption("Star represents the current patient. Compare their risk relative to length of stay.")
         except Exception as e:
-            st.error("No se pudo cargar el mapa contextual.")
-    # ==========================================
-    # PESTAÑA 3: SCATTER CONTEXTUAL
-    # ==========================================
-    with tab_context:
-        fig_scat, ax_scat = plt.subplots(figsize=(8, 4))
-        
-        # DATOS HISTÓRICOS SIMULADOS (Reemplazar cuando tengas df_train)
-        x_hist = np.random.normal(10, 5, 200).clip(1, 40)
-        y_hist = np.random.beta(2, 5, 200)
-        ax_scat.scatter(x_hist, y_hist, color='gray', alpha=0.2, s=20, label='Historical Cases')
-
-        # PACIENTE ACTUAL
-        dias_actual = float(df_row['dias_internados'].values[0]) if 'dias_internados' in df_row.columns else 0
-        ax_scat.scatter(dias_actual, riesgo, color='#008BFB', marker='*', s=500, 
-                        edgecolor='black', label='CURRENT PATIENT', zorder=5)
-
-        # LÍNEA DE UMBRAL (Asegurate que la variable 'umbral' y 'riesgo' estén definidas arriba de las columnas)
-        ax_scat.axhline(y=umbral, color='red', linestyle='--', alpha=0.6, label='Safety Threshold')
-
-        ax_scat.set_xlabel("Days of Hospitalization")
-        ax_scat.set_ylabel("Readmission Risk Probability")
-        ax_scat.set_ylim(-0.05, 1.05)
-        ax_scat.legend(loc='upper right')
-        ax_scat.spines[['top', 'right']].set_visible(False)
-        
-        st.pyplot(fig_scat)
-        st.caption("Star represents the current patient. Compare their risk relative to length of stay.")
+            st.error("Could not load the contextual map.")
         
 # ==========================================
 # 6. THERAPEUTIC NAVIGATOR (DiCE - HIGH SECURITY & METRICALLY SOUND)
