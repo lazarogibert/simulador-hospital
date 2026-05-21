@@ -594,7 +594,7 @@ with col_der:
     ])
 
     # ==========================================
-    # PESTAÑA 1: TU CÓDIGO ORIGINAL DE SHAP (INTACTO Y BLINDADO)
+    # PESTAÑA 1: TU CÓDIGO ORIGINAL DE SHAP (INTACTO)
     # ==========================================
     with tab_shap:
         clf = pipeline.named_steps['clasificador']
@@ -664,11 +664,10 @@ with col_der:
                 # Traduce la variable de edad haciendo búsqueda inversa en tu diccionario
                 cat_val = nombre.replace("rango_edad_", "")
                 trad = cat_val
-                if 'opciones_edad_dict' in locals() or 'opciones_edad_dict' in globals():
-                    for en, es in opciones_edad_dict.items():
-                        if es.upper() == cat_val.upper():
-                            trad = en
-                            break
+                for en, es in opciones_edad_dict.items():
+                    if es.upper() == cat_val.upper():
+                        trad = en
+                        break
                 nombres_limpios_traducidos.append(f"Age: {trad}")
             else:
                 # Mapea cualquier otra variable cruda al inglés
@@ -676,14 +675,10 @@ with col_der:
 
         try:
             explainer = shap.TreeExplainer(clf)
-            shap_vals = explainer.shap_values(X_proc, check_additivity=False)
+            shap_vals = explainer.shap_values(X_proc)
         except Exception:
-            if hasattr(clf, 'coef_'):
-                explainer = shap.LinearExplainer(clf, X_proc)
-                shap_vals = explainer.shap_values(X_proc)
-            else:
-                explainer = shap.Explainer(clf, X_proc)
-                shap_vals = explainer(X_proc, check_additivity=False).values
+            explainer = shap.LinearExplainer(clf, X_proc) if hasattr(clf, 'coef_') else shap.Explainer(clf, X_proc)
+            shap_vals = explainer(X_proc).values
         
         if isinstance(shap_vals, list): shap_vals = shap_vals[1]
         if len(shap_vals.shape) > 2: shap_vals = shap_vals[:, :, 1]
@@ -694,23 +689,14 @@ with col_der:
         
         # 🌟 ESCALADO MATEMÁTICO A PORCENTAJES (Transformación x100)
         shap_vals_pct = shap_vals[0] * 100
-        exp_val_pct = float(exp_val) * 100
-
-        # Manejo seguro de la matriz de datos para el objeto Explanation
-        data_to_plot = X_proc[0]
-        if hasattr(data_to_plot, "toarray"):
-            data_to_plot = data_to_plot.toarray().flatten()
-        elif hasattr(data_to_plot, "flatten"):
-            data_to_plot = data_to_plot.flatten()
-        else:
-            data_to_plot = np.array(data_to_plot).flatten()
+        exp_val_pct = exp_val * 100
         
         fig_shap, ax_shap = plt.subplots(figsize=(8, 4))
         
         shap.waterfall_plot(shap.Explanation(
             values=shap_vals_pct, 
             base_values=exp_val_pct, 
-            data=data_to_plot, 
+            data=X_proc[0], 
             feature_names=nombres_limpios_traducidos), 
             show=False, max_display=8
         )
@@ -719,7 +705,6 @@ with col_der:
             "📌 **Note:** Bar size represents the clinical weight of the variable in the model's decision. "
             "🔴 **Red** pushes risk higher (towards readmission), 🔵 **Blue** pushes risk lower (towards safe discharge)."
         )
-
     # ==========================================
     # PESTAÑA 2: GRÁFICO DE PENDIENTES (ANTI-COLISIÓN)
     # ==========================================
