@@ -707,71 +707,97 @@ with col_der:
         )
 
     # ==========================================
-    # PESTAÑA 2: GRÁFICO DE PENDIENTES (SLOPEGRAPH)
+    # PESTAÑA 2: GRÁFICO DE PENDIENTES (ANTI-COLISIÓN)
     # ==========================================
     with tab_traj:
-        st.markdown("#### Dynamic Trajectory: Evolution of All Tracked Deltas")
+        st.markdown("#### Dynamic Trajectory: Evolution of Tracked Deltas")
         
         df_row = df_paciente.iloc[[0]].copy()
         
-        # Todos los deltas desglosados en sus pares originales (Ingreso vs Evolución)
+        # 🌟 LOS 5 DELTAS DE TU DICCIONARIO
         pares_clinicos = {
-            'Pain (VAS)': ('profile_ING_dolor_eva', 'profile_EVO_dolor_eva'),
-            'Perceived Severity': ('profile_ING_gravedad_percibida', 'profile_EVO_gravedad_percibida'),
-            'Mental Alteration': ('profile_ING_alteracion_mental', 'profile_EVO_alteracion_mental'),
-            'Functional Dependence': ('profile_ING_dependencia_funcional', 'profile_EVO_dependencia_funcional'),
-            'Bearer Devices': ('profile_ING_portador_dispositivos', 'profile_EVO_portador_dispositivos')
+            'Pain (VAS)': ('ING_dolor_eva', 'EVO_dolor_eva'),
+            'Severity': ('ING_gravedad_percibida', 'EVO_gravedad_percibida'),
+            'Mental Alt.': ('ING_alteracion_mental', 'EVO_alteracion_mental'),
+            'Func. Dep.': ('ING_dependencia_funcional', 'EVO_dependencia_funcional'),
+            'Devices': ('ING_portador_dispositivos', 'EVO_portador_dispositivos')
         }
-        
-        # Intentamos mapear sin prefijo si las columnas no se encuentran con 'profile_'
-        # por si cambian de nombre en tu dataframe principal
-        primer_par = list(pares_clinicos.values())[0][0]
-        if primer_par not in df_row.columns and primer_par.replace('profile_', '') in df_row.columns:
-            pares_clinicos = {k: (v[0].replace('profile_', ''), v[1].replace('profile_', '')) for k, v in pares_clinicos.items()}
 
-        fig_slope, ax_slope = plt.subplots(figsize=(6.5, 5))
-        
-        # Configuración del espacio del Slopegraph
-        ax_slope.set_xlim(-0.6, 1.6)
-        ax_slope.set_xticks([0, 1])
-        ax_slope.set_xticklabels(['Admission', 'Current State'], fontsize=11, fontweight='bold')
-        
-        # Buscamos los valores mínimos y máximos para ajustar márgenes del lienzo visual
-        valores_y = []
-
+        # Extraemos los valores del paciente actual
+        datos = []
         for label, (col_ing, col_evo) in pares_clinicos.items():
             val_ing = float(df_row[col_ing].values[0]) if col_ing in df_row.columns else 0.0
             val_evo = float(df_row[col_evo].values[0]) if col_evo in df_row.columns else 0.0
-            valores_y.extend([val_ing, val_evo])
+            datos.append({'label': label, 'ing': val_ing, 'evo': val_evo})
+
+        fig_slope, ax_slope = plt.subplots(figsize=(7, 5))
+        ax_slope.set_xlim(-0.5, 1.5)
+        ax_slope.set_xticks([0, 1])
+        ax_slope.set_xticklabels(['Admission', 'Current State'], fontsize=11, fontweight='bold')
+        
+        # 🌟 ALGORITMO ANTI-COLISIÓN PARA LOS TEXTOS
+        def separar_superposiciones(valores, margen=0.45):
+            ordenados = sorted(enumerate(valores), key=lambda x: x[1])
+            res = {}
+            if not ordenados: return res
+            res[ordenados[0][0]] = ordenados[0][1]
+            last_y = ordenados[0][1]
             
-            # 🟢 Menor o igual es estabilidad/mejoría. 🔴 Mayor es deterioro clínico
+            for idx, y in ordenados[1:]:
+                # Si está muy cerca del anterior, lo empujamos hacia arriba
+                nuevo_y = last_y + margen if y < last_y + margen else y
+                res[idx] = nuevo_y
+                last_y = nuevo_y
+                
+            # Centramos el bloque visualmente para que no quede flotando
+            desplazamiento = (sum(res.values()) - sum(valores)) / len(valores) if valores else 0
+            return {k: v - desplazamiento for k, v in res.items()}
+
+        y_ing_coords = [d['ing'] for d in datos]
+        y_evo_coords = [d['evo'] for d in datos]
+        
+        # Calculamos las coordenadas seguras para que el texto no se pise
+        textos_ing_y = separar_superposiciones(y_ing_coords)
+        textos_evo_y = separar_superposiciones(y_evo_coords)
+
+        min_y, max_y = 0, 0
+
+        # Dibujamos las líneas y los textos
+        for i, d in enumerate(datos):
+            val_ing = d['ing']
+            val_evo = d['evo']
+            label = d['label']
+            
+            min_y = min(min_y, val_ing, val_evo)
+            max_y = max(max_y, val_ing, val_evo)
+
+            # Verde si mejoró o se mantuvo igual, Rojo si empeoró
             color_linea = '#00C851' if val_evo <= val_ing else '#FF4444'
             
-            # Dibujamos el segmento de línea con sus nodos extremos
-            ax_slope.plot([0, 1], [val_ing, val_evo], color=color_linea, linewidth=2.5, marker='o', markersize=8, zorder=3)
+            # Línea de la pendiente y puntos base
+            ax_slope.plot([0, 1], [val_ing, val_evo], color=color_linea, linewidth=2.5, marker='o', markersize=6, zorder=3)
             
-            # Colocamos las etiquetas numéricas y de texto flotando a los costados
-            ax_slope.text(-0.06, val_ing, f"{label} ({val_ing:.1f})", ha='right', va='center', fontsize=9, fontweight='bold', color='#444444')
-            ax_slope.text(1.06, val_evo, f"({val_evo:.1f}) {label}", ha='left', va='center', fontsize=9, fontweight='bold', color=color_linea)
+            # Textos usando las coordenadas pasadas por el algoritmo anti-colisión
+            y_texto_ing = textos_ing_y[i]
+            y_texto_evo = textos_evo_y[i]
 
-        # Ajustamos dinámicamente los límites verticales basados en los datos reales del paciente
-        if valores_y:
-            ax_slope.set_ylim(min(valores_y) - 1.0, max(valores_y) + 1.0)
-            
-        # Limpieza visual estricta para formato Slopegraph puro
+            ax_slope.text(-0.06, y_texto_ing, f"{label} ({val_ing:.1f})", ha='right', va='center', fontsize=9, fontweight='bold', color='#444444')
+            ax_slope.text(1.06, y_texto_evo, f"({val_evo:.1f}) {label}", ha='left', va='center', fontsize=9, fontweight='bold', color=color_linea)
+
+        ax_slope.set_ylim(min_y - 1.5, max_y + 1.5)
         ax_slope.spines[['top', 'bottom', 'left', 'right']].set_visible(False)
         ax_slope.get_yaxis().set_visible(False)
         
-        # Ejes verticales tenues de guía
+        # Ejes verticales de guía
         ax_slope.axvline(x=0, color='#E5E5E5', linestyle='--', linewidth=1.2, zorder=1)
         ax_slope.axvline(x=1, color='#E5E5E5', linestyle='--', linewidth=1.2, zorder=1)
 
         fig_slope.tight_layout()
         st.pyplot(fig_slope)
         st.caption(
-            "📌 **Interpretation:** The angle of the slope indicates the pace of clinical evolution. "
-            "🟢 **Flat or descending slopes** represent stability or successful treatment response. "
-            "🔴 **Ascending slopes** indicate active decompensation or worsening variables."
+            "📌 **Interpretation:** The angle of the slope indicates clinical evolution. "
+            "🟢 **Flat/descending slopes** represent stability or improvement. "
+            "🔴 **Ascending slopes** indicate active decompensation."
         )
 
     # ==========================================
