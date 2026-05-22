@@ -1121,10 +1121,14 @@ def renderizar_notas_gemelo(texto_evolucion, citas_llm, lista_enfermedades):
                 
     return f"<div style='line-height: 1.6; font-size: 14px; padding: 10px; background-color: #F8F9FA; border-radius: 5px; border: 1px solid #E9ECEF;'>{texto_resaltado}</div>"
 
+
+
 st.markdown("---")
 st.subheader("Clinical Similarity Network & Topology")
 st.markdown("Topological visualization using K-NN and Harmonic Centrality. Identifies the Archetypal Patient within the cluster.")
 
+# 🌟 FIX: Cambiamos a cache_data con TTL (Time To Live) para que no se quede pegado para siempre, 
+# o simplemente mantenemos resource pero sabiendo que hay que limpiar la caché.
 @st.cache_resource
 def load_similarity_assets():
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1257,13 +1261,9 @@ if st.session_state.mostrar_grafo:
                 seleccion = st.selectbox("Inspect Patient Twin:", lista_nodos, index=lista_nodos.index(arquetipo_label))
                 
                 if seleccion:
-                    # 1. INICIALIZACIÓN SEGURA (Esto evita el NameError)
-                    idx_gemelo_matriz = None 
-                    
-                    # 2. DEFINICIÓN
                     idx_gemelo_matriz = vecinos_idx[lista_nodos.index(seleccion)]
-                    
                     data = info_inspeccion[seleccion]
+                    
                     if data.get("is_archetype"):
                         st.warning("⭐ **Archetypal Patient (Cluster Hub)**")
                         
@@ -1275,7 +1275,6 @@ if st.session_state.mostrar_grafo:
                         st.success(f"**Outcome:** {data['outcome_text']}")
                     
                     st.markdown("---")
-                    
                     st.markdown("#### 🤝 Shared Clinical Profile")
                     with st.expander("View Core Matching Variables", expanded=True):
                         for nombre_var_es, valor_var in data['datos_comunes'].items():
@@ -1283,16 +1282,6 @@ if st.session_state.mostrar_grafo:
                             valor_en = format_clinical_value(nombre_var_es, valor_var)
                             st.markdown(f"**{nombre_en}:** {valor_en}")
                     
-                    with st.expander("🕵️‍♂️ DEBUG: ¿Qué contenido llega al Inspector?"):
-                        text_cols = ['texto_anamnesis_ingreso', 'texto_evolucion_internacion']
-                        for col in text_cols:
-                            if col in col_idx:
-                                val = matriz_extended[idx_gemelo_matriz, col_idx[col]]
-                                st.write(f"Contenido crudo de **{col}**: '{val}' (Tipo: {type(val)})")
-                            else:
-                                st.warning(f"❌ La columna '{col}' no existe en el archivo .npy")
-                                        
-                    st.write(f"Total columnas disponibles en matriz: {len(nombres_columnas)}")
                     st.markdown("---")
                     
                     traduccion_sexo = {'MASCULINO': 'Male', 'FEMENINO': 'Female'}
@@ -1318,31 +1307,9 @@ if st.session_state.mostrar_grafo:
                     st.markdown(f"**Prior ER Visits (6m):** {safe_int(data['guardia'])}")
                     st.markdown(f"**Consultations:** {safe_int(data['interconsultas'])}")
                     
-                    
+                    # --- BLOQUE DE FENOTIPO NARRATIVO LIMPIO ---
                     st.markdown("#### 📜 Narrative Phenotype (Notes)")
                     
-                    # 1. Obtención del índice
-                    # 1. Obtención del índice
-                    idx_gemelo_matriz = vecinos_idx[lista_nodos.index(seleccion)]
-                    
-                    # --- BLOQUE DE DEBUG PROFUNDO ---
-                    with st.expander("🕵️‍♂️ DEBUG: ¿Por qué no hay texto?"):
-                        st.write(f"Índice apuntado: {idx_gemelo_matriz}")
-                        
-                        # Revisar una columna numérica que sí funciona
-                        col_inter = col_idx.get('cantidad_interconsultas', -1)
-                        if col_inter != -1:
-                            val_inter = matriz_extended[idx_gemelo_matriz, col_inter]
-                            st.write(f"Valor en 'cantidad_interconsultas' (col {col_inter}): {val_inter}")
-                        
-                        # Revisar el texto
-                        col_text = col_idx.get('texto_anamnesis_ingreso', -1)
-                        if col_text != -1:
-                            val_text = matriz_extended[idx_gemelo_matriz, col_text]
-                            st.write(f"Valor en 'texto_anamnesis_ingreso' (col {col_text}): '{val_text}'")
-                    # --------------------------------
-                    
-                    # 2. Extracción y Normalización
                     raw_ing = str(matriz_extended[idx_gemelo_matriz, col_idx.get('texto_anamnesis_ingreso', -1)] if 'texto_anamnesis_ingreso' in col_idx else "")
                     raw_evo = str(matriz_extended[idx_gemelo_matriz, col_idx.get('texto_evolucion_internacion', -1)] if 'texto_evolucion_internacion' in col_idx else "")
                     
@@ -1350,16 +1317,13 @@ if st.session_state.mostrar_grafo:
                     texto_ing = "" if raw_ing.upper().strip() in invalid_markers else raw_ing
                     texto_evo = "" if raw_evo.upper().strip() in invalid_markers else raw_evo
                     
-                    # 3. Lógica de renderizado
                     if not texto_ing and not texto_evo:
                         st.info("ℹ️ No narrative clinical notes available for this patient.")
                     else:
-                        # Consolidamos solo si hay datos
                         texto_completo = ""
                         if texto_ing: texto_completo += f"**Admission:**\n{texto_ing}\n\n"
                         if texto_evo: texto_completo += f"**Evolution:**\n{texto_evo}"
                         
-                        # Extracción de citas forenses
                         citas_gemelo = []
                         for col_nombre in nombres_columnas:
                             if col_nombre.startswith("TX_"):
@@ -1367,10 +1331,7 @@ if st.session_state.mostrar_grafo:
                                 if cita_val and cita_val.strip() not in ["nan", "None", "", "N/A"]:
                                     citas_gemelo.append(cita_val.strip())
                         
-                        # Lista de enfermedades para resaltar
                         enfermedades_a_resaltar = ["diabetes", "hipertensión", "epoc", "neumonía", "tuberculosis", "iam", "acv", "cáncer"]
-                        
-                        # Renderizado del HTML
                         texto_html = renderizar_notas_gemelo(texto_completo, citas_gemelo, enfermedades_a_resaltar)
                         
                         with st.expander("🔍 Inspect Original Clinical Notes", expanded=False):
@@ -1381,7 +1342,7 @@ if st.session_state.mostrar_grafo:
                     st.markdown(f"**Secondary Diagnoses:**\n{diagsec_en}")
                     st.markdown(f"**Medications:**")
                     
-                    if str(farmacos_raw).strip().upper() in ('NINGUNO', '', 'NONE'):
+                    if str(farmacos_raw).strip().upper() in ('NINGUNO', '', 'NONE', 'N/A'):
                         st.markdown("None")
                     else:
                         lista_farmacos = [f.strip() for f in str(farmacos_raw).split(',')]
