@@ -1302,25 +1302,36 @@ if st.session_state.mostrar_grafo:
                     st.markdown(f"**Consultations:** {safe_int(data['interconsultas'])}")
                     
                     st.markdown("#### 📜 Narrative Phenotype (Notes)")
+                    
+                    # 1. Obtenemos el índice exacto de la fila en la matriz original
+                    # 'vecinos_idx' contiene los índices de la matriz original
                     idx_gemelo_matriz = vecinos_idx[lista_nodos.index(seleccion)]
                     
-                    texto_hist_ing = str(matriz_extended[idx_gemelo_matriz, col_idx.get('texto_anamnesis_ingreso', -1)] if 'texto_anamnesis_ingreso' in col_idx else "")
-                    texto_hist_evo = str(matriz_extended[idx_gemelo_matriz, col_idx.get('texto_evolucion_internacion', -1)] if 'texto_evolucion_internacion' in col_idx else "")
-                    texto_hist_completo = f"**Admission:**\n{texto_hist_ing}\n\n**Evolution:**\n{texto_hist_evo}"
+                    # 2. Extracción de textos (Asegúrate de que estos nombres coincidan con tus columnas)
+                    # Usamos .get() para evitar errores si la columna no existe
+                    texto_ing = str(matriz_extended[idx_gemelo_matriz, col_idx.get('texto_anamnesis_ingreso', -1)] if 'texto_anamnesis_ingreso' in col_idx else "")
+                    texto_evo = str(matriz_extended[idx_gemelo_matriz, col_idx.get('texto_evolucion_internacion', -1)] if 'texto_evolucion_internacion' in col_idx else "")
                     
-                    if len(texto_hist_completo) > 20 and texto_hist_completo.strip() != "**Admission:**\n\n\n**Evolution:**\n":
-                        citas_historicas = []
-                        for col in nombres_columnas:
-                            if col.startswith("TX_"):
-                                cita = str(matriz_extended[idx_gemelo_matriz, col_idx[col]])
-                                if cita.strip() and cita.strip() != "nan" and cita.strip() != "None":
-                                    citas_historicas.append(cita.strip())
-                        
-                        enfermedades_a_resaltar = list(cie10_ui_dict.keys()) + ["diabetes", "hipertensión", "epoc", "neumonía", "tuberculosis", "iam", "acv", "cáncer"]
-                        texto_html = renderizar_notas_gemelo(texto_hist_completo, citas_historicas, enfermedades_a_resaltar)
+                    # 3. Consolidación de texto
+                    texto_completo = f"**Admission:**\n{texto_ing}\n\n**Evolution:**\n{texto_evo}"
+                    
+                    # 4. Extracción de citas forenses (todas las columnas que empiezan con TX_)
+                    citas_gemelo = []
+                    for col_nombre in nombres_columnas:
+                        if col_nombre.startswith("TX_"):
+                            cita_val = str(matriz_extended[idx_gemelo_matriz, col_idx[col_nombre]])
+                            if cita_val and cita_val.strip() not in ["nan", "None", ""]:
+                                citas_gemelo.append(cita_val.strip())
+                    
+                    # 5. Lista de enfermedades para resaltar (puedes ampliarla)
+                    enfermedades_a_resaltar = ["diabetes", "hipertensión", "epoc", "neumonía", "tuberculosis", "iam", "acv", "cáncer"]
+                    
+                    # 6. Renderizado condicional
+                    if len(texto_completo.strip()) > 20:
+                        texto_html = renderizar_notas_gemelo(texto_completo, citas_gemelo, enfermedades_a_resaltar)
                         
                         with st.expander("🔍 Inspect Original Clinical Notes", expanded=False):
-                            st.caption("🟡 **Yellow:** Extracted Phenotype Evidence | 🔴 **Red:** Disease Detection")
+                            st.caption("🟡 **Yellow:** Extracted Phenotype Evidence | 🔴 **Red:** Disease Mention")
                             st.markdown(texto_html, unsafe_allow_html=True)
                     else:
                         st.info("No unstructured clinical notes available for this twin.")
