@@ -1349,7 +1349,7 @@ if st.session_state.mostrar_grafo:
                             st.caption("🟡 **Yellow:** Extracted Phenotype Evidence | 🔴 **Red:** Disease Mention")
                             st.markdown(texto_html, unsafe_allow_html=True)
 
-                    st.markdown("#### Clinical Background")
+                    
                     
                     else:
                         st.info("No unstructured clinical notes available for this twin.")
