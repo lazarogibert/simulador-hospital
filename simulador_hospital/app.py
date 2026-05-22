@@ -1311,7 +1311,25 @@ if st.session_state.mostrar_grafo:
                     st.markdown("#### 📜 Narrative Phenotype (Notes)")
                     
                     # 1. Obtención del índice
+                    # 1. Obtención del índice
                     idx_gemelo_matriz = vecinos_idx[lista_nodos.index(seleccion)]
+                    
+                    # --- BLOQUE DE DEBUG PROFUNDO ---
+                    with st.expander("🕵️‍♂️ DEBUG: ¿Por qué no hay texto?"):
+                        st.write(f"Índice apuntado: {idx_gemelo_matriz}")
+                        
+                        # Revisar una columna numérica que sí funciona
+                        col_inter = col_idx.get('cantidad_interconsultas', -1)
+                        if col_inter != -1:
+                            val_inter = matriz_extended[idx_gemelo_matriz, col_inter]
+                            st.write(f"Valor en 'cantidad_interconsultas' (col {col_inter}): {val_inter}")
+                        
+                        # Revisar el texto
+                        col_text = col_idx.get('texto_anamnesis_ingreso', -1)
+                        if col_text != -1:
+                            val_text = matriz_extended[idx_gemelo_matriz, col_text]
+                            st.write(f"Valor en 'texto_anamnesis_ingreso' (col {col_text}): '{val_text}'")
+                    # --------------------------------
                     
                     # 2. Extracción y Normalización
                     raw_ing = str(matriz_extended[idx_gemelo_matriz, col_idx.get('texto_anamnesis_ingreso', -1)] if 'texto_anamnesis_ingreso' in col_idx else "")
