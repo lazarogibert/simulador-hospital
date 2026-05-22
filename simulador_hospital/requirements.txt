@@ -12,3 +12,4 @@ xgboost
 networkx
 google-generativeai
 json-repair
+json
