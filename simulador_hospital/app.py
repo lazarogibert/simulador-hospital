@@ -1257,7 +1257,11 @@ if st.session_state.mostrar_grafo:
                 seleccion = st.selectbox("Inspect Patient Twin:", lista_nodos, index=lista_nodos.index(arquetipo_label))
                 
                 if seleccion:
-                    data = info_inspeccion[seleccion]
+                    # 1. INICIALIZACIÓN SEGURA (Esto evita el NameError)
+                    idx_gemelo_matriz = None 
+                    
+                    # 2. DEFINICIÓN
+                    idx_gemelo_matriz = vecinos_idx[lista_nodos.index(seleccion)]
                     # --- BLOQUE DE DEBUG: NO LO BORRES HASTA QUE VEAS LOS DATOS ---
                     with st.expander("🛠️ DEBUG: ¿Qué hay en la matriz?"):
                         st.write(f"Índice del gemelo: {idx_gemelo_matriz}")
@@ -1266,6 +1270,7 @@ if st.session_state.mostrar_grafo:
                         if 'texto_anamnesis_ingreso' in col_idx:
                             val_debug = matriz_extended[idx_gemelo_matriz, col_idx['texto_anamnesis_ingreso']]
                             st.write(f"Valor crudo en matriz: '{val_debug}'")
+                    data = info_inspeccion[seleccion]
                     if data.get("is_archetype"):
                         st.warning("⭐ **Archetypal Patient (Cluster Hub)**")
                         
