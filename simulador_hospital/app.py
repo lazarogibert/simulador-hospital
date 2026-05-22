@@ -1283,19 +1283,16 @@ if st.session_state.mostrar_grafo:
                             valor_en = format_clinical_value(nombre_var_es, valor_var)
                             st.markdown(f"**{nombre_en}:** {valor_en}")
                     
-                    with st.expander("🕵️‍♂️ DEBUG: Estado de variables NLP"):
-                        # Lista de variables NLP que queremos verificar
-                        nlp_vars = ['ING_gravedad_percibida', 'EVO_gravedad_percibida', 'ING_alteracion_mental']
-                        
-                        for var in nlp_vars:
-                            if var in col_idx:
-                                idx_var = col_idx[var]
-                                valor = matriz_extended[idx_gemelo_matriz, idx_var]
-                                st.write(f"✅ Variable **{var}** encontrada en columna {idx_var}. Valor: '{valor}'")
+                    with st.expander("🕵️‍♂️ DEBUG: ¿Qué contenido llega al Inspector?"):
+                        text_cols = ['texto_anamnesis_ingreso', 'texto_evolucion_internacion']
+                        for col in text_cols:
+                            if col in col_idx:
+                                val = matriz_extended[idx_gemelo_matriz, col_idx[col]]
+                                st.write(f"Contenido crudo de **{col}**: '{val}' (Tipo: {type(val)})")
                             else:
-                                st.warning(f"❌ Variable **{var}** NO encontrada en `nombres_columnas` del .npy")
-                    
-                    st.write(f"Total columnas disponibles en matriz: {len(nombres_columnas)}")
+                                st.warning(f"❌ La columna '{col}' no existe en el archivo .npy")
+                                        
+                                        st.write(f"Total columnas disponibles en matriz: {len(nombres_columnas)}")
                     st.markdown("---")
                     
                     traduccion_sexo = {'MASCULINO': 'Male', 'FEMENINO': 'Female'}
