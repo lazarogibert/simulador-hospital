@@ -1331,7 +1331,52 @@ if st.session_state.mostrar_grafo:
                                 if cita_val and cita_val.strip() not in ["nan", "None", "", "N/A"]:
                                     citas_gemelo.append(cita_val.strip())
                         
-                        enfermedades_a_resaltar = ["diabetes", "hipertensión", "epoc", "neumonía", "tuberculosis", "iam", "acv", "cáncer"]
+                            enfermedades_a_resaltar = [
+                            # --- Base original ---
+                            "diabetes", "hipertensión", "epoc", "neumonía", "tuberculosis", "iam", "acv", "cáncer",
+                            "trombosis", "celulitis", "plaquetopenia", "fa", "fibrilación auricular", "insuficiencia cardíaca",
+                            "sepsis", "infarto", "arritmia", "infección", "sme compartimental",
+                        
+                            # --- Cardiovasculares y Hemodinámicas ---
+                            "isquemia", "angina", "miocardiopatía", "endocarditis", "pericarditis", "shock",
+                            "aneurisma", "taponamiento cardíaco", "tvp", "tromboembolismo", "tep",
+                            "hipertensión arterial", "hta", "hipotensión", "bradicardia", "taquicardia", "ic",
+                        
+                            # --- Respiratorias ---
+                            "asma", "bronquitis", "derrame pleural", "edema agudo de pulmón", "eap",
+                            "insuficiencia respiratoria", "sdra", "neumotórax", "fibrosis pulmonar", "broncoespasmo",
+                        
+                            # --- Renales y Urológicas ---
+                            "itu", "infección urinaria", "insuficiencia renal", "ira", "irc", "pielonefritis",
+                            "litiasis", "nefropatía", "retención aguda de orina", "rao", "hematuria",
+                        
+                            # --- Metabólicas y Endocrinas ---
+                            "hipotiroidismo", "hipertiroidismo", "cetoacidosis", "hipoglucemia", "hiperglucemia",
+                            "dislipidemia", "obesidad", "desnutrición", "sme metabólico", "acidosis",
+                        
+                            # --- Neurológicas y Psiquiátricas ---
+                            "convulsión", "epilepsia", "demencia", "alzheimer", "parkinson", "delirium",
+                            "encefalopatía", "meningitis", "isquemia cerebral", "hemorragia subaracnoidea",
+                            "ataque isquémico transitorio", "ait", "sme confusional", "delirio",
+                        
+                            # --- Digestivas y Hepáticas ---
+                            "cirrosis", "hepatitis", "pancreatitis", "colecistitis", "apendicitis", "peritonitis",
+                            "hemorragia digestiva", "hda", "hdb", "úlcera", "obstrucción intestinal", "íleo",
+                            "isquemia mesentérica", "ascitis", "insuficiencia hepática", "gastroenteritis",
+                        
+                            # --- Hematológicas y Oncológicas ---
+                            "anemia", "leucemia", "linfoma", "neutropenia", "coagulopatía", "metástasis",
+                            "tumor", "neoplasia", "leucocitosis", "pancitopenia", "mieloma",
+                        
+                            # --- Infecciosas y Sistémicas ---
+                            "bacteriemia", "shock séptico", "covid", "osteomielitis", "fascitis",
+                            "candidiasis", "aspergilosis", "vih", "sida", "dengue", "bacteraemia", "sir",
+                        
+                            # --- Traumatológicas, Piel y Quirúrgicas ---
+                            "fractura", "luxación", "artrosis", "artritis", "sme de aplastamiento",
+                            "úlcera por presión", "escara", "herida quirúrgica", "evisceración", "dehiscencia",
+                            "osteomielitis", "necrosis", "gangrena"
+                        ]
                         texto_html = renderizar_notas_gemelo(texto_completo, citas_gemelo, enfermedades_a_resaltar)
                         
                         with st.expander("🔍 Inspect Original Clinical Notes", expanded=False):
