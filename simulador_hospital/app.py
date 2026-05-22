@@ -1309,50 +1309,46 @@ if st.session_state.mostrar_grafo:
                     
                     # ... [Dentro de la sección 'if seleccion:'] ...
                     
-                    st.markdown("#### 📜 Narrative Phenotype (Notes)")
-                    
-                    # 1. Obtención del índice
-                    idx_gemelo_matriz = vecinos_idx[lista_nodos.index(seleccion)]
-                    
-                    # 2. Extracción y Normalización (Convertimos marcadores de error en strings vacíos)
-                    raw_ing = str(matriz_extended[idx_gemelo_matriz, col_idx.get('texto_anamnesis_ingreso', -1)] if 'texto_anamnesis_ingreso' in col_idx else "")
-                    raw_evo = str(matriz_extended[idx_gemelo_matriz, col_idx.get('texto_evolucion_internacion', -1)] if 'texto_evolucion_internacion' in col_idx else "")
-                    
-                    invalid_markers = ["N/A", "MISSING_DATA", "NONE", "NAN", ""]
-                    texto_ing = "" if raw_ing.upper().strip() in invalid_markers else raw_ing
-                    texto_evo = "" if raw_evo.upper().strip() in invalid_markers else raw_evo
-                    
-                    # 3. Lógica de renderizado condicional y mensaje amigable
-                    if not texto_ing and not texto_evo:
-                        st.info("ℹ️ No narrative clinical notes available for this patient.")
-                    else:
-                        # Consolidación de texto (solo incluimos encabezados si hay contenido)
-                        texto_completo = ""
-                        if texto_ing: texto_completo += f"**Admission:**\n{texto_ing}\n\n"
-                        if texto_evo: texto_completo += f"**Evolution:**\n{texto_evo}"
-                        
-                        # Extracción de citas forenses (todas las columnas que empiezan con TX_)
-                        citas_gemelo = []
-                        for col_nombre in nombres_columnas:
-                            if col_nombre.startswith("TX_"):
-                                cita_val = str(matriz_extended[idx_gemelo_matriz, col_idx[col_nombre]])
-                                if cita_val and cita_val.strip() not in ["nan", "None", "", "N/A"]:
-                                    citas_gemelo.append(cita_val.strip())
-                        
-                        # Lista de enfermedades para resaltar
-                        enfermedades_a_resaltar = ["diabetes", "hipertensión", "epoc", "neumonía", "tuberculosis", "iam", "acv", "cáncer"]
-                        
-                        # Renderizado del HTML
-                        texto_html = renderizar_notas_gemelo(texto_completo, citas_gemelo, enfermedades_a_resaltar)
-                        
-                        with st.expander("🔍 Inspect Original Clinical Notes", expanded=False):
-                            st.caption("🟡 **Yellow:** Extracted Phenotype Evidence | 🔴 **Red:** Disease Mention")
-                            st.markdown(texto_html, unsafe_allow_html=True)
+                    # --- BLOQUE DE NOTAS CLINICAS CORREGIDO ---
+st.markdown("#### 📜 Narrative Phenotype (Notes)")
 
-                    
-                    
-                    else:
-                        st.info("No unstructured clinical notes available for this twin.")
+# 1. Obtención del índice
+idx_gemelo_matriz = vecinos_idx[lista_nodos.index(seleccion)]
+
+# 2. Extracción y Normalización
+raw_ing = str(matriz_extended[idx_gemelo_matriz, col_idx.get('texto_anamnesis_ingreso', -1)] if 'texto_anamnesis_ingreso' in col_idx else "")
+raw_evo = str(matriz_extended[idx_gemelo_matriz, col_idx.get('texto_evolucion_internacion', -1)] if 'texto_evolucion_internacion' in col_idx else "")
+
+invalid_markers = ["N/A", "MISSING_DATA", "NONE", "NAN", ""]
+texto_ing = "" if raw_ing.upper().strip() in invalid_markers else raw_ing
+texto_evo = "" if raw_evo.upper().strip() in invalid_markers else raw_evo
+
+# 3. Lógica de renderizado
+if not texto_ing and not texto_evo:
+    st.info("ℹ️ No narrative clinical notes available for this patient.")
+else:
+    # Consolidamos solo si hay datos
+    texto_completo = ""
+    if texto_ing: texto_completo += f"**Admission:**\n{texto_ing}\n\n"
+    if texto_evo: texto_completo += f"**Evolution:**\n{texto_evo}"
+    
+    # Extracción de citas forenses
+    citas_gemelo = []
+    for col_nombre in nombres_columnas:
+        if col_nombre.startswith("TX_"):
+            cita_val = str(matriz_extended[idx_gemelo_matriz, col_idx[col_nombre]])
+            if cita_val and cita_val.strip() not in ["nan", "None", "", "N/A"]:
+                citas_gemelo.append(cita_val.strip())
+    
+    # Lista de enfermedades para resaltar
+    enfermedades_a_resaltar = ["diabetes", "hipertensión", "epoc", "neumonía", "tuberculosis", "iam", "acv", "cáncer"]
+    
+    # Renderizado del HTML
+    texto_html = renderizar_notas_gemelo(texto_completo, citas_gemelo, enfermedades_a_resaltar)
+    
+    with st.expander("🔍 Inspect Original Clinical Notes", expanded=False):
+        st.caption("🟡 **Yellow:** Extracted Phenotype Evidence | 🔴 **Red:** Disease Mention")
+        st.markdown(texto_html, unsafe_allow_html=True)
 
                     st.markdown("#### Clinical Background")
                     st.markdown(f"**Secondary Diagnoses:**\n{diagsec_en}")
