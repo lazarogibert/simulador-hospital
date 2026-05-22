@@ -10,3 +10,5 @@ dill
 catboost
 xgboost
 networkx
+google-generativeai
+json-repair
