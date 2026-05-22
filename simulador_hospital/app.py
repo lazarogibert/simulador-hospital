@@ -1258,6 +1258,14 @@ if st.session_state.mostrar_grafo:
                 
                 if seleccion:
                     data = info_inspeccion[seleccion]
+                    # --- BLOQUE DE DEBUG: NO LO BORRES HASTA QUE VEAS LOS DATOS ---
+                    with st.expander("🛠️ DEBUG: ¿Qué hay en la matriz?"):
+                        st.write(f"Índice del gemelo: {idx_gemelo_matriz}")
+                        st.write("¿Columna 'texto_anamnesis_ingreso' en col_idx?", 'texto_anamnesis_ingreso' in col_idx)
+                        st.write("¿Columna 'texto_evolucion_internacion' en col_idx?", 'texto_evolucion_internacion' in col_idx)
+                        if 'texto_anamnesis_ingreso' in col_idx:
+                            val_debug = matriz_extended[idx_gemelo_matriz, col_idx['texto_anamnesis_ingreso']]
+                            st.write(f"Valor crudo en matriz: '{val_debug}'")
                     if data.get("is_archetype"):
                         st.warning("⭐ **Archetypal Patient (Cluster Hub)**")
                         
