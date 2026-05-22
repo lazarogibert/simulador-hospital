@@ -1292,7 +1292,7 @@ if st.session_state.mostrar_grafo:
                             else:
                                 st.warning(f"❌ La columna '{col}' no existe en el archivo .npy")
                                         
-                                        st.write(f"Total columnas disponibles en matriz: {len(nombres_columnas)}")
+                    st.write(f"Total columnas disponibles en matriz: {len(nombres_columnas)}")
                     st.markdown("---")
                     
                     traduccion_sexo = {'MASCULINO': 'Male', 'FEMENINO': 'Female'}
