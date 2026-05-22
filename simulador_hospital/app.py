@@ -1262,14 +1262,7 @@ if st.session_state.mostrar_grafo:
                     
                     # 2. DEFINICIÓN
                     idx_gemelo_matriz = vecinos_idx[lista_nodos.index(seleccion)]
-                    # --- BLOQUE DE DEBUG: NO LO BORRES HASTA QUE VEAS LOS DATOS ---
-                    with st.expander("🛠️ DEBUG: ¿Qué hay en la matriz?"):
-                        st.write(f"Índice del gemelo: {idx_gemelo_matriz}")
-                        st.write("¿Columna 'texto_anamnesis_ingreso' en col_idx?", 'texto_anamnesis_ingreso' in col_idx)
-                        st.write("¿Columna 'texto_evolucion_internacion' en col_idx?", 'texto_evolucion_internacion' in col_idx)
-                        if 'texto_anamnesis_ingreso' in col_idx:
-                            val_debug = matriz_extended[idx_gemelo_matriz, col_idx['texto_anamnesis_ingreso']]
-                            st.write(f"Valor crudo en matriz: '{val_debug}'")
+                    
                     data = info_inspeccion[seleccion]
                     if data.get("is_archetype"):
                         st.warning("⭐ **Archetypal Patient (Cluster Hub)**")
@@ -1314,38 +1307,50 @@ if st.session_state.mostrar_grafo:
                     st.markdown(f"**Prior ER Visits (6m):** {safe_int(data['guardia'])}")
                     st.markdown(f"**Consultations:** {safe_int(data['interconsultas'])}")
                     
+                    # ... [Dentro de la sección 'if seleccion:'] ...
+                    
                     st.markdown("#### 📜 Narrative Phenotype (Notes)")
                     
-                    # 1. Obtenemos el índice exacto de la fila en la matriz original
-                    # 'vecinos_idx' contiene los índices de la matriz original
+                    # 1. Obtención del índice
                     idx_gemelo_matriz = vecinos_idx[lista_nodos.index(seleccion)]
                     
-                    # 2. Extracción de textos (Asegúrate de que estos nombres coincidan con tus columnas)
-                    # Usamos .get() para evitar errores si la columna no existe
-                    texto_ing = str(matriz_extended[idx_gemelo_matriz, col_idx.get('texto_anamnesis_ingreso', -1)] if 'texto_anamnesis_ingreso' in col_idx else "")
-                    texto_evo = str(matriz_extended[idx_gemelo_matriz, col_idx.get('texto_evolucion_internacion', -1)] if 'texto_evolucion_internacion' in col_idx else "")
+                    # 2. Extracción y Normalización (Convertimos marcadores de error en strings vacíos)
+                    raw_ing = str(matriz_extended[idx_gemelo_matriz, col_idx.get('texto_anamnesis_ingreso', -1)] if 'texto_anamnesis_ingreso' in col_idx else "")
+                    raw_evo = str(matriz_extended[idx_gemelo_matriz, col_idx.get('texto_evolucion_internacion', -1)] if 'texto_evolucion_internacion' in col_idx else "")
                     
-                    # 3. Consolidación de texto
-                    texto_completo = f"**Admission:**\n{texto_ing}\n\n**Evolution:**\n{texto_evo}"
+                    invalid_markers = ["N/A", "MISSING_DATA", "NONE", "NAN", ""]
+                    texto_ing = "" if raw_ing.upper().strip() in invalid_markers else raw_ing
+                    texto_evo = "" if raw_evo.upper().strip() in invalid_markers else raw_evo
                     
-                    # 4. Extracción de citas forenses (todas las columnas que empiezan con TX_)
-                    citas_gemelo = []
-                    for col_nombre in nombres_columnas:
-                        if col_nombre.startswith("TX_"):
-                            cita_val = str(matriz_extended[idx_gemelo_matriz, col_idx[col_nombre]])
-                            if cita_val and cita_val.strip() not in ["nan", "None", ""]:
-                                citas_gemelo.append(cita_val.strip())
-                    
-                    # 5. Lista de enfermedades para resaltar (puedes ampliarla)
-                    enfermedades_a_resaltar = ["diabetes", "hipertensión", "epoc", "neumonía", "tuberculosis", "iam", "acv", "cáncer"]
-                    
-                    # 6. Renderizado condicional
-                    if len(texto_completo.strip()) > 20:
+                    # 3. Lógica de renderizado condicional y mensaje amigable
+                    if not texto_ing and not texto_evo:
+                        st.info("ℹ️ No narrative clinical notes available for this patient.")
+                    else:
+                        # Consolidación de texto (solo incluimos encabezados si hay contenido)
+                        texto_completo = ""
+                        if texto_ing: texto_completo += f"**Admission:**\n{texto_ing}\n\n"
+                        if texto_evo: texto_completo += f"**Evolution:**\n{texto_evo}"
+                        
+                        # Extracción de citas forenses (todas las columnas que empiezan con TX_)
+                        citas_gemelo = []
+                        for col_nombre in nombres_columnas:
+                            if col_nombre.startswith("TX_"):
+                                cita_val = str(matriz_extended[idx_gemelo_matriz, col_idx[col_nombre]])
+                                if cita_val and cita_val.strip() not in ["nan", "None", "", "N/A"]:
+                                    citas_gemelo.append(cita_val.strip())
+                        
+                        # Lista de enfermedades para resaltar
+                        enfermedades_a_resaltar = ["diabetes", "hipertensión", "epoc", "neumonía", "tuberculosis", "iam", "acv", "cáncer"]
+                        
+                        # Renderizado del HTML
                         texto_html = renderizar_notas_gemelo(texto_completo, citas_gemelo, enfermedades_a_resaltar)
                         
                         with st.expander("🔍 Inspect Original Clinical Notes", expanded=False):
                             st.caption("🟡 **Yellow:** Extracted Phenotype Evidence | 🔴 **Red:** Disease Mention")
                             st.markdown(texto_html, unsafe_allow_html=True)
+
+                    st.markdown("#### Clinical Background")
+                    
                     else:
                         st.info("No unstructured clinical notes available for this twin.")
 
