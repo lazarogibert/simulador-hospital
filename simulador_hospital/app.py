@@ -1006,7 +1006,8 @@ if st.session_state.mostrar_pdp:
             
             disp = PartialDependenceDisplay.from_estimator(
                 pipeline, df_pdp_train, features=features_to_plot,
-                n_cols=3, kind='average', subsample=150, random_state=42
+                n_cols=3, kind='average', subsample=150, random_state=42,
+                response_method='predict_proba'
             )
             
             fig = disp.figure_
@@ -1027,6 +1028,7 @@ if st.session_state.mostrar_pdp:
                     curr_min, curr_max = ax_real.get_xlim()
                     ax_real.set_xlim(min(curr_min, valor_paciente - 1), max(curr_max, valor_paciente + 1))
                 
+                ax_real.set_ylim(0.0, 1.0)
                 ax_real.set_title(f"{delta_ui_dict[var]} vs Risk", fontsize=11, fontweight='bold')
                 ax_real.set_xlabel(delta_ui_dict[var], fontsize=9)
                 ax_real.set_ylabel("Partial Dependence (Risk)", fontsize=9)
