@@ -904,9 +904,28 @@ else:
                         features_to_vary=vars_a_variar, permitted_range=rangos_permitidos, random_seed=42
                     )
                     
+                    dice_exp = exp.generate_counterfactuals(
+                        df_paciente, total_CFs=5, desired_class="opposite", 
+                        features_to_vary=vars_a_variar, permitted_range=rangos_permitidos, random_seed=42
+                    )
+                    
                     cf_df = dice_exp.cf_examples_list[0].final_cfs_df
                     if cf_df is not None and not cf_df.empty:
-                        st.success(f"✅ **{len(cf_df)} CLINICAL STABILIZATION TARGETS FOUND:**")
+                        
+                        # --- NUEVO: FILTRO DE REDUNDANCIA CLÍNICA ---
+                        # 1. Normalizamos los valores flotantes a enteros clínicos
+                        for col in vars_a_variar:
+                            if col not in ['EVO_dolor_eva', 'EVO_gravedad_percibida']:
+                                cf_df[col] = (cf_df[col] >= 0.5).astype(int)
+                            else:
+                                cf_df[col] = cf_df[col].round()
+                                
+                        # 2. Eliminamos rutas duplicadas basándonos SÓLO en las variables que se pueden cambiar
+                        cf_df = cf_df.drop_duplicates(subset=vars_a_variar).reset_index(drop=True)
+                        # --------------------------------------------
+
+                        # Actualizamos el título para reflejar que son rutas ÚNICAS
+                        st.success(f"✅ **{len(cf_df)} UNIQUE CLINICAL STABILIZATION TARGETS FOUND:**")
                         st.markdown("The medical staff can select the most feasible goal according to the ward capabilities:")
                         
                         evo_output_dict = {
@@ -922,13 +941,11 @@ else:
                                 cambios_detectados = 0
                                 for col in vars_a_variar:
                                     val_orig = df_paciente.iloc[0][col]
-                                    val_cf = cf_df.iloc[r_idx][col]
                                     
-                                    if col not in ['EVO_dolor_eva', 'EVO_gravedad_percibida']:
-                                        val_cf = 1 if val_cf >= 0.5 else 0
-                                    else:
-                                        val_cf = round(val_cf)
+                                    # Como ya lo normalizamos arriba, solo lo extraemos
+                                    val_cf = cf_df.iloc[r_idx][col] 
                                     
+                                    # Comparación limpia
                                     if val_orig != val_cf:
                                         cambios_detectados += 1
                                         col_en = evo_output_dict.get(col, col)
