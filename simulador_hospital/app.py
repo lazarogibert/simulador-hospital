@@ -1196,10 +1196,23 @@ if st.session_state.mostrar_grafo:
             nodos_gemelos = []
             info_inspeccion = {}
             
+            # --- LISTA DE MARCADORES INVÁLIDOS (Definir justo antes del bucle) ---
+            invalid_markers = ["N/A", "MISSING_DATA", "NONE", "NAN", ""]
+            
             for i, (idx, similitud_pct) in enumerate(zip(vecinos_idx, similitudes_brutas)):
                 reingreso_real = float(matriz_extended[idx, col_idx['target']])
                 color_nodo = COLOR_HIST_READMIT if reingreso_real == 1.0 else COLOR_HIST_SAFE
-                label_grafo = f"Twin {i+1}\n({similitud_pct:.1f}%)"
+                
+                # --- NUEVO: DETECCIÓN ANTICIPADA DE TEXTO ---
+                raw_ing = str(matriz_extended[idx, col_idx.get('texto_anamnesis_ingreso', -1)] if 'texto_anamnesis_ingreso' in col_idx else "")
+                raw_evo = str(matriz_extended[idx, col_idx.get('texto_evolucion_internacion', -1)] if 'texto_evolucion_internacion' in col_idx else "")
+                
+                tiene_texto = (raw_ing.upper().strip() not in invalid_markers) or (raw_evo.upper().strip() not in invalid_markers)
+                icono_texto = " 📝" if tiene_texto else ""
+                # --------------------------------------------
+                
+                # Agregamos el ícono a la etiqueta (esto actualiza el grafo y el selectbox a la vez)
+                label_grafo = f"Twin {i+1}{icono_texto}\n({similitud_pct:.1f}%)"
                 nodos_gemelos.append(label_grafo)
                 
                 # Escalamos el tamaño dinámicamente entre 400 (mínimo) y 1800 (máximo)
