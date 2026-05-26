@@ -1108,11 +1108,13 @@ def renderizar_notas_gemelo(texto_evolucion, citas_llm, lista_enfermedades):
         
     texto_resaltado = texto_evolucion
     
-    if isinstance(citas_llm, list):
-        for cita in citas_llm:
+    # --- MODIFICADO: Ahora citas_llm es un diccionario {cita: nombre_variable} ---
+    if isinstance(citas_llm, dict):
+        for cita, variable in citas_llm.items():
             if isinstance(cita, str) and cita.strip():
                 cita_escapada = re.escape(cita)
-                marcador = f"<mark style='background-color: #FFF2CC; border-radius: 3px; padding: 2px;'><b>{cita}</b></mark>"
+                # Marcador mejorado con un "badge" dinámico para la variable
+                marcador = f"<mark style='background-color: #FFF2CC; border-radius: 3px; padding: 2px 4px;'><b>{cita}</b> <span style='font-size: 0.7em; background-color: #FFD966; padding: 2px 5px; border-radius: 8px; color: #594000; margin-left: 4px; display: inline-block; vertical-align: middle; line-height: 1;'>{variable}</span></mark>"
                 texto_resaltado = re.sub(cita_escapada, marcador, texto_resaltado, flags=re.IGNORECASE)
                 
     if isinstance(lista_enfermedades, list):
@@ -1122,7 +1124,8 @@ def renderizar_notas_gemelo(texto_evolucion, citas_llm, lista_enfermedades):
                 marcador = r"<mark style='background-color: #FFCCCC; border-radius: 3px; padding: 0px 2px;'>\1</mark>"
                 texto_resaltado = re.sub(patron, marcador, texto_resaltado, flags=re.IGNORECASE)
                 
-    return f"<div style='line-height: 1.6; font-size: 14px; padding: 10px; background-color: #F8F9FA; border-radius: 5px; border: 1px solid #E9ECEF;'>{texto_resaltado}</div>"
+    # Aumentamos line-height a 1.8 para dar espacio vertical a las etiquetas
+    return f"<div style='line-height: 1.8; font-size: 14px; padding: 10px; background-color: #F8F9FA; border-radius: 5px; border: 1px solid #E9ECEF;'>{texto_resaltado}</div>"
 
 
 
@@ -1350,12 +1353,15 @@ if st.session_state.mostrar_grafo:
                         if texto_ing: texto_completo += f"**Admission:**\n{texto_ing}\n\n"
                         if texto_evo: texto_completo += f"**Evolution:**\n{texto_evo}"
                         
-                        citas_gemelo = []
+                        # --- MODIFICADO: Ahora extraemos un DICCIONARIO ---
+                        citas_gemelo = {} 
                         for col_nombre in nombres_columnas:
                             if col_nombre.startswith("TX_"):
                                 cita_val = str(matriz_extended[idx_gemelo_matriz, col_idx[col_nombre]])
                                 if cita_val and cita_val.strip() not in ["nan", "None", "", "N/A"]:
-                                    citas_gemelo.append(cita_val.strip())
+                                    var_original = col_nombre.replace("TX_", "")
+                                    var_traducida = TRANSLATION_DICT.get(var_original, var_original.replace('_', ' ').title())
+                                    citas_gemelo[cita_val.strip()] = var_traducida
                         
                             enfermedades_a_resaltar = [
                             # --- Base original ---
