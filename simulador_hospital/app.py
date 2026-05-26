@@ -1208,7 +1208,7 @@ if st.session_state.mostrar_grafo:
                 raw_evo = str(matriz_extended[idx, col_idx.get('texto_evolucion_internacion', -1)] if 'texto_evolucion_internacion' in col_idx else "")
                 
                 tiene_texto = (raw_ing.upper().strip() not in invalid_markers) or (raw_evo.upper().strip() not in invalid_markers)
-                icono_texto = " 📝" if tiene_texto else ""
+                icono_texto = " [TXT]" if tiene_texto else ""
                 # --------------------------------------------
                 
                 # Agregamos el ícono a la etiqueta (esto actualiza el grafo y el selectbox a la vez)
