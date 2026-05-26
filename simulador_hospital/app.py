@@ -1023,12 +1023,12 @@ if st.session_state.mostrar_pdp:
             
             disp = PartialDependenceDisplay.from_estimator(
                 pipeline, df_pdp_train, features=features_to_plot,
-                n_cols=3, kind='average', subsample=150, random_state=42,
+                n_cols=5, kind='average', subsample=150, random_state=42,
                 response_method='predict_proba'
             )
             
             fig = disp.figure_
-            fig.set_size_inches(15, 9)
+            fig.set_size_inches(18, 3.5)
             axes_flat = disp.axes_.flatten()
             
             for idx, var in enumerate(features_to_plot):
