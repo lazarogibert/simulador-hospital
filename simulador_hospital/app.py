@@ -1367,6 +1367,7 @@ if st.session_state.mostrar_grafo:
                             "isquemia", "angina", "miocardiopatía", "endocarditis", "pericarditis", "shock",
                             "aneurisma", "taponamiento cardíaco", "tvp", "tromboembolismo", "tep",
                             "hipertensión arterial", "hta", "hipotensión", "bradicardia", "taquicardia", "ic",
+                            "sca", "síndrome coronario agudo", "insuficiencia venosa",
                         
                             # --- Respiratorias ---
                             "asma", "bronquitis", "derrame pleural", "edema agudo de pulmón", "eap",
@@ -1387,8 +1388,10 @@ if st.session_state.mostrar_grafo:
                         
                             # --- Digestivas y Hepáticas ---
                             "cirrosis", "hepatitis", "pancreatitis", "colecistitis", "apendicitis", "peritonitis",
-                            "hemorragia digestiva", "hda", "hdb", "úlcera", "obstrucción intestinal", "íleo",
-                            "isquemia mesentérica", "ascitis", "insuficiencia hepática", "gastroenteritis",
+                            "hemorragia digestiva", "hda", "hdb", "úlcera", "úlceras", "úlcera gástrica", 
+                            "obstrucción intestinal", "íleo", "isquemia mesentérica", "ascitis", 
+                            "insuficiencia hepática", "gastroenteritis", "colitis", "colitis ulcerosa", 
+                            "enfermedad de crohn", "diverticulitis", "celiaquía",
                         
                             # --- Hematológicas y Oncológicas ---
                             "anemia", "leucemia", "linfoma", "neutropenia", "coagulopatía", "metástasis",
@@ -1396,12 +1399,12 @@ if st.session_state.mostrar_grafo:
                         
                             # --- Infecciosas y Sistémicas ---
                             "bacteriemia", "shock séptico", "covid", "osteomielitis", "fascitis",
-                            "candidiasis", "aspergilosis", "vih", "sida", "dengue", "bacteraemia", "sir",
+                            "candidiasis", "aspergilosis", "vih", "sida", "dengue", "bacteraemia", "sir", "tbc",
                         
                             # --- Traumatológicas, Piel y Quirúrgicas ---
                             "fractura", "luxación", "artrosis", "artritis", "sme de aplastamiento",
-                            "úlcera por presión", "escara", "herida quirúrgica", "evisceración", "dehiscencia",
-                            "osteomielitis", "necrosis", "gangrena"
+                            "úlcera por presión", "úlceras por presión", "escara", "escaras", 
+                            "herida quirúrgica", "evisceración", "dehiscencia", "osteomielitis", "necrosis", "gangrena"
                         ]
                         texto_html = renderizar_notas_gemelo(texto_completo, citas_gemelo, enfermedades_a_resaltar)
                         
