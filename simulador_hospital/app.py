@@ -461,16 +461,17 @@ df_paciente = pd.DataFrame([paciente_data])[columnas_modelo]
 # ==========================================
 riesgo = pipeline.predict_proba(df_paciente)[0][1]
 
-col_izq, col_der = st.columns([1, 2.2])
+col_izq, col_der = st.columns([1, 3.5])
 
 with col_izq:
     st.subheader("Readmission Risk")
     st.metric(label="15-Day Probability", value=f"{riesgo*100:.1f}%")
     
     if riesgo > umbral:
-        st.error(f"⚠️ **CLINICAL ALERT**\n\nThe patient exceeds the strict safety threshold ({umbral*100:.1f}%).")
+        # Quitamos los \n\n para hacer la caja más delgada
+        st.error(f"⚠️ **CLINICAL ALERT** - Risk exceeds safety threshold ({umbral*100:.1f}%).")
     else:
-        st.success(f"✅ **SAFE DISCHARGE**\n\nRisk controlled within the permitted threshold.")
+        st.success(f"✅ **SAFE DISCHARGE** - Risk controlled within permitted threshold.")
 
     cie10_ui_dict = {
         "Tuberculosis": "Tuberculosis", "Lepra": "Leprosy", "Sífilis": "Syphilis", 
@@ -641,7 +642,7 @@ with col_der:
         nombres_limpios = [nombres_limpios_traducidos[i] for i in indices_activos]
         crudos_limpios = [nombres_crudos[i] for i in indices_activos]
 
-        fig_shap, ax_shap = plt.subplots(figsize=(8, 3.5))
+        fig_shap, ax_shap = plt.subplots(figsize=(11, 3.5))
         explicacion_filtrada = shap.Explanation(
             values=shap_vals_limpio, 
             base_values=nuevo_exp_val_pct, 
@@ -677,7 +678,7 @@ with col_der:
                 val_evo = float(df_row[col_evo].values[0]) if col_evo in df_row.columns else 0.0
                 datos.append({'label': label, 'ing': val_ing, 'evo': val_evo})
 
-            fig_slope, ax_slope = plt.subplots(figsize=(5, 5))
+            fig_slope, ax_slope = plt.subplots(figsize=(6, 5.5))
             ax_slope.set_xlim(-0.5, 1.5)
             ax_slope.set_xticks([0, 1])
             ax_slope.set_xticklabels(['Admission', 'Current'], fontsize=10, fontweight='bold')
@@ -726,7 +727,7 @@ with col_der:
     with col_scat:
         st.markdown("#### 🗺️ Context: Risk vs. Stay")
         try:
-            fig_scat, ax_scat = plt.subplots(figsize=(5, 5))
+            fig_scat, ax_scat = plt.subplots(figsize=(6, 5.5))
             
             try:
                 riesgos_hist = pipeline.predict_proba(df_train_sample)[:, 1]
