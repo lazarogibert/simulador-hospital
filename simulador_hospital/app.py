@@ -1215,7 +1215,7 @@ if st.session_state.mostrar_grafo:
                 # --------------------------------------------
                 
                 # Agregamos el ícono a la etiqueta (esto actualiza el grafo y el selectbox a la vez)
-                label_grafo = f"Twin {i+1}{icono_texto}\n({similitud_pct:.1f}%)"
+                label_grafo = f"Patient {i+1}{icono_texto}\n({similitud_pct:.1f}%)"
                 nodos_gemelos.append(label_grafo)
                 
                 # Escalamos el tamaño dinámicamente entre 400 (mínimo) y 1800 (máximo)
