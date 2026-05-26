@@ -1181,9 +1181,13 @@ if st.session_state.mostrar_grafo:
             COLOR_ARCHETYPE = '#FFD700' 
             
             SIZE_NEW_PATIENT = 2500 
-            SIZE_BASE_TWIN = 400
             
             similitudes_brutas = [max(0, (1 - d)) * 100 for d in distancias_vecinos]
+            
+            # --- NUEVA LÓGICA DE ESCALADO DE TAMAÑOS (MIN-MAX SCALING) ---
+            min_sim = min(similitudes_brutas)
+            max_sim = max(similitudes_brutas)
+            rango_sim = max_sim - min_sim if max_sim != min_sim else 1.0 # Evitar división por cero
             
             G = nx.Graph()
             nodo_paciente = "Current\nPatient"
@@ -1198,7 +1202,11 @@ if st.session_state.mostrar_grafo:
                 label_grafo = f"Twin {i+1}\n({similitud_pct:.1f}%)"
                 nodos_gemelos.append(label_grafo)
                 
-                G.add_node(label_grafo, color=color_nodo, size=SIZE_BASE_TWIN, edge_color='white', line_width=1)
+                # Escalamos el tamaño dinámicamente entre 400 (mínimo) y 1800 (máximo)
+                norm_sim = (similitud_pct - min_sim) / rango_sim
+                tamaño_dinamico = 400 + (norm_sim * 1400)
+                
+                G.add_node(label_grafo, color=color_nodo, size=tamaño_dinamico, edge_color='white', line_width=1.5)
                 G.add_edge(nodo_paciente, label_grafo, weight=similitud_pct/10) 
                 
                 datos_gemelo = {
@@ -1231,9 +1239,11 @@ if st.session_state.mostrar_grafo:
             centrality.pop(nodo_paciente, None) 
             arquetipo_label = max(centrality, key=centrality.get)
             
-            G.nodes[arquetipo_label]['size'] = 1800
+            # --- CORRECCIÓN DEL ARQUETIPO ---
+            # ELIMINAMOS la línea que modificaba el tamaño: G.nodes[arquetipo_label]['size'] = 1800
+            # Solo mantenemos el resaltado del borde dorado y grueso
             G.nodes[arquetipo_label]['edge_color'] = COLOR_ARCHETYPE
-            G.nodes[arquetipo_label]['line_width'] = 4
+            G.nodes[arquetipo_label]['line_width'] = 4.5
             info_inspeccion[arquetipo_label]["is_archetype"] = True
 
             fig, ax = plt.subplots(figsize=(10, 8))
