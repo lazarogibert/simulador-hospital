@@ -657,35 +657,57 @@ with col_der:
         shap_vals_pct = shap_vals[0] * 100
         exp_val_pct = exp_val * 100
 
+        # --- NUEVA LÓGICA SHAP: AGRUPACIÓN SEMÁNTICA PARA EVITAR GRÁFICOS VACÍOS ---
         indices_activos = []
-        indices_basura = []
-        variables_continuas = ['Days', 'Pain', 'Severity', 'Delta']
+        indices_inactivos = []
+        variables_continuas = ['Days', 'Pain', 'Severity', 'Delta', 'Age', 'Consultations', 'Complexity']
 
         for i, (val, nombre) in enumerate(zip(X_paciente_1d, nombres_limpios_traducidos)):
             es_continua = any(kw in nombre for kw in variables_continuas)
             if val != 0 or es_continua:
                 indices_activos.append(i)
             else:
-                indices_basura.append(i)
+                indices_inactivos.append(i)
 
-        peso_basura_total = np.sum(shap_vals_pct[indices_basura])
-        nuevo_exp_val_pct = exp_val_pct + peso_basura_total
-
-        shap_vals_limpio = shap_vals_pct[indices_activos]
-        X_paciente_limpio = X_paciente_1d[indices_activos]
+        # 1. Extraemos los valores y nombres de las variables "Activas"
+        shap_vals_limpio = list(shap_vals_pct[indices_activos])
+        X_paciente_limpio = list(X_paciente_1d[indices_activos])
         nombres_limpios = [nombres_limpios_traducidos[i] for i in indices_activos]
-        crudos_limpios = [nombres_crudos[i] for i in indices_activos]
 
+        # 2. Procesamos las variables "Inactivas" (los 0s)
+        suma_inactivos_positivos = 0.0
+        suma_inactivos_negativos = 0.0
+
+        for i in indices_inactivos:
+            peso = shap_vals_pct[i]
+            if peso > 0:
+                suma_inactivos_positivos += peso # Ceros que SUBEN el riesgo
+            else:
+                suma_inactivos_negativos += peso # Ceros que BAJAN el riesgo
+
+        # 3. Creamos bloques agrupados solo si tienen un peso matemático relevante (ej. > 0.5%)
+        if suma_inactivos_positivos > 0.5:
+            shap_vals_limpio.append(suma_inactivos_positivos)
+            X_paciente_limpio.append(np.nan) # np.nan para que SHAP no dibuje un "0" o un "=" en el gráfico
+            nombres_limpios.append("Unreported Conditions (Baseline)")
+
+        if suma_inactivos_negativos < -0.5:
+            shap_vals_limpio.append(suma_inactivos_negativos)
+            X_paciente_limpio.append(np.nan)
+            nombres_limpios.append("Absence of Risk Factors")
+
+        # 4. Reconstruimos el objeto Explanation para el Waterfall plot
         fig_shap, ax_shap = plt.subplots(figsize=(11, 3.5))
         explicacion_filtrada = shap.Explanation(
-            values=shap_vals_limpio, 
-            base_values=nuevo_exp_val_pct, 
-            data=X_paciente_limpio, 
+            values=np.array(shap_vals_limpio), 
+            base_values=exp_val_pct, 
+            data=np.array(X_paciente_limpio), 
             feature_names=nombres_limpios
         )
         shap.waterfall_plot(explicacion_filtrada, show=False, max_display=6) 
         st.pyplot(fig_shap)
         plt.close(fig_shap)
+        # -------------------------------------------------------------------------
 
     except Exception as e:
         st.error("SHAP computation failed.")
