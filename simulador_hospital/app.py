@@ -373,9 +373,43 @@ FORMATO: {"LLM_tabaquismo_activo": {"valor": true, "cita": "fuma 10 cigarrillos 
 
 if st.session_state.nlp_processed and st.session_state.nlp_quotes:
     with st.sidebar.expander("📝 View Extracted Evidence", expanded=True):
+        
+        # 1. Invertimos los diccionarios locales para traducir de Español a Inglés
+        inv_af = {v: k for k, v in af_dict.items()}
+        inv_cro = {v: k for k, v in cro_dict.items()}
+        inv_ing = {v: k for k, v in ing_dict.items()}
+        inv_evo = {v: k for k, v in evo_dict.items()}
+        
         for var, quote in st.session_state.nlp_quotes.items():
-            var_clean = var.replace('_', ' ').title()
-            st.markdown(f"**{var_clean}:**\n> *\"{quote}\"*")
+            # 2. Limpiamos los prefijos técnicos
+            var_clean = var.replace("LLM_AF_", "").replace("LLM_", "").replace("ING_", "").replace("EVO_", "")
+            
+            # 3. Asignamos el contexto clínico y traducimos usando los diccionarios
+            if var.startswith("LLM_AF_"):
+                nombre_base = inv_af.get(var_clean, var_clean.replace('_', ' ').title())
+                var_traducida = f"Family History: {nombre_base}"
+                
+            elif var.startswith("LLM_"):
+                nombre_base = inv_cro.get(var_clean, var_clean.replace('_', ' ').title())
+                var_traducida = f"History: {nombre_base}"
+                
+            elif var.startswith("ING_"):
+                if 'dolor' in var_clean: nombre_base = "Pain (VAS)"
+                elif 'gravedad' in var_clean: nombre_base = "Perceived Severity"
+                else: nombre_base = inv_ing.get(var_clean, var_clean.replace('_', ' ').title())
+                var_traducida = f"Admission: {nombre_base}"
+                
+            elif var.startswith("EVO_"):
+                if 'dolor' in var_clean: nombre_base = "Pain (VAS)"
+                elif 'gravedad' in var_clean: nombre_base = "Perceived Severity"
+                else: nombre_base = inv_evo.get(var_clean, var_clean.replace('_', ' ').title())
+                var_traducida = f"Evolution: {nombre_base}"
+                
+            else:
+                var_traducida = var_clean.replace('_', ' ').title()
+            
+            # 4. Renderizamos en la interfaz
+            st.markdown(f"**{var_traducida}:**\n> *\"{quote}\"*")
 
 st.sidebar.markdown("---")
 
