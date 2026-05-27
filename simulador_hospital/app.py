@@ -618,28 +618,55 @@ with col_der:
             'LLM_tabaquismo_activo': 'Chronic: Active Smoking'
         }
 
+        # --- NUEVA LÓGICA DE TRADUCCIÓN ROBUSTA (A PRUEBA DE MAYÚSCULAS/SUFIJOS) ---
         nombres_limpios_traducidos = []
+        
+        # Convertimos las llaves del diccionario a mayúsculas para un match infalible
+        cie10_upper = {k.upper(): v for k, v in cie10_ui_dict.items()}
+        
         for nombre_crudo in nombres_crudos:
+            # 1. Quitamos prefijos del pipeline (ej. cat__, num__)
             traducido = nombre_crudo.split('__')[-1]
-            match_cie10 = False
-            for enf_es, enf_en in cie10_ui_dict.items():
-                if enf_es in nombre_crudo:
-                    traducido = f"Diagnosis: {enf_en}"
-                    match_cie10 = True
+            
+            # 2. Quitamos sufijos residuales del OneHotEncoder
+            for sufijo in ['_1.0', '_1', '_True', '_true', '_0.0', '_0', '_False', '_false']:
+                if traducido.endswith(sufijo):
+                    traducido = traducido[:-len(sufijo)]
                     break
-            if not match_cie10:
-                match_edad = False
-                for en_edad, es_edad in opciones_edad_dict.items():
-                    if es_edad.upper().replace(' ', '_') in nombre_crudo.upper().replace(' ', '_'):
-                        traducido = f"Age: {en_edad}"
-                        match_edad = True
+            
+            # 3. Mapeo específico y seguro para Diagnósticos (CIE10)
+            if "CIE10_MACRO" in nombre_crudo:
+                cat_es = traducido.replace("CIE10_MACRO_", "")
+                # Buscamos ignorando mayúsculas/minúsculas
+                cat_en = cie10_upper.get(cat_es.upper(), cat_es.replace('_', ' ').title())
+                traducido = f"Diagnosis: {cat_en}"
+            
+            # 4. Mapeo específico para Edad
+            elif "rango_edad" in nombre_crudo:
+                cat_es = traducido.replace("rango_edad_", "")
+                match_en = "Unknown Age"
+                for en_k, es_v in opciones_edad_dict.items():
+                    if es_v.upper().replace(' ', '_') == cat_es.upper() or es_v.upper() == cat_es.upper():
+                        match_en = en_k
                         break
-                if not match_edad:
-                    for var_es, var_en in shap_ui_dict.items():
-                        if var_es in nombre_crudo:
-                            traducido = var_en
-                            break
+                traducido = f"Age: {match_en}"
+            
+            # 5. Mapeo para el resto de variables clínicas
+            else:
+                match_encontrado = False
+                for var_es, var_en in shap_ui_dict.items():
+                    # Comparamos ignorando sufijos extraños
+                    if var_es in nombre_crudo:
+                        traducido = var_en
+                        match_encontrado = True
+                        break
+                
+                if not match_encontrado:
+                    # Fallback visualmente limpio por si escapa alguna variable
+                    traducido = traducido.replace("_", " ").title()
+                    
             nombres_limpios_traducidos.append(traducido)
+        # --------------------------------------------------------------------------
 
         try:
             explainer = shap.TreeExplainer(clf)
