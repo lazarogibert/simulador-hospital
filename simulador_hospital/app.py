@@ -1241,24 +1241,37 @@ def renderizar_notas_gemelo(texto_evolucion, citas_llm, lista_enfermedades):
         
     texto_resaltado = texto_evolucion
     
-    # --- MODIFICADO: Ahora citas_llm es un diccionario {cita: nombre_variable} ---
+    # --- MODIFICADO: Marcadores adaptados para modo oscuro ---
     if isinstance(citas_llm, dict):
         for cita, variable in citas_llm.items():
             if isinstance(cita, str) and cita.strip():
                 cita_escapada = re.escape(cita)
-                # Marcador mejorado con un "badge" dinámico para la variable
-                marcador = f"<mark style='background-color: #FFF2CC; border-radius: 3px; padding: 2px 4px;'><b>{cita}</b> <span style='font-size: 0.7em; background-color: #FFD966; padding: 2px 5px; border-radius: 8px; color: #594000; margin-left: 4px; display: inline-block; vertical-align: middle; line-height: 1;'>{variable}</span></mark>"
+                # FIX: Se fuerza 'color: #000000;' dentro del mark para que la letra no se ponga blanca con el fondo amarillo
+                marcador = f"<mark style='background-color: #FFF2CC; color: #000000; border-radius: 3px; padding: 2px 4px;'><b>{cita}</b> <span style='font-size: 0.7em; background-color: #FFD966; padding: 2px 5px; border-radius: 8px; color: #594000; margin-left: 4px; display: inline-block; vertical-align: middle; line-height: 1;'>{variable}</span></mark>"
                 texto_resaltado = re.sub(cita_escapada, marcador, texto_resaltado, flags=re.IGNORECASE)
                 
     if isinstance(lista_enfermedades, list):
         for enfermedad in lista_enfermedades:
             if isinstance(enfermedad, str) and enfermedad.strip():
                 patron = rf"\b({re.escape(enfermedad)})\b"
-                marcador = r"<mark style='background-color: #FFCCCC; border-radius: 3px; padding: 0px 2px;'>\1</mark>"
+                # FIX: Fuerza letra negra en la marca de enfermedad
+                marcador = r"<mark style='background-color: #FFCCCC; color: #000000; border-radius: 3px; padding: 0px 2px;'>\1</mark>"
                 texto_resaltado = re.sub(patron, marcador, texto_resaltado, flags=re.IGNORECASE)
                 
-    # Aumentamos line-height a 1.8 para dar espacio vertical a las etiquetas
-    return f"<div style='line-height: 1.8; font-size: 14px; padding: 10px; background-color: #F8F9FA; border-radius: 5px; border: 1px solid #E9ECEF;'>{texto_resaltado}</div>"
+    # FIX PRINCIPAL: Uso de var(--secondary-background-color) y var(--text-color) nativos de Streamlit
+    return f"""
+    <div style='
+        line-height: 1.8; 
+        font-size: 14px; 
+        padding: 15px; 
+        background-color: var(--secondary-background-color, rgba(128, 128, 128, 0.1)); 
+        color: var(--text-color, inherit); 
+        border-radius: 8px; 
+        border: 1px solid rgba(128, 128, 128, 0.2);
+    '>
+        {texto_resaltado}
+    </div>
+    """
 
 
 
