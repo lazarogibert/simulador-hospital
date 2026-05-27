@@ -657,57 +657,90 @@ with col_der:
         shap_vals_pct = shap_vals[0] * 100
         exp_val_pct = exp_val * 100
 
-        # --- NUEVA LÓGICA SHAP: AGRUPACIÓN SEMÁNTICA PARA EVITAR GRÁFICOS VACÍOS ---
+        # --- NUEVA LÓGICA SHAP: CORRECCIÓN DE INICIALIZACIÓN Y AGRUPACIÓN ---
         indices_activos = []
         indices_inactivos = []
-        variables_continuas = ['Days', 'Pain', 'Severity', 'Delta', 'Age', 'Consultations', 'Complexity']
+        
+        # Palabras clave para detectar si una variable es continua/siempre activa
+        variables_continuas = ['Days', 'Pain', 'Severity', 'Delta', 'Age', 'Consultations', 'Complexity', 'Diagnosis']
 
-        for i, (val, nombre) in enumerate(zip(X_paciente_1d, nombres_limpios_traducidos)):
-            es_continua = any(kw in nombre for kw in variables_continuas)
-            if val != 0 or es_continua:
-                indices_activos.append(i)
+        for i, (val_proc, nombre_traducido) in enumerate(zip(X_paciente_1d, nombres_limpios_traducidos)):
+            # 1. Recuperar el nombre original de la columna (quitando pasos del pipeline como 'num__' o 'cat__')
+            nombre_crudo = nombres_crudos[i]
+            nombre_base = nombre_crudo.split('__')[-1]
+            
+            # Limpiamos sufijos de OneHotEncoder si tu pipeline los generó
+            for sufijo in ['_1.0', '_1', '_True', '_true', '_0.0', '_0', '_False', '_false']:
+                if nombre_base.endswith(sufijo):
+                    nombre_base = nombre_base[:-len(sufijo)]
+                    break
+            
+            # 2. Buscar el valor REAL ingresado en el DataFrame antes del preprocesamiento
+            if nombre_base in df_paciente.columns:
+                val_real = df_paciente[nombre_base].iloc[0]
             else:
-                indices_inactivos.append(i)
+                val_real = val_proc # Fallback por si la columna no hace match
+            
+            # 3. Determinar si la variable está inactiva (es 0, False, o vacía)
+            es_continua = any(kw in nombre_traducido for kw in variables_continuas)
+            es_inactivo = False
+            
+            if not es_continua:
+                val_str = str(val_real).strip().upper()
+                # Comprobamos estrictamente si el usuario NO reportó esto
+                if val_str in ['0', '0.0', 'FALSE', 'NONE', 'N/A', 'NAN', '']:
+                    es_inactivo = True
+            
+            # Extra: Si la variable aportó un SHAP matemáticamente nulo (< 0.01%), también la ocultamos
+            if abs(shap_vals_pct[i]) < 0.01:
+                es_inactivo = True
 
-        # 1. Extraemos los valores y nombres de las variables "Activas"
+            # 4. Clasificamos el índice
+            if es_inactivo:
+                indices_inactivos.append(i)
+            else:
+                indices_activos.append(i)
+
+        # 5. Extraemos los valores y nombres de las variables "Activas"
         shap_vals_limpio = list(shap_vals_pct[indices_activos])
-        X_paciente_limpio = list(X_paciente_1d[indices_activos])
+        
+        # CRÍTICO: Convertimos a objeto para poder insertar strings (" ") sin que Numpy arroje error
+        X_paciente_limpio = list(X_paciente_1d[indices_activos].astype(object)) 
         nombres_limpios = [nombres_limpios_traducidos[i] for i in indices_activos]
 
-        # 2. Procesamos las variables "Inactivas" (los 0s)
+        # 6. Procesamos las variables "Inactivas" (los 0s crudos)
         suma_inactivos_positivos = 0.0
         suma_inactivos_negativos = 0.0
 
         for i in indices_inactivos:
             peso = shap_vals_pct[i]
             if peso > 0:
-                suma_inactivos_positivos += peso # Ceros que SUBEN el riesgo
+                suma_inactivos_positivos += peso
             else:
-                suma_inactivos_negativos += peso # Ceros que BAJAN el riesgo
+                suma_inactivos_negativos += peso
 
-        # 3. Creamos bloques agrupados solo si tienen un peso matemático relevante (ej. > 0.5%)
+        # 7. Creamos los bloques agrupados solo si tienen impacto relevante (> 0.5%)
         if suma_inactivos_positivos > 0.5:
             shap_vals_limpio.append(suma_inactivos_positivos)
-            X_paciente_limpio.append(np.nan) # np.nan para que SHAP no dibuje un "0" o un "=" en el gráfico
+            X_paciente_limpio.append(" ") # Espacio en blanco para que imprima "= " en lugar de "= NaN"
             nombres_limpios.append("Unreported Conditions (Baseline)")
 
         if suma_inactivos_negativos < -0.5:
             shap_vals_limpio.append(suma_inactivos_negativos)
-            X_paciente_limpio.append(np.nan)
+            X_paciente_limpio.append(" ")
             nombres_limpios.append("Absence of Risk Factors")
 
-        # 4. Reconstruimos el objeto Explanation para el Waterfall plot
+        # 8. Reconstruimos y renderizamos el objeto Explanation
         fig_shap, ax_shap = plt.subplots(figsize=(11, 3.5))
         explicacion_filtrada = shap.Explanation(
             values=np.array(shap_vals_limpio), 
             base_values=exp_val_pct, 
-            data=np.array(X_paciente_limpio), 
+            data=np.array(X_paciente_limpio, dtype=object), # Dtype Object permite mezclar floats con " "
             feature_names=nombres_limpios
         )
         shap.waterfall_plot(explicacion_filtrada, show=False, max_display=6) 
         st.pyplot(fig_shap)
         plt.close(fig_shap)
-        # -------------------------------------------------------------------------
 
     except Exception as e:
         st.error("SHAP computation failed.")
