@@ -657,11 +657,12 @@ with col_der:
         shap_vals_pct = shap_vals[0] * 100
         exp_val_pct = exp_val * 100
 
-        # --- NUEVA LÓGICA SHAP: AJUSTE DE RIESGO BASE (BASELINE SHIFTING) ---
+        # --- NUEVA LÓGICA SHAP: FILTRO INTELIGENTE PARA ONE-HOT ENCODING ---
         indices_activos = []
         indices_inactivos = []
         
-        variables_continuas = ['Days', 'Pain', 'Severity', 'Delta', 'Age', 'Consultations', 'Complexity', 'Diagnosis']
+        # FIX 1: Quitamos 'Diagnosis' y 'Age' para que los 0s de OHE sí se filtren
+        variables_continuas = ['Days', 'Pain', 'Severity', 'Delta', 'Consultations', 'Complexity']
 
         for i, (val_proc, nombre_traducido) in enumerate(zip(X_paciente_1d, nombres_limpios_traducidos)):
             nombre_crudo = nombres_crudos[i]
@@ -672,19 +673,36 @@ with col_der:
                     nombre_base = nombre_base[:-len(sufijo)]
                     break
             
+            # FIX 2: Detección inteligente de variables categóricas (One-Hot Encoded)
+            val_real = val_proc 
+            
             if nombre_base in df_paciente.columns:
                 val_real = df_paciente[nombre_base].iloc[0]
             else:
-                val_real = val_proc 
+                # Si la columna no está en el dataframe base, verificamos si fue dividida por el OHE
+                columnas_categoricas = ['CIE10_MACRO', 'CIE10_SUBMACRO', 'rango_edad']
+                for col_cat in columnas_categoricas:
+                    if nombre_base.startswith(col_cat + '_'):
+                        valor_categoria_columna = nombre_base.replace(col_cat + '_', '')
+                        valor_real_paciente = str(df_paciente[col_cat].iloc[0])
+                        
+                        # Si la columna coincide con la categoría real del paciente, es 1. Si no, es 0.
+                        if valor_categoria_columna.strip().upper() == valor_real_paciente.strip().upper():
+                            val_real = 1.0 
+                        else:
+                            val_real = 0.0 
+                        break
             
             es_continua = any(kw in nombre_traducido for kw in variables_continuas)
             es_inactivo = False
             
+            # Filtramos si no es continua y su valor real es 0 (o asimilables)
             if not es_continua:
                 val_str = str(val_real).strip().upper()
                 if val_str in ['0', '0.0', 'FALSE', 'NONE', 'N/A', 'NAN', '']:
                     es_inactivo = True
             
+            # Filtramos si el peso es matemáticamente irrelevante (ruido del modelo)
             if abs(shap_vals_pct[i]) < 0.01:
                 es_inactivo = True
 
