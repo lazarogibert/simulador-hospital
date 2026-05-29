@@ -1081,10 +1081,7 @@ else:
                                 if cambios_detectados == 0:
                                     st.write("This alternative suggests maintaining current parameters based on marginal risk stability.")
                                 else:
-                                    # --- DUAL COORDINATED VISUALIZATION (Plotly) ---
-                                    c_izq, c_der = st.columns(2)
-                                    
-                                    # 1. PREPARACIÓN DE DATOS RADAR
+                                    # --- MULTIDIMENSIONAL RADAR CHART (SOLO FOCUS) ---
                                     radar_map = {
                                         'Δ Pain': ('EVO_dolor_eva', 'ING_dolor_eva'),
                                         'Δ Severity': ('EVO_gravedad_percibida', 'ING_gravedad_percibida'),
@@ -1109,95 +1106,37 @@ else:
                                     val_act_cerrados = valores_actuales_radar + [valores_actuales_radar[0]]
                                     val_meta_cerrados = valores_meta_radar + [valores_meta_radar[0]]
                                     
-                                    with c_der:
-                                        fig_radar = go.Figure()
-                                        fig_radar.add_trace(go.Scatterpolar(
-                                            r=val_act_cerrados, theta=cat_cerradas,
-                                            fill='toself', fillcolor='rgba(214, 39, 40, 0.2)',
-                                            line=dict(color='#d62728', width=2), name='Current State'
-                                        ))
-                                        fig_radar.add_trace(go.Scatterpolar(
-                                            r=val_meta_cerrados, theta=cat_cerradas,
-                                            fill='toself', fillcolor='rgba(44, 160, 44, 0.2)',
-                                            line=dict(color='#2ca02c', width=2), name='DiCE Target'
-                                        ))
-                                        fig_radar.update_layout(
-                                            polar=dict(
-                                                radialaxis=dict(visible=True, range=[-2, 8], gridcolor='rgba(0,0,0,0.1)'),
-                                                gridshape='circular'
-                                            ),
-                                            margin=dict(l=30, r=30, t=30, b=30), height=350,
-                                            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-                                        )
-                                        st.plotly_chart(fig_radar, use_container_width=True)
-                                        
-                                    # 2. PREPARACIÓN DE DATOS CONTOUR (ENFOQUE "GPS LOCAL")
-                                    dias_actual = df_paciente.iloc[0]['dias_internados']
-                                    dias_meta = cf_df.iloc[r_idx].get('dias_internados', dias_actual)
+                                    # Renderizado del gráfico centrado y amplio
+                                    fig_radar = go.Figure()
                                     
-                                    grav_ing = df_paciente.iloc[0]['ING_gravedad_percibida']
-                                    delta_grav_act = df_paciente.iloc[0]['EVO_gravedad_percibida'] - grav_ing
-                                    delta_grav_meta = cf_df.iloc[r_idx].get('EVO_gravedad_percibida', df_paciente.iloc[0]['EVO_gravedad_percibida']) - grav_ing
+                                    fig_radar.add_trace(go.Scatterpolar(
+                                        r=val_act_cerrados, theta=cat_cerradas,
+                                        fill='toself', fillcolor='rgba(255, 68, 68, 0.25)', # Rojo vibrante semi-transparente
+                                        line=dict(color='#FF4444', width=2.5), name='Current State'
+                                    ))
                                     
-                                    # --- ZOOM QUIRÚRGICO DINÁMICO ---
-                                    # Calculamos un margen relativo a la distancia de la meta
-                                    margen_x = max(3, abs(dias_meta - dias_actual) * 1.5)
-                                    margen_y = max(2, abs(delta_grav_meta - delta_grav_act) * 1.5)
+                                    fig_radar.add_trace(go.Scatterpolar(
+                                        r=val_meta_cerrados, theta=cat_cerradas,
+                                        fill='toself', fillcolor='rgba(0, 200, 81, 0.25)', # Verde vibrante semi-transparente
+                                        line=dict(color='#00C851', width=2.5), name='DiCE Target'
+                                    ))
                                     
-                                    min_x = max(1, min(dias_actual, dias_meta) - margen_x)
-                                    max_x = max(dias_actual, dias_meta) + margen_x
+                                    # Estética adaptada al modo oscuro de ArchEgo
+                                    fig_radar.update_layout(
+                                        polar=dict(
+                                            radialaxis=dict(visible=True, range=[-2, 8], gridcolor='rgba(255,255,255,0.1)'),
+                                            angularaxis=dict(gridcolor='rgba(255,255,255,0.1)'),
+                                            bgcolor='rgba(0,0,0,0)'
+                                        ),
+                                        paper_bgcolor='rgba(0,0,0,0)',
+                                        plot_bgcolor='rgba(0,0,0,0)',
+                                        font=dict(color='white'),
+                                        margin=dict(l=40, r=40, t=40, b=40), height=450,
+                                        legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="center", x=0.5)
+                                    )
                                     
-                                    min_y = min(delta_grav_act, delta_grav_meta) - margen_y
-                                    max_y = max(delta_grav_act, delta_grav_meta) + margen_y
+                                    st.plotly_chart(fig_radar, use_container_width=True)
                                     
-                                    # Malla de ALTA resolución solo para el área local (colores intensos)
-                                    grid_res = 60 
-                                    eje_x = np.linspace(min_x, max_x, grid_res)
-                                    eje_y = np.linspace(min_y, max_y, grid_res)
-                                    xx, yy = np.meshgrid(eje_x, eje_y)
-                                    
-                                    df_grid = pd.concat([df_paciente.iloc[[0]]] * (grid_res**2), ignore_index=True)
-                                    df_grid['dias_internados'] = xx.ravel()
-                                    df_grid['DELTA_gravedad_percibida'] = yy.ravel()
-                                    df_grid['EVO_gravedad_percibida'] = df_grid['ING_gravedad_percibida'] + df_grid['DELTA_gravedad_percibida']
-                                    
-                                    Z = pipeline.predict_proba(df_grid)[:, 1]
-                                    Z = Z.reshape(xx.shape)
-                                    
-                                    with c_izq:
-                                        fig_contour = go.Figure()
-                                        
-                                        # Capa de Fondo (Mapa de calor local saturado)
-                                        fig_contour.add_trace(go.Contour(
-                                            x=eje_x, y=eje_y, z=Z,
-                                            colorscale='RdYlGn', reversescale=True, line_smoothing=1.3,
-                                            contours=dict(start=0, end=1, size=0.05, showlines=False), # Trazos más finos = más detalle
-                                            colorbar=dict(title="Local Risk", len=0.8, thickness=12),
-                                            hoverinfo='skip'
-                                        ))
-                                        
-                                        # Capa Frontal: Trayectoria Pura y Limpia
-                                        fig_contour.add_trace(go.Scatter(
-                                            x=[dias_actual, dias_meta], y=[delta_grav_act, delta_grav_meta],
-                                            mode='lines+markers+text',
-                                            line=dict(color='#111111', width=4, dash='dot'), # Línea oscura elegante
-                                            marker=dict(color=['#FF0051', '#00C851'], size=[18, 22], symbol=['circle', 'star'], line=dict(color='white', width=2)),
-                                            text=["Current", "Target"], textposition="top center", textfont=dict(color="white", size=13, family="Arial Black"),
-                                            name="Stabilization Route"
-                                        ))
-                                        
-                                        # Diseño minimalista nativo
-                                        fig_contour.update_layout(
-                                            xaxis_title="Hospitalization Days", yaxis_title="Δ Perceived Severity",
-                                            margin=dict(l=10, r=10, t=30, b=10), height=380,
-                                            plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
-                                            font=dict(color='white'),
-                                            xaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.15)', zeroline=False),
-                                            yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.15)', zeroline=False),
-                                            showlegend=False # Ocultamos la leyenda para ganar espacio de mapa
-                                        )
-                                        st.plotly_chart(fig_contour, use_container_width=True)
-                                    # ---------------------------------------------------------------
                     else:
                         st.error("No mathematically viable target routes were found.")
                         
