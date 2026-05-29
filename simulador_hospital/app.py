@@ -839,38 +839,6 @@ with col_der:
         except Exception as e:
             st.error("Trajectory unavailable.")
 
-    with col_scat:
-        st.markdown("#### 🗺️ Context: Risk vs. Stay")
-        try:
-            fig_scat, ax_scat = plt.subplots(figsize=(6, 5.5))
-            
-            try:
-                riesgos_hist = pipeline.predict_proba(df_train_sample)[:, 1]
-                x_hist = pd.to_numeric(df_train_sample['dias_internados'], errors='coerce').fillna(0) if 'dias_internados' in df_train_sample.columns else np.zeros(len(df_train_sample))
-                ax_scat.scatter(x_hist, riesgos_hist, color='gray', alpha=0.4, s=20, label='Cohort')
-            except Exception:
-                x_hist_sim = np.random.normal(10, 5, 200).clip(1, 40)
-                y_hist_sim = np.random.beta(2, 5, 200)
-                ax_scat.scatter(x_hist_sim, y_hist_sim, color='gray', alpha=0.2, s=20, label='Cohort')
-
-            dias_actual = float(df_row['dias_internados'].values[0]) if 'dias_internados' in df_row.columns else 0
-            ax_scat.scatter(dias_actual, riesgo, color='#008BFB', marker='*', s=300, edgecolor='black', label='PATIENT', zorder=5)
-            ax_scat.axhline(y=umbral, color='red', linestyle='--', alpha=0.6, label='Safety Threshold')
-
-            ax_scat.set_xlabel("Days of Hospitalization")
-            ax_scat.set_ylabel("Readmission Probability")
-            ax_scat.set_ylim(-0.05, 1.05)
-            ax_scat.legend(loc='upper right', fontsize=8)
-            ax_scat.spines[['top', 'right']].set_visible(False)
-            
-            st.pyplot(fig_scat)
-            plt.close(fig_scat) 
-        except Exception as e:
-            st.error("Context map unavailable.")
-
-   
-
-    
 
 # ==========================================
 # 6. THERAPEUTIC NAVIGATOR (DiCE - DUAL COORDINATED XAI)
