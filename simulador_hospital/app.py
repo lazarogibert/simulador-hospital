@@ -1156,24 +1156,62 @@ else:
                                     
                                     with c_izq:
                                         fig_contour = go.Figure()
+                                        
+                                        # 1. Capa de Fondo: Topografía de Riesgo (Contour)
                                         fig_contour.add_trace(go.Contour(
                                             x=eje_x, y=eje_y, z=Z,
                                             colorscale='RdYlGn', reversescale=True, line_smoothing=0.85,
                                             contours=dict(start=0, end=1, size=0.1, showlines=False),
-                                            colorbar=dict(title="Risk", len=0.8, thickness=15)
+                                            colorbar=dict(title="Risk", len=0.8, thickness=15),
+                                            hoverinfo='skip' # Evita que el tooltip moleste al pasar el ratón por el fondo
                                         ))
+                                        
+                                        # --- NUEVO: 2. Capa Histórica (Cohorte de Pacientes) ---
+                                        # Nos aseguramos de tener el Delta calculado para la cohorte
+                                        df_hist = df_dice_train.copy()
+                                        df_hist['DELTA_grav'] = df_hist['EVO_gravedad_percibida'] - df_hist['ING_gravedad_percibida']
+                                        
+                                        df_safe = df_hist[df_hist['target'] == 0]
+                                        df_risk = df_hist[df_hist['target'] == 1]
+                                        
+                                        # Pacientes con Alta Segura (Puntos claros)
+                                        fig_contour.add_trace(go.Scatter(
+                                            x=df_safe['dias_internados'], y=df_safe['DELTA_grav'],
+                                            mode='markers',
+                                            marker=dict(color='rgba(255, 255, 255, 0.7)', size=4.5, line=dict(color='#2ca02c', width=0.8)),
+                                            name="Cohort: Safe Discharge",
+                                            hoverinfo='skip'
+                                        ))
+                                        
+                                        # Pacientes Reingresados (Puntos oscuros)
+                                        fig_contour.add_trace(go.Scatter(
+                                            x=df_risk['dias_internados'], y=df_risk['DELTA_grav'],
+                                            mode='markers',
+                                            marker=dict(color='rgba(0, 0, 0, 0.5)', size=4.5, line=dict(color='#d62728', width=0.8)),
+                                            name="Cohort: Readmitted",
+                                            hoverinfo='skip'
+                                        ))
+                                        # --------------------------------------------------------
+
+                                        # 3. Capa Frontal: Trayectoria del Paciente Actual (DiCE)
                                         fig_contour.add_trace(go.Scatter(
                                             x=[dias_actual, dias_meta], y=[delta_grav_act, delta_grav_meta],
                                             mode='lines+markers+text',
                                             line=dict(color='black', width=3, dash='dash'),
-                                            marker=dict(color=['#d62728', '#2ca02c'], size=[12, 14], symbol=['circle', 'star']),
-                                            text=["Current", "Target"], textposition="top center", textfont=dict(color="black", size=10),
+                                            marker=dict(color=['#d62728', '#2ca02c'], size=[14, 16], symbol=['circle', 'star']),
+                                            text=["Current", "Target"], textposition="top center", textfont=dict(color="black", size=11, family="Arial Black"),
                                             name="Stabilization Route"
                                         ))
+                                        
+                                        # Ajustes de diseño final
                                         fig_contour.update_layout(
                                             xaxis_title="Hospitalization Days", yaxis_title="Δ Perceived Severity",
                                             margin=dict(l=20, r=20, t=30, b=20), height=350, plot_bgcolor='white',
-                                            showlegend=False
+                                            showlegend=True,
+                                            legend=dict(
+                                                orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5,
+                                                font=dict(size=9)
+                                            )
                                         )
                                         st.plotly_chart(fig_contour, use_container_width=True)
                                     # ---------------------------------------------------------------
