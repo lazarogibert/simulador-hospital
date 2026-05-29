@@ -497,18 +497,18 @@ df_paciente = pd.DataFrame([paciente_data])[columnas_modelo]
 # ==========================================
 riesgo = pipeline.predict_proba(df_paciente)[0][1]
 
-col_izq, col_der = st.columns([1, 3.5])
+col_izq, col_der = st.columns([1, 4])
 
 with col_izq:
     st.subheader("Readmission Risk")
     st.metric(label="15-Day Probability", value=f"{riesgo*100:.1f}%")
     
     if riesgo > umbral:
-        # Quitamos los \n\n para hacer la caja más delgada
-        st.error(f"⚠️ **CLINICAL ALERT** - Risk exceeds safety threshold ({umbral*100:.1f}%).")
+        st.error(f"⚠️ **CLINICAL ALERT**\n\nExceeds safety threshold ({umbral*100:.1f}%)")
     else:
-        st.success(f"✅ **SAFE DISCHARGE** - Risk controlled within permitted threshold.")
+        st.success(f"✅ **SAFE DISCHARGE**\n\nWithin permitted threshold")
 
+    # Mapeo de Diagnóstico original intacto
     cie10_ui_dict = {
         "Tuberculosis": "Tuberculosis", "Lepra": "Leprosy", "Sífilis": "Syphilis", 
         "Otras infecciosas (A)": "Other infectious (A)", "Hepatitis viral": "Viral hepatitis", 
@@ -578,206 +578,187 @@ with col_izq:
     else:
         categoria_cie10_ingles = cie10_ui_dict.get(categoria_cie10, categoria_cie10)
     
-    st.info(f"**Mapped Diagnosis:** {categoria_cie10_ingles} (Code: {codigo_normalizado})")
+    st.info(f"**Mapped Diagnosis:**\n\n{categoria_cie10_ingles}\n\n(Code: {codigo_normalizado})")
 
 
 with col_der:
     st.subheader("Decision Audit & Clinical Context")
     
-    st.markdown("#### 🔍 Prescriptive Explanability (SHAP)")
-    
-    # Checkbox para alternar metodologías
-    filtrar_activos = st.checkbox("🎯 Show only the impact of present conditions (Hide protective factors due to absence)", value=False)
-    
-    try:
-        clf = pipeline.named_steps['clasificador']
-        prep = pipeline.named_steps['preprocesador']
+    # --- BLOQUE SHAP (TOP ROW) ---
+    with st.container():
+        st.markdown("#### 🔍 1. Prescriptive Explanability (SHAP)")
+        filtrar_activos = st.checkbox("🎯 Show only the impact of present conditions (Hide protective factors due to absence)", value=False)
         
-        X_proc = prep.transform(df_paciente)
-        X_proc_dense = X_proc.toarray() if hasattr(X_proc, 'toarray') else np.array(X_proc)
-        X_paciente_1d = X_proc_dense[0] 
-        
-        nombres_crudos = prep.get_feature_names_out()
-        
-        shap_ui_dict = {
-            'dias_internados': 'Hospitalization Days', 'pluripatologico': 'Pluripathological',
-            'ING_dolor_eva': 'Initial Pain', 'ING_gravedad_percibida': 'Initial Severity',
-            'EVO_dolor_eva': 'Current Pain', 'EVO_gravedad_percibida': 'Current Severity',
-            'DELTA_dolor_eva': 'Pain Delta', 'DELTA_gravedad_percibida': 'Severity Delta',
-            'DELTA_alteracion_mental': 'Mental Alt. Delta', 'DELTA_dependencia_funcional': 'Func. Dep. Delta',
-            'DELTA_portador_dispositivos': 'Device Bearer Delta', 'ING_alteracion_mental': 'Initial Mental Alt.',
-            'ING_consultas_reiteradas': 'Initial Repeated Consults', 'ING_dependencia_funcional': 'Initial Func. Dep.',
-            'ING_portador_dispositivos': 'Initial Device Bearer', 'ING_riesgo_hemorragico': 'Initial Hemorrhagic Risk',
-            'EVO_aislamiento_infeccioso': 'Current Infect. Isolation', 'EVO_alteracion_mental': 'Current Mental Alt.',
-            'EVO_complicacion_internacion': 'Current Hosp. Complication', 'EVO_cuidados_paliativos': 'Current Palliat. Care',
-            'EVO_dependencia_funcional': 'Current Func. Dep.', 'EVO_fuga_o_alta_irregular': 'Current Irreg. Discharge',
-            'EVO_portador_dispositivos': 'Current Device Bearer', 'EVO_ulceras_presion': 'Current Pressure Ulcers',
-            'LLM_AF_autoinmune': 'Fam. Hist: Autoimmune', 'LLM_AF_cardiovascular_otro': 'Fam. Hist: Other CV',
-            'LLM_AF_diabetes': 'Fam. Hist: Diabetes', 'LLM_AF_hipertension': 'Fam. Hist: Hypertension',
-            'LLM_AF_metabolico_otro': 'Fam. Hist: Other Metabolic', 'LLM_AF_neurologico': 'Fam. Hist: Neurological',
-            'LLM_AF_oncologico': 'Fam. Hist: Oncological', 'LLM_AF_psiquiatrico': 'Fam. Hist: Psychiatric',
-            'LLM_AF_renal': 'Fam. Hist: Renal', 'LLM_AF_respiratorio': 'Fam. Hist: Respiratory',
-            'LLM_abandono_medicacion': 'Chronic: Med. Abandonment', 'LLM_alcoholismo': 'Chronic: Alcoholism',
-            'LLM_desnutricion_severa': 'Chronic: Severe Malnutrition', 'LLM_drogas_ilicitas': 'Chronic: Illicit Drugs',
-            'LLM_fragilidad_geriatrica': 'Chronic: Geriatric Frailty', 'LLM_historial_caidas': 'Chronic: History of Falls',
-            'LLM_oxigenodependiente': 'Chronic: Oxygen Dependent', 'LLM_polifarmacia': 'Chronic: Polypharmacy',
-            'LLM_tabaquismo_activo': 'Chronic: Active Smoking'
-        }
-
-        # --- LÓGICA DE TRADUCCIÓN ROBUSTA ---
-        nombres_limpios_traducidos = []
-        cie10_upper = {k.upper(): v for k, v in cie10_ui_dict.items()}
-        
-        for nombre_crudo in nombres_crudos:
-            traducido = nombre_crudo.split('__')[-1]
-            
-            for sufijo in ['_1.0', '_1', '_True', '_true', '_0.0', '_0', '_False', '_false']:
-                if traducido.endswith(sufijo):
-                    traducido = traducido[:-len(sufijo)]
-                    break
-            
-            if "CIE10_MACRO" in nombre_crudo:
-                cat_es = traducido.replace("CIE10_MACRO_", "")
-                cat_en = cie10_upper.get(cat_es.upper(), cat_es.replace('_', ' ').title())
-                traducido = f"Diagnosis: {cat_en}"
-            
-            elif "rango_edad" in nombre_crudo:
-                cat_es = traducido.replace("rango_edad_", "")
-                match_en = "Unknown Age"
-                for en_k, es_v in opciones_edad_dict.items():
-                    if es_v.upper().replace(' ', '_') == cat_es.upper() or es_v.upper() == cat_es.upper():
-                        match_en = en_k
-                        break
-                traducido = f"Age: {match_en}"
-            
-            else:
-                match_encontrado = False
-                for var_es, var_en in shap_ui_dict.items():
-                    if var_es in nombre_crudo:
-                        traducido = var_en
-                        match_encontrado = True
-                        break
-                
-                if not match_encontrado:
-                    traducido = traducido.replace("_", " ").title()
-                    
-            nombres_limpios_traducidos.append(traducido)
-
-        # --- EXTRACCIÓN SHAP ---
         try:
-            explainer = shap.TreeExplainer(clf)
-            shap_vals = explainer.shap_values(X_proc_dense, check_additivity=False)
-        except Exception:
-            explainer = shap.LinearExplainer(clf, X_proc_dense) if hasattr(clf, 'coef_') else shap.Explainer(clf, X_proc_dense)
-            shap_vals = explainer(X_proc_dense).values
-        
-        if isinstance(shap_vals, list): shap_vals = shap_vals[1]
-        if len(shap_vals.shape) > 2: shap_vals = shap_vals[:, :, 1]
-        
-        exp_val = explainer.expected_value
-        exp_val = exp_val[1] if isinstance(exp_val, (list, np.ndarray)) and len(exp_val) > 1 else exp_val[0] if isinstance(exp_val, (list, np.ndarray)) else exp_val
-        
-        shap_vals_pct = shap_vals[0] * 100
-        exp_val_pct = exp_val * 100
-
-        # --- BIFURCACIÓN METODOLÓGICA ---
-        if not filtrar_activos:
-            # 1. WATERFALL PURO: Integridad matemática total
-            explicacion_completa = shap.Explanation(
-                values=np.array(shap_vals_pct), 
-                base_values=exp_val_pct, 
-                data=np.array(X_paciente_1d), 
-                feature_names=nombres_limpios_traducidos
-            )
+            clf = pipeline.named_steps['clasificador']
+            prep = pipeline.named_steps['preprocesador']
             
-            fig_shap, ax_shap = plt.subplots(figsize=(12, 5)) 
-            shap.waterfall_plot(explicacion_completa, show=False, max_display=10) 
-            plt.tight_layout()
-            st.pyplot(fig_shap)
-            plt.close(fig_shap)
+            X_proc = prep.transform(df_paciente)
+            X_proc_dense = X_proc.toarray() if hasattr(X_proc, 'toarray') else np.array(X_proc)
+            X_paciente_1d = X_proc_dense[0] 
             
-        else:
-            # 2. AISLAMIENTO CLÍNICO: Gráfico de barras horizontal nativo
-            indices_activos = []
-            variables_continuas = ['Days', 'Pain', 'Severity', 'Delta', 'Consultations', 'Complexity']
+            nombres_crudos = prep.get_feature_names_out()
+            
+            shap_ui_dict = {
+                'dias_internados': 'Hospitalization Days', 'pluripatologico': 'Pluripathological',
+                'ING_dolor_eva': 'Initial Pain', 'ING_gravedad_percibida': 'Initial Severity',
+                'EVO_dolor_eva': 'Current Pain', 'EVO_gravedad_percibida': 'Current Severity',
+                'DELTA_dolor_eva': 'Pain Delta', 'DELTA_gravedad_percibida': 'Severity Delta',
+                'DELTA_alteracion_mental': 'Mental Alt. Delta', 'DELTA_dependencia_funcional': 'Func. Dep. Delta',
+                'DELTA_portador_dispositivos': 'Device Bearer Delta', 'ING_alteracion_mental': 'Initial Mental Alt.',
+                'ING_consultas_reiteradas': 'Initial Repeated Consults', 'ING_dependencia_funcional': 'Initial Func. Dep.',
+                'ING_portador_dispositivos': 'Initial Device Bearer', 'ING_riesgo_hemorragico': 'Initial Hemorrhagic Risk',
+                'EVO_aislamiento_infeccioso': 'Current Infect. Isolation', 'EVO_alteracion_mental': 'Current Mental Alt.',
+                'EVO_complicacion_internacion': 'Current Hosp. Complication', 'EVO_cuidados_paliativos': 'Current Palliat. Care',
+                'EVO_dependencia_funcional': 'Current Func. Dep.', 'EVO_fuga_o_alta_irregular': 'Current Irreg. Discharge',
+                'EVO_portador_dispositivos': 'Current Device Bearer', 'EVO_ulceras_presion': 'Current Pressure Ulcers',
+                'LLM_AF_autoinmune': 'Fam. Hist: Autoimmune', 'LLM_AF_cardiovascular_otro': 'Fam. Hist: Other CV',
+                'LLM_AF_diabetes': 'Fam. Hist: Diabetes', 'LLM_AF_hipertension': 'Fam. Hist: Hypertension',
+                'LLM_AF_metabolico_otro': 'Fam. Hist: Other Metabolic', 'LLM_AF_neurologico': 'Fam. Hist: Neurological',
+                'LLM_AF_oncologico': 'Fam. Hist: Oncological', 'LLM_AF_psiquiatrico': 'Fam. Hist: Psychiatric',
+                'LLM_AF_renal': 'Fam. Hist: Renal', 'LLM_AF_respiratorio': 'Fam. Hist: Respiratory',
+                'LLM_abandono_medicacion': 'Chronic: Med. Abandonment', 'LLM_alcoholismo': 'Chronic: Alcoholism',
+                'LLM_desnutricion_severa': 'Chronic: Severe Malnutrition', 'LLM_drogas_ilicitas': 'Chronic: Illicit Drugs',
+                'LLM_fragilidad_geriatrica': 'Chronic: Geriatric Frailty', 'LLM_historial_caidas': 'Chronic: History of Falls',
+                'LLM_oxigenodependiente': 'Chronic: Oxygen Dependent', 'LLM_polifarmacia': 'Chronic: Polypharmacy',
+                'LLM_tabaquismo_activo': 'Chronic: Active Smoking'
+            }
 
-            for i, (val_proc, nombre_traducido) in enumerate(zip(X_paciente_1d, nombres_limpios_traducidos)):
-                nombre_crudo = nombres_crudos[i]
-                nombre_base = nombre_crudo.split('__')[-1]
-                
+            # LÓGICA DE TRADUCCIÓN COMPLETA (Restaurada)
+            nombres_limpios_traducidos = []
+            cie10_upper = {k.upper(): v for k, v in cie10_ui_dict.items()}
+            
+            for nombre_crudo in nombres_crudos:
+                traducido = nombre_crudo.split('__')[-1]
                 for sufijo in ['_1.0', '_1', '_True', '_true', '_0.0', '_0', '_False', '_false']:
-                    if nombre_base.endswith(sufijo):
-                        nombre_base = nombre_base[:-len(sufijo)]
+                    if traducido.endswith(sufijo):
+                        traducido = traducido[:-len(sufijo)]
                         break
                 
-                val_real = val_proc 
-                
-                if nombre_base in df_paciente.columns:
-                    val_real = df_paciente[nombre_base].iloc[0]
-                else:
-                    columnas_categoricas = ['CIE10_MACRO', 'CIE10_SUBMACRO', 'rango_edad']
-                    for col_cat in columnas_categoricas:
-                        if nombre_base.startswith(col_cat + '_'):
-                            valor_categoria_columna = nombre_base.replace(col_cat + '_', '')
-                            valor_real_paciente = str(df_paciente[col_cat].iloc[0])
-                            
-                            if valor_categoria_columna.strip().upper() == valor_real_paciente.strip().upper():
-                                val_real = 1.0 
-                            else:
-                                val_real = 0.0 
+                if "CIE10_MACRO" in nombre_crudo:
+                    cat_es = traducido.replace("CIE10_MACRO_", "")
+                    cat_en = cie10_upper.get(cat_es.upper(), cat_es.replace('_', ' ').title())
+                    traducido = f"Diagnosis: {cat_en}"
+                elif "rango_edad" in nombre_crudo:
+                    cat_es = traducido.replace("rango_edad_", "")
+                    match_en = "Unknown Age"
+                    for en_k, es_v in opciones_edad_dict.items():
+                        if es_v.upper().replace(' ', '_') == cat_es.upper() or es_v.upper() == cat_es.upper():
+                            match_en = en_k
                             break
-                
-                es_continua = any(kw in nombre_traducido for kw in variables_continuas)
-                es_inactivo = False
-                
-                if not es_continua:
-                    val_str = str(val_real).strip().upper()
-                    if val_str in ['0', '0.0', 'FALSE', 'NONE', 'N/A', 'NAN', '']:
-                        es_inactivo = True
-                
-                if abs(shap_vals_pct[i]) < 0.01:
-                    es_inactivo = True
+                    traducido = f"Age: {match_en}"
+                else:
+                    match_encontrado = False
+                    for var_es, var_en in shap_ui_dict.items():
+                        if var_es in nombre_crudo:
+                            traducido = var_en
+                            match_encontrado = True
+                            break
+                    if not match_encontrado:
+                        traducido = traducido.replace("_", " ").title()
+                nombres_limpios_traducidos.append(traducido)
 
-                if not es_inactivo:
-                    indices_activos.append(i)
+            # EXTRACCIÓN SHAP
+            try:
+                explainer = shap.TreeExplainer(clf)
+                shap_vals = explainer.shap_values(X_proc_dense, check_additivity=False)
+            except Exception:
+                explainer = shap.LinearExplainer(clf, X_proc_dense) if hasattr(clf, 'coef_') else shap.Explainer(clf, X_proc_dense)
+                shap_vals = explainer(X_proc_dense).values
+            
+            if isinstance(shap_vals, list): shap_vals = shap_vals[1]
+            if len(shap_vals.shape) > 2: shap_vals = shap_vals[:, :, 1]
+            
+            exp_val = explainer.expected_value
+            exp_val = exp_val[1] if isinstance(exp_val, (list, np.ndarray)) and len(exp_val) > 1 else exp_val[0] if isinstance(exp_val, (list, np.ndarray)) else exp_val
+            
+            shap_vals_pct = shap_vals[0] * 100
+            exp_val_pct = exp_val * 100
 
-            if not indices_activos:
-                st.info("No significant active clinical factors to isolate.")
-            else:
-                activos_vals = [shap_vals_pct[i] for i in indices_activos]
-                activos_nombres = [nombres_limpios_traducidos[i] for i in indices_activos]
+            # BIFURCACIÓN METODOLÓGICA (Restaurada)
+            if not filtrar_activos:
+                # 1. WATERFALL PURO
+                explicacion_completa = shap.Explanation(
+                    values=np.array(shap_vals_pct), 
+                    base_values=exp_val_pct, 
+                    data=np.array(X_paciente_1d), 
+                    feature_names=nombres_limpios_traducidos
+                )
                 
-                # Ordenar para visualización de barras horizontales
-                datos_ordenados = sorted(zip(activos_vals, activos_nombres), key=lambda x: abs(x[0]))
-                y_vals = [x[0] for x in datos_ordenados]
-                y_names = [x[1] for x in datos_ordenados]
-                
-                # Altura dinámica según la cantidad de variables
-                fig_bar, ax_bar = plt.subplots(figsize=(10, max(4, len(y_names) * 0.4)))
-                colores = ['#FF0051' if v > 0 else '#008BFB' for v in y_vals]
-                
-                ax_bar.barh(y_names, y_vals, color=colores)
-                ax_bar.set_xlabel("Impact on Readmission Risk (%)")
-                ax_bar.set_title("Isolation of Present Clinical Factors")
-                
-                ax_bar.spines['top'].set_visible(False)
-                ax_bar.spines['right'].set_visible(False)
-                ax_bar.axvline(0, color='black', linewidth=1)
-                
+                fig_shap, ax_shap = plt.subplots(figsize=(12, 4.5)) 
+                shap.waterfall_plot(explicacion_completa, show=False, max_display=10) 
                 plt.tight_layout()
-                st.pyplot(fig_bar)
-                plt.close(fig_bar)
+                st.pyplot(fig_shap)
+                plt.close(fig_shap)
+                
+            else:
+                # 2. AISLAMIENTO CLÍNICO (Gráfico de barras restaurado y adaptado)
+                indices_activos = []
+                variables_continuas = ['Days', 'Pain', 'Severity', 'Delta', 'Consultations', 'Complexity']
 
-    except Exception as e:
-        st.error("SHAP computation failed.")
-        st.warning(str(e))
+                for i, (val_proc, nombre_traducido) in enumerate(zip(X_paciente_1d, nombres_limpios_traducidos)):
+                    nombre_crudo = nombres_crudos[i]
+                    nombre_base = nombre_crudo.split('__')[-1]
+                    for sufijo in ['_1.0', '_1', '_True', '_true', '_0.0', '_0', '_False', '_false']:
+                        if nombre_base.endswith(sufijo):
+                            nombre_base = nombre_base[:-len(sufijo)]
+                            break
+                    
+                    val_real = val_proc 
+                    if nombre_base in df_paciente.columns:
+                        val_real = df_paciente[nombre_base].iloc[0]
+                    else:
+                        columnas_categoricas = ['CIE10_MACRO', 'CIE10_SUBMACRO', 'rango_edad']
+                        for col_cat in columnas_categoricas:
+                            if nombre_base.startswith(col_cat + '_'):
+                                valor_categoria_columna = nombre_base.replace(col_cat + '_', '')
+                                valor_real_paciente = str(df_paciente[col_cat].iloc[0])
+                                val_real = 1.0 if valor_categoria_columna.strip().upper() == valor_real_paciente.strip().upper() else 0.0 
+                                break
+                    
+                    es_continua = any(kw in nombre_traducido for kw in variables_continuas)
+                    es_inactivo = False
+                    if not es_continua:
+                        val_str = str(val_real).strip().upper()
+                        if val_str in ['0', '0.0', 'FALSE', 'NONE', 'N/A', 'NAN', '']: es_inactivo = True
+                    if abs(shap_vals_pct[i]) < 0.01: es_inactivo = True
+                    if not es_inactivo: indices_activos.append(i)
+
+                if not indices_activos:
+                    st.info("No significant active clinical factors to isolate.")
+                else:
+                    activos_vals = [shap_vals_pct[i] for i in indices_activos]
+                    activos_nombres = [nombres_limpios_traducidos[i] for i in indices_activos]
+                    
+                    datos_ordenados = sorted(zip(activos_vals, activos_nombres), key=lambda x: abs(x[0]))
+                    y_vals = [x[0] for x in datos_ordenados]
+                    y_names = [x[1] for x in datos_ordenados]
+                    
+                    fig_bar, ax_bar = plt.subplots(figsize=(10, max(4, len(y_names) * 0.4)))
+                    colores = ['#FF0051' if v > 0 else '#008BFB' for v in y_vals]
+                    
+                    ax_bar.barh(y_names, y_vals, color=colores)
+                    ax_bar.set_xlabel("Impact on Readmission Risk (%)")
+                    ax_bar.set_title("Isolation of Present Clinical Factors")
+                    ax_bar.spines['top'].set_visible(False)
+                    ax_bar.spines['right'].set_visible(False)
+                    ax_bar.axvline(0, color='black', linewidth=1)
+                    
+                    plt.tight_layout()
+                    st.pyplot(fig_bar)
+                    plt.close(fig_bar)
+
+        except Exception as e:
+            st.error("SHAP computation failed.")
+            st.warning(str(e))
 
     st.markdown("---")
 
-    col_traj, col_scat = st.columns(2)
+    # --- BLOQUE INFERIOR: TRAYECTORIA Y MAPA DE CONTEXTO ---
+    col_traj, col_scat = st.columns([2.5, 1.5]) 
     
     with col_traj:
-        st.markdown("#### 📉 Dynamic Trajectory")
+        st.markdown("#### 📉 2. Dynamic Trajectory")
         try:
             df_row = df_paciente.iloc[[0]].copy()
             pares_clinicos = {
@@ -793,10 +774,10 @@ with col_der:
                 val_evo = float(df_row[col_evo].values[0]) if col_evo in df_row.columns else 0.0
                 datos.append({'label': label, 'ing': val_ing, 'evo': val_evo})
 
-            fig_slope, ax_slope = plt.subplots(figsize=(6, 5.5))
+            fig_slope, ax_slope = plt.subplots(figsize=(8, 6.5))
             ax_slope.set_xlim(-0.5, 1.5)
             ax_slope.set_xticks([0, 1])
-            ax_slope.set_xticklabels(['Admission', 'Current'], fontsize=10, fontweight='bold')
+            ax_slope.set_xticklabels(['Admission', 'Current'], fontsize=12, fontweight='bold')
             
             def separar_superposiciones(valores, margen=0.45):
                 ordenados = sorted(enumerate(valores), key=lambda x: x[1])
@@ -822,22 +803,19 @@ with col_der:
                 min_y, max_y = min(min_y, val_ing, val_evo), max(max_y, val_ing, val_evo)
                 color_linea = '#00C851' if val_evo <= val_ing else '#FF4444'
                 
-                ax_slope.plot([0, 1], [val_ing, val_evo], color=color_linea, linewidth=2.5, marker='o', markersize=6, zorder=3)
+                ax_slope.plot([0, 1], [val_ing, val_evo], color=color_linea, linewidth=3.5, marker='o', markersize=8, zorder=3)
                 
-                ax_slope.text(-0.06, textos_ing_y[i], f"{label} ({val_ing:.1f})", ha='right', va='center', fontsize=8, fontweight='bold', color='#444444')
-                ax_slope.text(1.06, textos_evo_y[i], f"({val_evo:.1f}) {label}", ha='left', va='center', fontsize=8, fontweight='bold', color=color_linea)
+                ax_slope.text(-0.06, textos_ing_y[i], f"{label} ({val_ing:.1f})", ha='right', va='center', fontsize=10, fontweight='bold', color='#444444')
+                ax_slope.text(1.06, textos_evo_y[i], f"({val_evo:.1f}) {label}", ha='left', va='center', fontsize=10, fontweight='bold', color=color_linea)
 
             ax_slope.set_ylim(min_y - 1.5, max_y + 1.5)
-            ax_slope.spines[['top', 'bottom', 'left', 'right']].set_visible(False)
-            ax_slope.get_yaxis().set_visible(False)
-            ax_slope.axvline(x=0, color='#E5E5E5', linestyle='--', linewidth=1.2, zorder=1)
-            ax_slope.axvline(x=1, color='#E5E5E5', linestyle='--', linewidth=1.2, zorder=1)
-
+            ax_slope.axis('off')
             fig_slope.tight_layout()
             st.pyplot(fig_slope)
             plt.close(fig_slope)
         except Exception as e:
             st.error("Trajectory unavailable.")
+
 
 
 # ==========================================
