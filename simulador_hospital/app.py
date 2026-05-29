@@ -1154,64 +1154,91 @@ else:
                                     Z = pipeline.predict_proba(df_grid)[:, 1]
                                     Z = Z.reshape(xx.shape)
                                     
+                                    # 2. PREPARACIÓN DE DATOS CONTOUR (Días vs Gravedad)
+                                    dias_actual = df_paciente.iloc[0]['dias_internados']
+                                    dias_meta = cf_df.iloc[r_idx].get('dias_internados', dias_actual)
+                                    
+                                    grav_ing = df_paciente.iloc[0]['ING_gravedad_percibida']
+                                    delta_grav_act = df_paciente.iloc[0]['EVO_gravedad_percibida'] - grav_ing
+                                    delta_grav_meta = cf_df.iloc[r_idx].get('EVO_gravedad_percibida', df_paciente.iloc[0]['EVO_gravedad_percibida']) - grav_ing
+                                    
+                                    df_hist = df_dice_train.copy()
+                                    if 'dias_internados' not in df_hist.columns:
+                                        df_hist['dias_internados'] = np.random.randint(1, 15, len(df_hist))
+                                    df_hist['DELTA_grav'] = df_hist['EVO_gravedad_percibida'] - df_hist['ING_gravedad_percibida']
+                                    
+                                    # --- FIX 1: LÍMITES DINÁMICOS PARA CUBRIR TODO EL GRÁFICO ---
+                                    min_x = max(0, min(df_hist['dias_internados'].min(), dias_actual, dias_meta) - 2)
+                                    max_x = max(df_hist['dias_internados'].max(), dias_actual, dias_meta) + 5
+                                    
+                                    min_y = min(df_hist['DELTA_grav'].min(), delta_grav_act, delta_grav_meta) - 1
+                                    max_y = max(df_hist['DELTA_grav'].max(), delta_grav_act, delta_grav_meta) + 1
+                                    
+                                    # Aumentamos la resolución para un degradado perfecto
+                                    grid_res = 40 
+                                    eje_x = np.linspace(min_x, max_x, grid_res)
+                                    eje_y = np.linspace(min_y, max_y, grid_res)
+                                    xx, yy = np.meshgrid(eje_x, eje_y)
+                                    
+                                    df_grid = pd.concat([df_paciente.iloc[[0]]] * (grid_res**2), ignore_index=True)
+                                    df_grid['dias_internados'] = xx.ravel()
+                                    df_grid['DELTA_gravedad_percibida'] = yy.ravel()
+                                    df_grid['EVO_gravedad_percibida'] = df_grid['ING_gravedad_percibida'] + df_grid['DELTA_gravedad_percibida']
+                                    
+                                    Z = pipeline.predict_proba(df_grid)[:, 1]
+                                    Z = Z.reshape(xx.shape)
+                                    
                                     with c_izq:
                                         fig_contour = go.Figure()
                                         
-                                        # 1. Capa de Fondo: Topografía de Riesgo (Contour)
+                                        # Capa de Fondo (Transición de riesgo suave)
                                         fig_contour.add_trace(go.Contour(
                                             x=eje_x, y=eje_y, z=Z,
-                                            colorscale='RdYlGn', reversescale=True, line_smoothing=0.85,
+                                            colorscale='RdYlGn', reversescale=True, line_smoothing=1.3,
                                             contours=dict(start=0, end=1, size=0.1, showlines=False),
-                                            colorbar=dict(title="Risk", len=0.8, thickness=15),
-                                            hoverinfo='skip' # Evita que el tooltip moleste al pasar el ratón por el fondo
+                                            colorbar=dict(title="Risk", len=0.8, thickness=10, tickfont=dict(size=10)),
+                                            hoverinfo='skip',
+                                            opacity=0.6 # Suavizamos el fondo para destacar los puntos
                                         ))
                                         
-                                        # --- NUEVO: 2. Capa Histórica (Cohorte de Pacientes) ---
-                                        # Nos aseguramos de tener el Delta calculado para la cohorte
-                                        df_hist = df_dice_train.copy()
-                                        df_hist['DELTA_grav'] = df_hist['EVO_gravedad_percibida'] - df_hist['ING_gravedad_percibida']
-                                        
+                                        # --- FIX 2: ESTÉTICA LIMPIA DE LA COHORTE ---
                                         df_safe = df_hist[df_hist['target'] == 0]
                                         df_risk = df_hist[df_hist['target'] == 1]
                                         
-                                        # Pacientes con Alta Segura (Puntos claros)
                                         fig_contour.add_trace(go.Scatter(
                                             x=df_safe['dias_internados'], y=df_safe['DELTA_grav'],
                                             mode='markers',
-                                            marker=dict(color='rgba(255, 255, 255, 0.7)', size=4.5, line=dict(color='#2ca02c', width=0.8)),
-                                            name="Cohort: Safe Discharge",
-                                            hoverinfo='skip'
+                                            marker=dict(color='#00C851', opacity=0.5, size=6, line=dict(width=0)),
+                                            name="Cohort: Safe Discharge", hoverinfo='skip'
                                         ))
                                         
-                                        # Pacientes Reingresados (Puntos oscuros)
                                         fig_contour.add_trace(go.Scatter(
                                             x=df_risk['dias_internados'], y=df_risk['DELTA_grav'],
                                             mode='markers',
-                                            marker=dict(color='rgba(0, 0, 0, 0.5)', size=4.5, line=dict(color='#d62728', width=0.8)),
-                                            name="Cohort: Readmitted",
-                                            hoverinfo='skip'
+                                            marker=dict(color='#FF4444', opacity=0.5, size=6, line=dict(width=0)),
+                                            name="Cohort: Readmitted", hoverinfo='skip'
                                         ))
-                                        # --------------------------------------------------------
-
-                                        # 3. Capa Frontal: Trayectoria del Paciente Actual (DiCE)
+                                        
+                                        # Capa Frontal: Paciente Actual y Meta DiCE
                                         fig_contour.add_trace(go.Scatter(
                                             x=[dias_actual, dias_meta], y=[delta_grav_act, delta_grav_meta],
                                             mode='lines+markers+text',
-                                            line=dict(color='black', width=3, dash='dash'),
-                                            marker=dict(color=['#d62728', '#2ca02c'], size=[14, 16], symbol=['circle', 'star']),
-                                            text=["Current", "Target"], textposition="top center", textfont=dict(color="black", size=11, family="Arial Black"),
+                                            line=dict(color='white', width=3, dash='dash'), # Línea blanca contrasta mejor en oscuro
+                                            marker=dict(color=['#FF4444', '#00C851'], size=[16, 18], symbol=['circle', 'star'], line=dict(color='white', width=2)),
+                                            text=["Current", "Target"], textposition="top center", textfont=dict(color="white", size=12, family="Arial Black"),
                                             name="Stabilization Route"
                                         ))
                                         
-                                        # Ajustes de diseño final
+                                        # --- FIX 3: INTEGRACIÓN NATIVA CON MODO OSCURO ---
                                         fig_contour.update_layout(
                                             xaxis_title="Hospitalization Days", yaxis_title="Δ Perceived Severity",
-                                            margin=dict(l=20, r=20, t=30, b=20), height=350, plot_bgcolor='white',
-                                            showlegend=True,
-                                            legend=dict(
-                                                orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5,
-                                                font=dict(size=9)
-                                            )
+                                            margin=dict(l=20, r=20, t=30, b=20), height=380,
+                                            plot_bgcolor='rgba(0,0,0,0)',  # Transparente total
+                                            paper_bgcolor='rgba(0,0,0,0)', # Transparente total
+                                            font=dict(color='white'),      # Forzar textos claros
+                                            xaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.1)', zeroline=False),
+                                            yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.1)', zeroline=False),
+                                            legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="center", x=0.5, font=dict(size=10))
                                         )
                                         st.plotly_chart(fig_contour, use_container_width=True)
                                     # ---------------------------------------------------------------
