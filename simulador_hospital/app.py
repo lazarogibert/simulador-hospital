@@ -1109,32 +1109,46 @@ else:
                                     # Renderizado del gráfico centrado y amplio
                                     fig_radar = go.Figure()
                                     
+                                    # Estado Actual: Polígono Rojo
                                     fig_radar.add_trace(go.Scatterpolar(
                                         r=val_act_cerrados, theta=cat_cerradas,
-                                        fill='toself', fillcolor='rgba(255, 68, 68, 0.25)', # Rojo vibrante semi-transparente
-                                        line=dict(color='#FF4444', width=2.5), name='Current State'
+                                        fill='toself', fillcolor='rgba(214, 39, 40, 0.25)', # Color clínico con opacidad equilibrada
+                                        line=dict(color='#D62728', width=2.5), name='Current State'
                                     ))
                                     
+                                    # Meta DiCE: Polígono Verde
                                     fig_radar.add_trace(go.Scatterpolar(
                                         r=val_meta_cerrados, theta=cat_cerradas,
-                                        fill='toself', fillcolor='rgba(0, 200, 81, 0.25)', # Verde vibrante semi-transparente
-                                        line=dict(color='#00C851', width=2.5), name='DiCE Target'
+                                        fill='toself', fillcolor='rgba(44, 160, 44, 0.25)', # Color clínico con opacidad equilibrada
+                                        line=dict(color='#2CA02C', width=2.5), name='DiCE Target'
                                     ))
                                     
-                                    # Estética adaptada al modo oscuro de ArchEgo
+                                    # --- CONFIGURACIÓN DE COMPATIBILIDAD DINÁMICA DE TEMAS ---
+                                    # Eliminamos las llamadas fijas a 'font' y 'gridcolor'.
+                                    # Al mantener los fondos transparentes ('rgba(0,0,0,0)'), el gráfico hereda el fondo real de la aplicación
+                                    # y Streamlit ajusta automáticamente los contrastes de los textos y grillas de los ejes.
                                     fig_radar.update_layout(
                                         polar=dict(
-                                            radialaxis=dict(visible=True, range=[-2, 8], gridcolor='rgba(255,255,255,0.1)'),
-                                            angularaxis=dict(gridcolor='rgba(255,255,255,0.1)'),
-                                            bgcolor='rgba(0,0,0,0)'
+                                            radialaxis=dict(
+                                                visible=True, 
+                                                range=[-2, 8]
+                                            ),
+                                            bgcolor='rgba(0,0,0,0)' # Fondo interno transparente
                                         ),
-                                        paper_bgcolor='rgba(0,0,0,0)',
+                                        paper_bgcolor='rgba(0,0,0,0)', # Contenedor externo transparente
                                         plot_bgcolor='rgba(0,0,0,0)',
-                                        font=dict(color='white'),
-                                        margin=dict(l=40, r=40, t=40, b=40), height=450,
-                                        legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="center", x=0.5)
+                                        margin=dict(l=40, r=40, t=40, b=40), 
+                                        height=450,
+                                        legend=dict(
+                                            orientation="h", 
+                                            yanchor="bottom", 
+                                            y=1.05, 
+                                            xanchor="center", 
+                                            x=0.5
+                                        )
                                     )
                                     
+                                    # Se ejecuta utilizando el mapeo nativo de temas de Streamlit (activado por defecto)
                                     st.plotly_chart(fig_radar, use_container_width=True)
                                     
                     else:
