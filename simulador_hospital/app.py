@@ -1131,7 +1131,7 @@ else:
                                         )
                                         st.plotly_chart(fig_radar, use_container_width=True)
                                         
-                                    # 2. PREPARACIÓN DE DATOS CONTOUR (Días vs Gravedad)
+                                    # 2. PREPARACIÓN DE DATOS CONTOUR (ENFOQUE "GPS LOCAL")
                                     dias_actual = df_paciente.iloc[0]['dias_internados']
                                     dias_meta = cf_df.iloc[r_idx].get('dias_internados', dias_actual)
                                     
@@ -1139,43 +1139,19 @@ else:
                                     delta_grav_act = df_paciente.iloc[0]['EVO_gravedad_percibida'] - grav_ing
                                     delta_grav_meta = cf_df.iloc[r_idx].get('EVO_gravedad_percibida', df_paciente.iloc[0]['EVO_gravedad_percibida']) - grav_ing
                                     
-                                    # Grid topográfico matemático real
-                                    grid_res = 20
-                                    eje_x = np.linspace(max(1, dias_actual-2), dias_actual+10, grid_res)
-                                    eje_y = np.linspace(-5, 3, grid_res)
-                                    xx, yy = np.meshgrid(eje_x, eje_y)
+                                    # --- ZOOM QUIRÚRGICO DINÁMICO ---
+                                    # Calculamos un margen relativo a la distancia de la meta
+                                    margen_x = max(3, abs(dias_meta - dias_actual) * 1.5)
+                                    margen_y = max(2, abs(delta_grav_meta - delta_grav_act) * 1.5)
                                     
-                                    df_grid = pd.concat([df_paciente.iloc[[0]]] * (grid_res**2), ignore_index=True)
-                                    df_grid['dias_internados'] = xx.ravel()
-                                    df_grid['DELTA_gravedad_percibida'] = yy.ravel()
-                                    df_grid['EVO_gravedad_percibida'] = df_grid['ING_gravedad_percibida'] + df_grid['DELTA_gravedad_percibida']
+                                    min_x = max(1, min(dias_actual, dias_meta) - margen_x)
+                                    max_x = max(dias_actual, dias_meta) + margen_x
                                     
-                                    # Extraemos probabilidad real de tu pipeline
-                                    Z = pipeline.predict_proba(df_grid)[:, 1]
-                                    Z = Z.reshape(xx.shape)
+                                    min_y = min(delta_grav_act, delta_grav_meta) - margen_y
+                                    max_y = max(delta_grav_act, delta_grav_meta) + margen_y
                                     
-                                    # 2. PREPARACIÓN DE DATOS CONTOUR (Días vs Gravedad)
-                                    dias_actual = df_paciente.iloc[0]['dias_internados']
-                                    dias_meta = cf_df.iloc[r_idx].get('dias_internados', dias_actual)
-                                    
-                                    grav_ing = df_paciente.iloc[0]['ING_gravedad_percibida']
-                                    delta_grav_act = df_paciente.iloc[0]['EVO_gravedad_percibida'] - grav_ing
-                                    delta_grav_meta = cf_df.iloc[r_idx].get('EVO_gravedad_percibida', df_paciente.iloc[0]['EVO_gravedad_percibida']) - grav_ing
-                                    
-                                    df_hist = df_dice_train.copy()
-                                    if 'dias_internados' not in df_hist.columns:
-                                        df_hist['dias_internados'] = np.random.randint(1, 15, len(df_hist))
-                                    df_hist['DELTA_grav'] = df_hist['EVO_gravedad_percibida'] - df_hist['ING_gravedad_percibida']
-                                    
-                                    # --- FIX 1: LÍMITES DINÁMICOS PARA CUBRIR TODO EL GRÁFICO ---
-                                    min_x = max(0, min(df_hist['dias_internados'].min(), dias_actual, dias_meta) - 2)
-                                    max_x = max(df_hist['dias_internados'].max(), dias_actual, dias_meta) + 5
-                                    
-                                    min_y = min(df_hist['DELTA_grav'].min(), delta_grav_act, delta_grav_meta) - 1
-                                    max_y = max(df_hist['DELTA_grav'].max(), delta_grav_act, delta_grav_meta) + 1
-                                    
-                                    # Aumentamos la resolución para un degradado perfecto
-                                    grid_res = 40 
+                                    # Malla de ALTA resolución solo para el área local (colores intensos)
+                                    grid_res = 60 
                                     eje_x = np.linspace(min_x, max_x, grid_res)
                                     eje_y = np.linspace(min_y, max_y, grid_res)
                                     xx, yy = np.meshgrid(eje_x, eje_y)
@@ -1191,54 +1167,34 @@ else:
                                     with c_izq:
                                         fig_contour = go.Figure()
                                         
-                                        # Capa de Fondo (Transición de riesgo suave)
+                                        # Capa de Fondo (Mapa de calor local saturado)
                                         fig_contour.add_trace(go.Contour(
                                             x=eje_x, y=eje_y, z=Z,
                                             colorscale='RdYlGn', reversescale=True, line_smoothing=1.3,
-                                            contours=dict(start=0, end=1, size=0.1, showlines=False),
-                                            colorbar=dict(title="Risk", len=0.8, thickness=10, tickfont=dict(size=10)),
-                                            hoverinfo='skip',
-                                            opacity=0.6 # Suavizamos el fondo para destacar los puntos
+                                            contours=dict(start=0, end=1, size=0.05, showlines=False), # Trazos más finos = más detalle
+                                            colorbar=dict(title="Local Risk", len=0.8, thickness=12),
+                                            hoverinfo='skip'
                                         ))
                                         
-                                        # --- FIX 2: ESTÉTICA LIMPIA DE LA COHORTE ---
-                                        df_safe = df_hist[df_hist['target'] == 0]
-                                        df_risk = df_hist[df_hist['target'] == 1]
-                                        
-                                        fig_contour.add_trace(go.Scatter(
-                                            x=df_safe['dias_internados'], y=df_safe['DELTA_grav'],
-                                            mode='markers',
-                                            marker=dict(color='#00C851', opacity=0.5, size=6, line=dict(width=0)),
-                                            name="Cohort: Safe Discharge", hoverinfo='skip'
-                                        ))
-                                        
-                                        fig_contour.add_trace(go.Scatter(
-                                            x=df_risk['dias_internados'], y=df_risk['DELTA_grav'],
-                                            mode='markers',
-                                            marker=dict(color='#FF4444', opacity=0.5, size=6, line=dict(width=0)),
-                                            name="Cohort: Readmitted", hoverinfo='skip'
-                                        ))
-                                        
-                                        # Capa Frontal: Paciente Actual y Meta DiCE
+                                        # Capa Frontal: Trayectoria Pura y Limpia
                                         fig_contour.add_trace(go.Scatter(
                                             x=[dias_actual, dias_meta], y=[delta_grav_act, delta_grav_meta],
                                             mode='lines+markers+text',
-                                            line=dict(color='white', width=3, dash='dash'), # Línea blanca contrasta mejor en oscuro
-                                            marker=dict(color=['#FF4444', '#00C851'], size=[16, 18], symbol=['circle', 'star'], line=dict(color='white', width=2)),
-                                            text=["Current", "Target"], textposition="top center", textfont=dict(color="white", size=12, family="Arial Black"),
+                                            line=dict(color='#111111', width=4, dash='dot'), # Línea oscura elegante
+                                            marker=dict(color=['#FF0051', '#00C851'], size=[18, 22], symbol=['circle', 'star'], line=dict(color='white', width=2)),
+                                            text=["Current", "Target"], textposition="top center", textfont=dict(color="white", size=13, family="Arial Black"),
                                             name="Stabilization Route"
                                         ))
                                         
-                                        # --- FIX 3: INTEGRACIÓN NATIVA CON MODO OSCURO ---
+                                        # Diseño minimalista nativo
                                         fig_contour.update_layout(
                                             xaxis_title="Hospitalization Days", yaxis_title="Δ Perceived Severity",
-                                            margin=dict(l=20, r=20, t=30, b=20), height=380,
-                                            plot_bgcolor='rgba(0,0,0,0)',  # Transparente total
-                                            paper_bgcolor='rgba(0,0,0,0)', # Transparente total
-                                            font=dict(color='white'),      # Forzar textos claros
-                                            xaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.1)', zeroline=False),
-                                            yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.1)', zeroline=False),
-                                            legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="center", x=0.5, font=dict(size=10))
+                                            margin=dict(l=10, r=10, t=30, b=10), height=380,
+                                            plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+                                            font=dict(color='white'),
+                                            xaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.15)', zeroline=False),
+                                            yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.15)', zeroline=False),
+                                            showlegend=False # Ocultamos la leyenda para ganar espacio de mapa
                                         )
                                         st.plotly_chart(fig_contour, use_container_width=True)
                                     # ---------------------------------------------------------------
