@@ -1490,8 +1490,7 @@ if st.session_state.mostrar_grafo:
                     idx_gemelo_matriz = vecinos_idx[lista_nodos.index(seleccion)]
                     data = info_inspeccion[seleccion]
                     
-                    if data.get("is_archetype"):
-                        st.warning("⭐ **Archetypal Patient (Cluster Hub)**")
+                    
                         # --- COMPONENTE MEJORADO: INSIGHT CLINICO DEL ARQUETIPO ---
                     if data.get("is_archetype"):
                         st.warning("⭐ **Archetypal Patient (Cluster Center of Gravity)**")
