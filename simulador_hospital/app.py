@@ -17,7 +17,8 @@ import networkx as nx
 from sklearn.neighbors import NearestNeighbors
 from sklearn.metrics import pairwise_distances
 from sklearn.inspection import PartialDependenceDisplay
-
+import lime
+import lime.lime_tabular
 warnings.filterwarnings("ignore")
 
 # ==========================================
@@ -1119,102 +1120,117 @@ else:
                 st.warning(f"Technical Context: {str(e)}")
 
 # ==========================================
-# 7. GLOBAL INTERPRETABILITY (PDP GRID)
+# 7. LOCAL EXPLANABILITY: DELTA COMBINATORIAL IMPACT (LIME)
 # ==========================================
 st.markdown("---")
-st.subheader("Global Interpretability (Partial Dependence Plots)")
-st.markdown("Analysis of the model's behavior across all evolution metrics simultaneously against the cohort distribution.")
+st.subheader("Combinatorial Delta Impact (LIME Surrogate)")
+st.markdown("Local linear surrogate model evaluating how the current combination of stabilization parameters (Deltas) specifically interacts to impact this patient's readmission risk thresholds.")
 
-binary_deltas = [
-    'DELTA_alteracion_mental', 'DELTA_dependencia_funcional', 'DELTA_portador_dispositivos'
-]
-
-delta_ui_dict = {
-    'DELTA_dolor_eva': 'Pain Delta', 'DELTA_gravedad_percibida': 'Severity Delta',
-    'DELTA_alteracion_mental': 'Mental Alteration Delta', 'DELTA_dependencia_funcional': 'Functional Dependency Delta',
-    'DELTA_portador_dispositivos': 'Device Bearer Delta'
-}
-
-if 'mostrar_pdp' not in st.session_state:
-    st.session_state.mostrar_pdp = False
-
-col_btn, _ = st.columns([1, 3])
-with col_btn:
-    if st.button("Generate Cohort PDPs", type="secondary", key="btn_gen_pdp"):
-        st.session_state.mostrar_pdp = True
-
-if st.session_state.mostrar_pdp:
-    plt.close('all') 
-    
+if st.button("Generate LIME Delta Analysis", key="btn_gen_lime"):
     try:
-        with st.spinner("Reconstructing cohort alignment and generating visualization grid..."):
-            BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-            ruta_ext = os.path.join(BASE_DIR, 'matriz_extended_display_llm.npy')
-            ruta_cols = os.path.join(BASE_DIR, 'columnas_display_llm.npy')
-            
-            if not os.path.exists(ruta_ext) or not os.path.exists(ruta_cols):
-                raise FileNotFoundError("Dataset required for global interpretation is missing.")
-            
-            matriz_extended = np.load(ruta_ext, allow_pickle=True)
-            nombres_columnas = np.load(ruta_cols, allow_pickle=True)
-            
-            df_background_raw = pd.DataFrame(matriz_extended, columns=nombres_columnas)
-            columnas_modelo = df_paciente.columns.tolist()
-            
-            df_pdp_train = pd.DataFrame(index=range(len(df_background_raw)))
-            
-            for col in columnas_modelo:
-                if df_paciente[col].dtype == object:
-                    df_pdp_train[col] = df_background_raw[col].apply(
-                        lambda x: np.nan if pd.isna(x) or str(x).strip().upper() in ['NAN', 'NONE', 'NULL', ''] 
-                        else str(x).strip().upper()
-                    )
-                else:
-                    df_pdp_train[col] = pd.to_numeric(df_background_raw[col], errors='coerce')
-            
-            features_to_plot = list(delta_ui_dict.keys())
-            
-            disp = PartialDependenceDisplay.from_estimator(
-                pipeline, df_pdp_train, features=features_to_plot,
-                n_cols=5, kind='average', subsample=150, random_state=42,
-                response_method='predict_proba'
+        with st.spinner("Fitting local surrogate model (LIME)..."):
+            # 1. Preparación del motor LIME 
+            # Utilizamos df_train_sample (cargado en la Fase 2) como fondo de perturbación
+            prep = pipeline.named_steps['preprocesador']
+            clf = pipeline.named_steps['clasificador']
+
+            X_train_proc = prep.transform(df_train_sample)
+            X_train_dense = X_train_proc.toarray() if hasattr(X_train_proc, 'toarray') else np.array(X_train_proc)
+
+            X_paciente_proc = prep.transform(df_paciente)
+            X_paciente_dense = X_paciente_proc.toarray() if hasattr(X_paciente_proc, 'toarray') else np.array(X_paciente_proc)
+            X_paciente_1d = X_paciente_dense[0]
+
+            # 2. Mapeo al vuelo de nombres para la UI (Solo Deltas en inglés)
+            nombres_crudos = prep.get_feature_names_out()
+            delta_ui_dict = {
+                'DELTA_dolor_eva': 'Δ Pain',
+                'DELTA_gravedad_percibida': 'Δ Severity',
+                'DELTA_alteracion_mental': 'Δ Mental Alt.',
+                'DELTA_dependencia_funcional': 'Δ Func. Dep.',
+                'DELTA_portador_dispositivos': 'Δ Medical Devices'
+            }
+
+            nombres_lime = []
+            for nombre in nombres_crudos:
+                base = nombre.split('__')[-1]
+                for sufijo in ['_1.0', '_1', '_True', '_true', '_0.0', '_0', '_False', '_false']:
+                    if base.endswith(sufijo):
+                        base = base[:-len(sufijo)]
+                        break
+                nombres_lime.append(delta_ui_dict.get(base, base))
+
+            # 3. Entrenamiento del Explicador LIME Local
+            explainer = lime.lime_tabular.LimeTabularExplainer(
+                training_data=X_train_dense,
+                feature_names=nombres_lime,
+                class_names=['Safe', 'Risk'],
+                mode='classification',
+                random_state=42
             )
-            
-            fig = disp.figure_
-            fig.set_size_inches(18, 3.5)
-            axes_flat = disp.axes_.flatten()
-            
-            for idx, var in enumerate(features_to_plot):
-                ax_real = axes_flat[idx]
-                valor_paciente = float(df_paciente[var].iloc[0])
-                
-                ax_real.axvline(x=valor_paciente, color='#FF0000', linestyle='--', linewidth=2.5, 
-                                label=f'Patient: {valor_paciente:.1f}', zorder=10)
-                
-                if var in binary_deltas:
-                    ax_real.set_xlim(-1.1, 1.1)
-                    ax_real.set_xticks([-1, 0, 1])
-                else:
-                    curr_min, curr_max = ax_real.get_xlim()
-                    ax_real.set_xlim(min(curr_min, valor_paciente - 1), max(curr_max, valor_paciente + 1))
-                
-                ax_real.set_ylim(0.0, 1.0)
-                ax_real.set_title(f"{delta_ui_dict[var]} vs Risk", fontsize=11, fontweight='bold')
-                ax_real.set_xlabel(delta_ui_dict[var], fontsize=9)
-                ax_real.set_ylabel("Partial Dependence (Risk)", fontsize=9)
-                ax_real.grid(True, linestyle='--', alpha=0.5, zorder=0)
-                ax_real.legend(loc='best', frameon=True, fontsize=8)
-            
-            for ax_sobrante in axes_flat[len(features_to_plot):]:
-                if ax_sobrante is not None:
-                    ax_sobrante.axis('off')
-                
-            fig.tight_layout()
-            st.pyplot(fig)
-            plt.close(fig) 
-            
+
+            exp = explainer.explain_instance(
+                data_row=X_paciente_1d,
+                predict_fn=clf.predict_proba,
+                num_features=len(nombres_lime) # Extraemos todas para luego aislar los Deltas
+            )
+
+            # 4. Filtrado riguroso de interacciones Delta
+            lime_list = exp.as_list()
+            deltas_lime = [item for item in lime_list if 'Δ' in item[0]]
+
+            if not deltas_lime:
+                st.info("No significant Delta interaction impacts found for this specific clinical configuration.")
+            else:
+                # 5. Visualización Adaptativa con Plotly (Light/Dark Mode Ready)
+                nombres_y = [x[0] for x in deltas_lime]
+                valores_x = [x[1] * 100 for x in deltas_lime] # Convertimos a escala de porcentaje
+
+                # Ordenamos por magnitud para jerarquía visual
+                datos_ordenados = sorted(zip(valores_x, nombres_y), key=lambda t: abs(t[0]))
+                val_ord = [t[0] for t in datos_ordenados]
+                nom_ord = [t[1] for t in datos_ordenados]
+
+                # Rojo para el riesgo, Verde para factores protectores
+                colores = ['#D62728' if v > 0 else '#2CA02C' for v in val_ord]
+
+                fig_lime = go.Figure(go.Bar(
+                    x=val_ord,
+                    y=nom_ord,
+                    orientation='h',
+                    marker_color=colores,
+                    text=[f"+{v:.1f}%" if v > 0 else f"{v:.1f}%" for v in val_ord],
+                    textposition='outside', # Evita que el texto se pierda en barras cortas
+                    textfont=dict(size=12)
+                ))
+
+                fig_lime.update_layout(
+                    title="Local Interaction Rules (Delta Thresholds)",
+                    xaxis_title="Weight on Current Readmission Risk (%)",
+                    yaxis_title="",
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    margin=dict(l=20, r=40, t=40, b=20), # Margen derecho ampliado para el texto 'outside'
+                    height=max(300, len(nom_ord) * 50),
+                    xaxis=dict(
+                        showgrid=True, 
+                        gridcolor='rgba(128,128,128,0.2)', 
+                        zeroline=True, 
+                        zerolinecolor='rgba(128,128,128,0.8)',
+                        zerolinewidth=2
+                    ),
+                    yaxis=dict(showgrid=False, tickfont=dict(weight='bold'))
+                )
+
+                col_lime1, col_lime2 = st.columns([1, 4])
+                with col_lime2:
+                    st.plotly_chart(fig_lime, use_container_width=True)
+                with col_lime1:
+                    st.markdown("### How to read this:")
+                    st.caption("Unlike SHAP (which isolates variables), LIME identifies the **local thresholds**. It shows you exactly which mathematical boundary the patient crossed to trigger the current risk level.")
+
     except Exception as e:
-        st.error("Global interpretability grid could not be generated.")
+        st.error("LIME explanation could not be generated.")
         st.warning(f"Technical Detail: {str(e)}")
 
 # ==========================================
