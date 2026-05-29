@@ -1076,19 +1076,18 @@ st.markdown("---")
 st.subheader("🧪 Clinical Hypothesis Simulator (SandBox)")
 st.markdown("Modify stay duration or toggle complications to observe how the local risk boundaries and interaction weights (LIME) react to different clinical scenarios.")
 
-# --- PANEL DE CONTROL DE HIPÓTESIS ---
+# --- HYPOTHESIS CONTROL PANEL ---
 with st.expander("🛠️ Configure Simulation Scenario", expanded=True):
-    # Fila 1: Tiempo
-    dias_base = int(df_paciente['dias_internados'].iloc[0])
-    dias_sim = st.slider("Hospitalization Stay (Days):", 1, 60, dias_base)
+    # Fila 1: Control de Tiempo
+    dias_base = int(df_paciente['dias_internados'].iloc[0] if 'dias_internados' in df_paciente.columns else 1)
+    dias_sim = st.slider("Hospitalization Stay (Days):", min_value=1, max_value=60, value=dias_base, step=1)
     
     st.markdown("---")
     c_sim_ing, c_sim_evo = st.columns(2)
     
-    # Fila 2: Complicaciones Binarias (Usamos Toggles para una UI más moderna)
+    # Fila 2: Controles de Ingreso (Toggles)
     with c_sim_ing:
         st.markdown("**Admission Status (ING)**")
-        # Diccionario para mapear toggles a columnas del modelo
         sim_ing_map = {
             'Mental Alteration': 'ING_alteracion_mental',
             'Functional Dependency': 'ING_dependencia_funcional',
@@ -1096,9 +1095,10 @@ with st.expander("🛠️ Configure Simulation Scenario", expanded=True):
         }
         status_ing_sim = {}
         for label, col in sim_ing_map.items():
-            val_init = bool(df_paciente[col].iloc[0])
+            val_init = bool(df_paciente[col].iloc[0] if col in df_paciente.columns else 0)
             status_ing_sim[col] = st.toggle(f"ING: {label}", value=val_init, key=f"sim_{col}")
 
+    # Fila 3: Controles de Evolución (Toggles)
     with c_sim_evo:
         st.markdown("**Evolution Status (EVO)**")
         sim_evo_map = {
@@ -1109,38 +1109,37 @@ with st.expander("🛠️ Configure Simulation Scenario", expanded=True):
         }
         status_evo_sim = {}
         for label, col in sim_evo_map.items():
-            val_init = bool(df_paciente[col].iloc[0])
+            val_init = bool(df_paciente[col].iloc[0] if col in df_paciente.columns else 0)
             status_evo_sim[col] = st.toggle(f"EVO: {label}", value=val_init, key=f"sim_{col}")
 
 # --- MOTOR DE CÁLCULO DINÁMICO ---
 try:
     with st.spinner("Analyzing combinatorial impacts of simulated scenario..."):
-        # 1. Crear el clon simulado
+        # 1. Crear el clon simulado del paciente
         df_sim = df_paciente.copy()
         df_sim['dias_internados'] = float(dias_sim)
         
-        # Inyectar estados de los Toggles
+        # Inyectar los estados actuales de los Toggles
         for col, val in status_ing_sim.items(): df_sim[col] = 1.0 if val else 0.0
         for col, val in status_evo_sim.items(): df_sim[col] = 1.0 if val else 0.0
         
-        # RE-CALCULAR DELTAS (Crucial para que LIME vea la interacción real)
+        # 2. SINCRONIZACIÓN CAUSAL DE DELTAS
+        # (Obligatorio para que LIME "entienda" que la evolución y el ingreso interactúan)
         df_sim['DELTA_alteracion_mental'] = df_sim['EVO_alteracion_mental'] - df_sim['ING_alteracion_mental']
         df_sim['DELTA_dependencia_funcional'] = df_sim['EVO_dependencia_funcional'] - df_sim['ING_dependencia_funcional']
         df_sim['DELTA_portador_dispositivos'] = df_sim['EVO_portador_dispositivos'] - df_sim['ING_portador_dispositivos']
 
-        # 2. Preprocesamiento y LIME
+        # 3. Preprocesamiento (A prueba de fallos de SciPy/Numpy)
         prep = pipeline.named_steps['preprocesador']
         clf = pipeline.named_steps['clasificador']
         
-        # --- FIX: EXTRACCIÓN SEGURA (Soporta Arrays de Numpy y Matrices SciPy) ---
         X_p_proc = prep.transform(df_sim)
         X_p_dense = X_p_proc.toarray()[0] if hasattr(X_p_proc, 'toarray') else np.array(X_p_proc)[0]
         
         X_t_proc = prep.transform(df_train_sample)
         X_t_dense = X_t_proc.toarray() if hasattr(X_t_proc, 'toarray') else np.array(X_t_proc)
-        # --------------------------------------------------------------------------
         
-        # Mapeo de Nombres
+        # 4. Mapeo de Nombres para el gráfico en inglés
         nombres_crudos = prep.get_feature_names_out()
         delta_ui_dict = {
             'DELTA_dolor_eva': 'Δ Pain', 'DELTA_gravedad_percibida': 'Δ Severity',
@@ -1149,41 +1148,60 @@ try:
         }
         nombres_lime = [delta_ui_dict.get(n.split('__')[-1].split('_1')[0], n.split('__')[-1]) for n in nombres_crudos]
 
-        # Entrenador LIME usando la matriz de entrenamiento segura (X_t_dense)
+        # 5. Inicialización de LIME
         explainer = lime.lime_tabular.LimeTabularExplainer(
             training_data=X_t_dense,
-            feature_names=nombres_lime, mode='classification', random_state=42
+            feature_names=nombres_lime, 
+            mode='classification', 
+            random_state=42
         )
 
-        # Explicación usando la fila segura del paciente (X_p_dense)
-        exp = explainer.explain_instance(X_p_dense, clf.predict_proba, num_features=10)
+        # FIX: Forzamos a LIME a evaluar todas las variables antes de filtrar
+        exp = explainer.explain_instance(
+            data_row=X_p_dense, 
+            predict_fn=clf.predict_proba, 
+            num_features=len(nombres_lime) 
+        )
         
-        # 3. Visualización con Plotly
+        # 6. Filtrado y Visualización
         lime_list = [item for item in exp.as_list() if 'Δ' in item[0]]
+        
         if not lime_list:
              st.info("No significant Delta interaction impacts found for this specific clinical configuration.")
         else:
-            # Ordenar por importancia
+            # Ordenamos por peso absoluto para jerarquía visual
             lime_list = sorted(lime_list, key=lambda x: abs(x[1]))
+            
             fig_l = go.Figure(go.Bar(
-                x=[x[1]*100 for x in lime_list], y=[x[0] for x in lime_list],
-                orientation='h', marker_color=['#D62728' if x[1]>0 else '#2CA02C' for x in lime_list],
+                x=[x[1]*100 for x in lime_list], 
+                y=[x[0] for x in lime_list],
+                orientation='h', 
+                marker_color=['#D62728' if x[1]>0 else '#2CA02C' for x in lime_list],
                 text=[f"+{x[1]*100:.1f}%" if x[1]>0 else f"{x[1]*100:.1f}%" for x in lime_list],
-                textposition='outside', textfont=dict(size=12)
+                textposition='outside', 
+                textfont=dict(size=12)
             ))
             
+            # Ajustes nativos sin forzar el color de fuente
             fig_l.update_layout(
                 title=f"Scenario Impact Analysis (Simulated Data)",
                 xaxis_title="Impact on Probability (%)",
-                plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)', 
+                paper_bgcolor='rgba(0,0,0,0)',
                 margin=dict(l=10, r=40, t=40, b=10),
                 height=max(300, len(lime_list) * 50),
-                xaxis=dict(showgrid=True, gridcolor='rgba(128,128,128,0.2)', zeroline=True, zerolinecolor='rgba(128,128,128,0.6)')
+                xaxis=dict(
+                    showgrid=True, 
+                    gridcolor='rgba(128,128,128,0.2)', 
+                    zeroline=True, 
+                    zerolinecolor='rgba(128,128,128,0.6)'
+                )
             )
             
-            c_l1, c_l2 = st.columns([1, 3])
-            with c_l2: st.plotly_chart(fig_l, use_container_width=True)
-            with c_l1:
+            col_l1, col_l2 = st.columns([1, 3])
+            with col_l2: 
+                st.plotly_chart(fig_l, use_container_width=True)
+            with col_l1:
                 st.info("**Simulation Insight**")
                 st.caption("This graph shows how the specific combination of stay duration and complications you selected would change the model's 'reasoning'.")
                 if abs(dias_sim - dias_base) > 5:
@@ -1192,6 +1210,8 @@ try:
 except Exception as e:
     st.error("Simulation engine failed to initialize.")
     st.warning(str(e))
+
+
 # ==========================================
 # 8. CLINICAL SIMILARITY NETWORK (ARCHEGO ADVANCED UI)
 # ==========================================
