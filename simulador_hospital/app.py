@@ -869,47 +869,7 @@ with col_der:
 
     st.markdown("---")
 
-    st.markdown("#### 📝 Clinical Evidence (Traceability)")
-    try:
-        impactos = []
-        for crudo, traducido, peso, valor in zip(crudos_limpios, nombres_limpios, shap_vals_limpio, X_paciente_limpio):
-            if peso > 0.1: 
-                impactos.append({
-                    "crudo": crudo.split('__')[-1],
-                    "traducido": traducido,
-                    "peso": peso,
-                    "valor": valor
-                })
-        
-        impactos = sorted(impactos, key=lambda x: x["peso"], reverse=True)
-        
-        if not impactos:
-            st.info("No primary risk drivers required forensic justification in this patient.")
-        else:
-            for item in impactos:
-                nombre_base = item['crudo']
-                for sufijo in ['_1.0', '_1', '_True', '_true', '_0.0', '_0', '_False', '_false']:
-                    if nombre_base.endswith(sufijo):
-                        nombre_base = nombre_base[:-len(sufijo)]
-                        break
-                
-                st.markdown(f"**🔴 {item['traducido']}** *(+{item['peso']:.1f}%)*")
-                
-                if nombre_base.startswith("DELTA_"):
-                    st.caption("🧮 Mathematical trajectory parameter.")
-                elif not (nombre_base.startswith("LLM_") or nombre_base.startswith("ING_") or nombre_base.startswith("EVO_")):
-                    st.caption("📊 Core demographic / structural variable.")
-                elif item['valor'] == 0:
-                    st.caption("📋 Risk derived from the absence of this condition.")
-                else:
-                    cita = st.session_state.nlp_quotes.get(nombre_base, "")
-                    if cita:
-                        st.markdown(f"> *\"{cita}\"*")
-                    else:
-                        st.caption("✍️ Clinician's manual entry (No automated quote).")
-                        
-    except Exception as e:
-        pass 
+    
 
 # ==========================================
 # 6. THERAPEUTIC NAVIGATOR (DiCE - DUAL COORDINATED XAI)
