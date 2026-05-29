@@ -782,7 +782,6 @@ with col_der:
                 
                 color_linea = '#00C851' if val_evo <= val_ing else '#FF4444'
                 
-                # Líneas y puntos interactivos
                 fig_slope.add_trace(go.Scatter(
                     x=['Admission', 'Current'], y=[val_ing, val_evo],
                     mode='lines+markers',
@@ -793,7 +792,6 @@ with col_der:
                     hovertext=f"<b>{label}</b><br>Admission: {val_ing:.1f}<br>Current: {val_evo:.1f}"
                 ))
 
-            # Evitar superposición de textos en Plotly (Anotaciones)
             def separar_superposiciones(valores, margen=0.45):
                 ordenados = sorted(enumerate(valores), key=lambda x: x[1])
                 res = {}
@@ -815,21 +813,24 @@ with col_der:
                 val_evo = y_evo_coords[i]
                 color_linea = '#00C851' if val_evo <= val_ing else '#FF4444'
                 
-                # Etiqueta Izquierda (Ingreso)
                 fig_slope.add_annotation(
                     x='Admission', y=textos_ing_y[i], text=f"{label} ({val_ing:.1f})",
                     showarrow=False, xanchor='right', xshift=-15,
-                    font=dict(size=12) # Plotly hereda el color de fuente del tema
+                    font=dict(size=12) 
                 )
                 
-                # Etiqueta Derecha (Evolución)
                 fig_slope.add_annotation(
                     x='Current', y=textos_evo_y[i], text=f"({val_evo:.1f}) {label}",
                     showarrow=False, xanchor='left', xshift=15,
-                    font=dict(size=12, color=color_linea) # Resaltamos el color de la trayectoria
+                    font=dict(size=12, color=color_linea) 
                 )
 
-            # Estética minimalista para el "Cockpit"
+            # --- FIX: LÍNEAS VERTICALES DE GUÍA (SOPORTE DARK/LIGHT MODE) ---
+            # El uso de gris con opacidad (0.4) hace que se vean bien en cualquier tema
+            fig_slope.add_vline(x='Admission', line_width=1.5, line_dash="dash", line_color="rgba(128,128,128,0.4)")
+            fig_slope.add_vline(x='Current', line_width=1.5, line_dash="dash", line_color="rgba(128,128,128,0.4)")
+            # ----------------------------------------------------------------
+
             fig_slope.update_layout(
                 plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
                 showlegend=False,
@@ -842,6 +843,7 @@ with col_der:
             
         except Exception as e:
             st.error("Trajectory unavailable.")
+            st.warning(str(e))
 
 
 
