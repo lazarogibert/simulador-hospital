@@ -1498,11 +1498,10 @@ if st.session_state.mostrar_grafo:
                     data = info_inspeccion[seleccion]
                     
                     
-                        # --- COMPONENTE MEJORADO: INSIGHT CLINICO DEL ARQUETIPO ---
+                        # --- COMPONENTE MEJORADO: INSIGHT CLINICO HONESTO (LOCAL PROTOTYPE) ---
                     if data.get("is_archetype"):
-                        st.warning("⭐ **Archetypal Patient (Cluster Center of Gravity)**")
+                        st.warning("⭐ **Local Prototype (Micro-Cluster Anchor)**")
                         
-                        # Inyección de la justificación clínica y ventajas reales para el médico
                         with st.container():
                             st.markdown(
                                 """
@@ -1513,20 +1512,21 @@ if st.session_state.mostrar_grafo:
                                     margin-bottom: 15px;
                                     border-radius: 4px;
                                 '>
-                                    <h5 style='margin-top:0; color:#FFD700; font-size:14px;'>🎯 Clinical Archetype Insights</h5>
+                                    <h5 style='margin-top:0; color:#FFD700; font-size:14px;'>🎯 Local Network Insights</h5>
                                     <p style='font-size:12px; margin-bottom:8px;'>
-                                        <b>1. Definitive 'Textbook' Case:</b> This patient represents the absolute statistical mode of the local clinical cluster. They present the most recurring, highly consolidated phenotypic trajectory for this specific combination of admission conditions.
+                                        <b>1. Representative Variant:</b> This is not a general textbook case, but rather the <b>Local Prototype</b>. Among the 20 historical patients most similar to your current case, this specific patient represents the mathematical center of gravity (averaging out the extreme outliers of this specific sub-group).
                                     </p>
                                     <p style='font-size:12px; margin-bottom:8px;'>
-                                        <b>2. Maximum Model Reliability:</b> Because the current patient aligns directly with this dense historical anchor, the model's prediction confidence is at its peak. This risk probability is grounded in widespread, highly documented institutional precedence.
+                                        <b>2. Micro-Cluster Anchor:</b> The current prediction relies heavily on the density of this immediate neighborhood. Because your patient aligns closely with this local anchor, the risk probability is highly reliable for this specific phenotypic variant.
                                     </p>
                                     <p style='font-size:12px; margin-bottom:0;'>
-                                        <b>3. Therapeutic Advantage:</b> Use this patient's retrospective records below (medications, secondary diagnoses, and clinical evolution notes) as a benchmark or 'safe protocol layout' to optimize your current patient's discharge path.
+                                        <b>3. Tailored Reference:</b> Use this patient's retrospective records below as a highly specific baseline template. Their outcome is the most statistically probable path for your current patient's unique condition.
                                     </p>
                                 </div>
                                 """, 
                                 unsafe_allow_html=True
                             )
+                    # ---------------------------------------------------------------------
                     st.metric(label="Clinical Match", value=f"{data['similitud']:.1f}%")
                     
                     if data['outcome_text'] == "Readmitted":
