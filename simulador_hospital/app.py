@@ -1070,28 +1070,44 @@ else:
             st.warning(f"Technical Context: {str(e)}")
 
 # ==========================================
-# 7. LOCAL EXPLANABILITY: DELTA COMBINATORIAL IMPACT (LIME)
+# 7. LOCAL EXPLANABILITY: INTERACTIVE LIME SURROGATE
 # ==========================================
 st.markdown("---")
-st.subheader("Combinatorial Delta Impact (LIME Surrogate)")
-st.markdown("Local linear surrogate model evaluating how the current combination of stabilization parameters (Deltas) specifically interacts to impact this patient's readmission risk thresholds.")
+st.subheader("Interactive Delta Impact Simulator (LIME)")
+st.markdown("Adjust the hospitalization days to observe how the impact of current clinical parameters (Deltas) dynamically shifts across time.")
 
-# Ejecución automática directa al cargar o actualizar la página
+# 1. CONTROL INTERACTIVO (SLIDER)
+dias_base = int(df_paciente['dias_internados'].iloc[0])
+col_slider, col_vacia = st.columns([2, 2])
+with col_slider:
+    dias_simulados = st.slider(
+        "⏳ Simulate Hospitalization Days:", 
+        min_value=1, 
+        max_value=60, 
+        value=dias_base, 
+        step=1,
+        help="Moving this slider recalculates the local surrogate model in real-time."
+    )
+
 try:
-    with st.spinner("Fitting local surrogate model (LIME)..."):
-        # 1. Preparación del motor LIME 
-        # Utilizamos df_train_sample como fondo de perturbación local
+    with st.spinner("Recalculating local surrogate boundaries..."):
+        # 2. CREACIÓN DEL ESCENARIO "WHAT-IF"
+        df_simulado = df_paciente.copy()
+        df_simulado['dias_internados'] = float(dias_simulados)
+        
         prep = pipeline.named_steps['preprocesador']
         clf = pipeline.named_steps['clasificador']
 
+        # Preparación de la cohorte de fondo (solo una vez)
         X_train_proc = prep.transform(df_train_sample)
         X_train_dense = X_train_proc.toarray() if hasattr(X_train_proc, 'toarray') else np.array(X_train_proc)
 
-        X_paciente_proc = prep.transform(df_paciente)
+        # Preprocesamiento del paciente simulado
+        X_paciente_proc = prep.transform(df_simulado)
         X_paciente_dense = X_paciente_proc.toarray() if hasattr(X_paciente_proc, 'toarray') else np.array(X_paciente_proc)
         X_paciente_1d = X_paciente_dense[0]
 
-        # 2. Mapeo de nombres para la UI (Solo Deltas en inglés)
+        # 3. MAPEO DE NOMBRES UI
         nombres_crudos = prep.get_feature_names_out()
         delta_ui_dict = {
             'DELTA_dolor_eva': 'Δ Pain',
@@ -1110,7 +1126,7 @@ try:
                     break
             nombres_lime.append(delta_ui_dict.get(base, base))
 
-        # 3. Entrenamiento del Explicador LIME Local
+        # 4. ENTRENAMIENTO LIME DINÁMICO
         explainer = lime.lime_tabular.LimeTabularExplainer(
             training_data=X_train_dense,
             feature_names=nombres_lime,
@@ -1122,26 +1138,23 @@ try:
         exp = explainer.explain_instance(
             data_row=X_paciente_1d,
             predict_fn=clf.predict_proba,
-            num_features=len(nombres_lime) # Evaluamos todo el espectro para aislar los deltas
+            num_features=len(nombres_lime)
         )
 
-        # 4. Filtrado estricto de interacciones Delta
+        # 5. FILTRADO Y RENDERIZADO VISUAL
         lime_list = exp.as_list()
         deltas_lime = [item for item in lime_list if 'Δ' in item[0]]
 
         if not deltas_lime:
             st.info("No significant Delta interaction impacts found for this specific clinical configuration.")
         else:
-            # 5. Visualización Adaptativa con Plotly (Light/Dark Mode Ready)
             nombres_y = [x[0] for x in deltas_lime]
-            valores_x = [x[1] * 100 for x in deltas_lime] # Escala porcentual de impacto
+            valores_x = [x[1] * 100 for x in deltas_lime] 
 
-            # Ordenamos por magnitud para jerarquía visual forense
             datos_ordenados = sorted(zip(valores_x, nombres_y), key=lambda t: abs(t[0]))
             val_ord = [t[0] for t in datos_ordenados]
             nom_ord = [t[1] for t in datos_ordenados]
 
-            # Rojo para factores de riesgo, Verde para factores protectores
             colores = ['#D62728' if v > 0 else '#2CA02C' for v in val_ord]
 
             fig_lime = go.Figure(go.Bar(
@@ -1154,9 +1167,8 @@ try:
                 textfont=dict(size=12)
             ))
 
-            # Ajustes limpios delegando fuentes y contrastes a Streamlit
             fig_lime.update_layout(
-                title="Local Interaction Rules (Delta Thresholds)",
+                title=f"Interaction Weight Shift (Simulated Day {dias_simulados})",
                 xaxis_title="Weight on Current Readmission Risk (%)",
                 yaxis_title="",
                 plot_bgcolor='rgba(0,0,0,0)',
@@ -1164,25 +1176,26 @@ try:
                 margin=dict(l=20, r=40, t=40, b=20),
                 height=max(300, len(nom_ord) * 50),
                 xaxis=dict(
-                    showgrid=True, 
-                    gridcolor='rgba(128,128,128,0.2)', 
-                    zeroline=True, 
-                    zerolinecolor='rgba(128,128,128,0.6)',
-                    zerolinewidth=1.5
+                    showgrid=True, gridcolor='rgba(128,128,128,0.2)', 
+                    zeroline=True, zerolinecolor='rgba(128,128,128,0.6)', zerolinewidth=1.5
                 ),
                 yaxis=dict(showgrid=False, tickfont=dict(weight='bold'))
             )
 
-            # Layout de columnas para mantener la consistencia estética
             col_lime1, col_lime2 = st.columns([1, 4])
             with col_lime2:
                 st.plotly_chart(fig_lime, use_container_width=True)
             with col_lime1:
-                st.markdown("### How to read this:")
-                st.caption("Unlike SHAP (which isolates variables), LIME identifies the **local thresholds**. It shows you exactly which mathematical boundary the patient crossed to trigger the current risk level.")
+                st.markdown("### Clinical Insight:")
+                if dias_simulados > dias_base:
+                    st.caption("You are observing **future projections**. Notice how prolonged hospitalization might alter the protective or hazardous nature of specific clinical variables.")
+                elif dias_simulados < dias_base:
+                    st.caption("You are observing **retrospective thresholds**. Notice how the clinical picture was weighted before the current length of stay was reached.")
+                else:
+                    st.caption("You are observing the **current reality**. Move the slider above to simulate the passage of time.")
 
 except Exception as e:
-    st.error("LIME explanation could not be generated.")
+    st.error("Interactive LIME explanation could not be generated.")
     st.warning(f"Technical Detail: {str(e)}")
 
 # ==========================================
