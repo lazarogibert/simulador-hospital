@@ -497,7 +497,7 @@ df_paciente = pd.DataFrame([paciente_data])[columnas_modelo]
 # ==========================================
 riesgo = pipeline.predict_proba(df_paciente)[0][1]
 
-col_izq, col_der = st.columns([1, 4])
+col_izq, col_der = st.columns([1, 3.5])
 
 with col_izq:
     st.subheader("Readmission Risk")
@@ -508,7 +508,6 @@ with col_izq:
     else:
         st.success(f"✅ **SAFE DISCHARGE**\n\nWithin permitted threshold")
 
-    # Mapeo de Diagnóstico original intacto
     cie10_ui_dict = {
         "Tuberculosis": "Tuberculosis", "Lepra": "Leprosy", "Sífilis": "Syphilis", 
         "Otras infecciosas (A)": "Other infectious (A)", "Hepatitis viral": "Viral hepatitis", 
@@ -584,7 +583,7 @@ with col_izq:
 with col_der:
     st.subheader("Decision Audit & Clinical Context")
     
-    # --- BLOQUE SHAP (TOP ROW) ---
+    # --- BLOQUE 1: EXPLICABILIDAD (SHAP) ---
     with st.container():
         st.markdown("#### 🔍 1. Prescriptive Explanability (SHAP)")
         filtrar_activos = st.checkbox("🎯 Show only the impact of present conditions (Hide protective factors due to absence)", value=False)
@@ -624,7 +623,6 @@ with col_der:
                 'LLM_tabaquismo_activo': 'Chronic: Active Smoking'
             }
 
-            # LÓGICA DE TRADUCCIÓN COMPLETA (Restaurada)
             nombres_limpios_traducidos = []
             cie10_upper = {k.upper(): v for k, v in cie10_ui_dict.items()}
             
@@ -658,7 +656,6 @@ with col_der:
                         traducido = traducido.replace("_", " ").title()
                 nombres_limpios_traducidos.append(traducido)
 
-            # EXTRACCIÓN SHAP
             try:
                 explainer = shap.TreeExplainer(clf)
                 shap_vals = explainer.shap_values(X_proc_dense, check_additivity=False)
@@ -675,9 +672,7 @@ with col_der:
             shap_vals_pct = shap_vals[0] * 100
             exp_val_pct = exp_val * 100
 
-            # BIFURCACIÓN METODOLÓGICA (Restaurada)
             if not filtrar_activos:
-                # 1. WATERFALL PURO
                 explicacion_completa = shap.Explanation(
                     values=np.array(shap_vals_pct), 
                     base_values=exp_val_pct, 
@@ -692,7 +687,6 @@ with col_der:
                 plt.close(fig_shap)
                 
             else:
-                # 2. AISLAMIENTO CLÍNICO (Gráfico de barras restaurado y adaptado)
                 indices_activos = []
                 variables_continuas = ['Days', 'Pain', 'Severity', 'Delta', 'Consultations', 'Complexity']
 
@@ -734,19 +728,27 @@ with col_der:
                     y_vals = [x[0] for x in datos_ordenados]
                     y_names = [x[1] for x in datos_ordenados]
                     
-                    fig_bar, ax_bar = plt.subplots(figsize=(10, max(4, len(y_names) * 0.4)))
-                    colores = ['#FF0051' if v > 0 else '#008BFB' for v in y_vals]
+                    # --- FIX: MIGRACIÓN A PLOTLY PARA ADAPTABILIDAD DE TEMA ---
+                    fig_bar = go.Figure(go.Bar(
+                        x=y_vals, y=y_names, orientation='h',
+                        marker_color=['#FF4444' if v > 0 else '#00C851' for v in y_vals],
+                        text=[f"+{v:.1f}%" if v > 0 else f"{v:.1f}%" for v in y_vals],
+                        textposition='outside'
+                    ))
                     
-                    ax_bar.barh(y_names, y_vals, color=colores)
-                    ax_bar.set_xlabel("Impact on Readmission Risk (%)")
-                    ax_bar.set_title("Isolation of Present Clinical Factors")
-                    ax_bar.spines['top'].set_visible(False)
-                    ax_bar.spines['right'].set_visible(False)
-                    ax_bar.axvline(0, color='black', linewidth=1)
+                    fig_bar.update_layout(
+                        title="Isolation of Present Clinical Factors",
+                        xaxis_title="Impact on Readmission Risk (%)",
+                        plot_bgcolor='rgba(0,0,0,0)', 
+                        paper_bgcolor='rgba(0,0,0,0)',
+                        height=max(350, len(y_names) * 45),
+                        margin=dict(l=10, r=40, t=40, b=10),
+                        xaxis=dict(showgrid=True, gridcolor='rgba(128,128,128,0.2)', zeroline=True, zerolinecolor='rgba(128,128,128,0.6)'),
+                        yaxis=dict(showgrid=False)
+                    )
                     
-                    plt.tight_layout()
-                    st.pyplot(fig_bar)
-                    plt.close(fig_bar)
+                    st.plotly_chart(fig_bar, use_container_width=True)
+                    # -----------------------------------------------------------
 
         except Exception as e:
             st.error("SHAP computation failed.")
@@ -754,10 +756,8 @@ with col_der:
 
     st.markdown("---")
 
-    # --- BLOQUE INFERIOR: TRAYECTORIA Y MAPA DE CONTEXTO ---
-    col_traj, col_scat = st.columns([2.5, 1.5]) 
-    
-    with col_traj:
+    # --- BLOQUE 2: TRAYECTORIA DINÁMICA (PLOTLY) ---
+    with st.container():
         st.markdown("#### 📉 2. Dynamic Trajectory")
         try:
             df_row = df_paciente.iloc[[0]].copy()
@@ -768,17 +768,33 @@ with col_der:
                 'Func. Dep.': ('ING_dependencia_funcional', 'EVO_dependencia_funcional'),
                 'Devices': ('ING_portador_dispositivos', 'EVO_portador_dispositivos')
             }
-            datos = []
+            
+            fig_slope = go.Figure()
+            
+            y_ing_coords = []
+            y_evo_coords = []
+            
             for label, (col_ing, col_evo) in pares_clinicos.items():
                 val_ing = float(df_row[col_ing].values[0]) if col_ing in df_row.columns else 0.0
                 val_evo = float(df_row[col_evo].values[0]) if col_evo in df_row.columns else 0.0
-                datos.append({'label': label, 'ing': val_ing, 'evo': val_evo})
+                
+                y_ing_coords.append(val_ing)
+                y_evo_coords.append(val_evo)
+                
+                color_linea = '#00C851' if val_evo <= val_ing else '#FF4444'
+                
+                # Líneas y puntos interactivos
+                fig_slope.add_trace(go.Scatter(
+                    x=['Admission', 'Current'], y=[val_ing, val_evo],
+                    mode='lines+markers',
+                    line=dict(color=color_linea, width=4),
+                    marker=dict(size=12, color=color_linea, line=dict(color='white', width=1)),
+                    name=label,
+                    hoverinfo='text',
+                    hovertext=f"<b>{label}</b><br>Admission: {val_ing:.1f}<br>Current: {val_evo:.1f}"
+                ))
 
-            fig_slope, ax_slope = plt.subplots(figsize=(8, 6.5))
-            ax_slope.set_xlim(-0.5, 1.5)
-            ax_slope.set_xticks([0, 1])
-            ax_slope.set_xticklabels(['Admission', 'Current'], fontsize=12, fontweight='bold')
-            
+            # Evitar superposición de textos en Plotly (Anotaciones)
             def separar_superposiciones(valores, margen=0.45):
                 ordenados = sorted(enumerate(valores), key=lambda x: x[1])
                 res = {}
@@ -792,27 +808,39 @@ with col_der:
                 desplazamiento = (sum(res.values()) - sum(valores)) / len(valores) if valores else 0
                 return {k: v - desplazamiento for k, v in res.items()}
 
-            y_ing_coords = [d['ing'] for d in datos]
-            y_evo_coords = [d['evo'] for d in datos]
             textos_ing_y = separar_superposiciones(y_ing_coords)
             textos_evo_y = separar_superposiciones(y_evo_coords)
-            min_y, max_y = 0, 0
 
-            for i, d in enumerate(datos):
-                val_ing, val_evo, label = d['ing'], d['evo'], d['label']
-                min_y, max_y = min(min_y, val_ing, val_evo), max(max_y, val_ing, val_evo)
+            for i, (label, _) in enumerate(pares_clinicos.items()):
+                val_ing = y_ing_coords[i]
+                val_evo = y_evo_coords[i]
                 color_linea = '#00C851' if val_evo <= val_ing else '#FF4444'
                 
-                ax_slope.plot([0, 1], [val_ing, val_evo], color=color_linea, linewidth=3.5, marker='o', markersize=8, zorder=3)
+                # Etiqueta Izquierda (Ingreso)
+                fig_slope.add_annotation(
+                    x='Admission', y=textos_ing_y[i], text=f"{label} ({val_ing:.1f})",
+                    showarrow=False, xanchor='right', xshift=-15,
+                    font=dict(size=12) # Plotly hereda el color de fuente del tema
+                )
                 
-                ax_slope.text(-0.06, textos_ing_y[i], f"{label} ({val_ing:.1f})", ha='right', va='center', fontsize=10, fontweight='bold', color='#444444')
-                ax_slope.text(1.06, textos_evo_y[i], f"({val_evo:.1f}) {label}", ha='left', va='center', fontsize=10, fontweight='bold', color=color_linea)
+                # Etiqueta Derecha (Evolución)
+                fig_slope.add_annotation(
+                    x='Current', y=textos_evo_y[i], text=f"({val_evo:.1f}) {label}",
+                    showarrow=False, xanchor='left', xshift=15,
+                    font=dict(size=12, color=color_linea) # Resaltamos el color de la trayectoria
+                )
 
-            ax_slope.set_ylim(min_y - 1.5, max_y + 1.5)
-            ax_slope.axis('off')
-            fig_slope.tight_layout()
-            st.pyplot(fig_slope)
-            plt.close(fig_slope)
+            # Estética minimalista para el "Cockpit"
+            fig_slope.update_layout(
+                plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+                showlegend=False,
+                height=350, margin=dict(l=100, r=100, t=30, b=20),
+                xaxis=dict(showgrid=False, zeroline=False, showline=False, tickfont=dict(size=14, weight='bold')),
+                yaxis=dict(showgrid=False, zeroline=False, showline=False, showticklabels=False)
+            )
+
+            st.plotly_chart(fig_slope, use_container_width=True)
+            
         except Exception as e:
             st.error("Trajectory unavailable.")
 
