@@ -728,22 +728,21 @@ with col_der:
                     y_vals = [x[0] for x in datos_ordenados]
                     y_names = [x[1] for x in datos_ordenados]
                     
-                    # --- FIX: MIGRACIÓN A PLOTLY PARA ADAPTABILIDAD DE TEMA ---
+                    # Eliminamos los textos numéricos (text y textposition) para evitar confusión matemática
                     fig_bar = go.Figure(go.Bar(
                         x=y_vals, y=y_names, orientation='h',
                         marker_color=['#FF4444' if v > 0 else '#00C851' for v in y_vals],
-                        text=[f"+{v:.1f}%" if v > 0 else f"{v:.1f}%" for v in y_vals],
-                        textposition='outside'
+                        hoverinfo='none' # Desactivamos el tooltip para no mostrar números confusos
                     ))
                     
                     fig_bar.update_layout(
                         title="Isolation of Present Clinical Factors",
-                        xaxis_title="Impact on Readmission Risk (%)",
+                        xaxis_title="Relative Impact Weight", # Cambiamos el nombre del eje
                         plot_bgcolor='rgba(0,0,0,0)', 
                         paper_bgcolor='rgba(0,0,0,0)',
                         height=max(350, len(y_names) * 45),
                         margin=dict(l=10, r=40, t=40, b=10),
-                        xaxis=dict(showgrid=True, gridcolor='rgba(128,128,128,0.2)', zeroline=True, zerolinecolor='rgba(128,128,128,0.6)'),
+                        xaxis=dict(showgrid=True, gridcolor='rgba(128,128,128,0.2)', zeroline=True, zerolinecolor='rgba(128,128,128,0.6)', showticklabels=False), # Ocultamos los números del eje X
                         yaxis=dict(showgrid=False)
                     )
                     
