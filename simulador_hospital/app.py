@@ -1132,9 +1132,15 @@ try:
         prep = pipeline.named_steps['preprocesador']
         clf = pipeline.named_steps['clasificador']
         
-        X_p_dense = prep.transform(df_sim).toarray()[0]
+        # --- FIX: EXTRACCIÓN SEGURA (Soporta Arrays de Numpy y Matrices SciPy) ---
+        X_p_proc = prep.transform(df_sim)
+        X_p_dense = X_p_proc.toarray()[0] if hasattr(X_p_proc, 'toarray') else np.array(X_p_proc)[0]
         
-        # Mapeo de Nombres (Reutilizamos la lógica previa)
+        X_t_proc = prep.transform(df_train_sample)
+        X_t_dense = X_t_proc.toarray() if hasattr(X_t_proc, 'toarray') else np.array(X_t_proc)
+        # --------------------------------------------------------------------------
+        
+        # Mapeo de Nombres
         nombres_crudos = prep.get_feature_names_out()
         delta_ui_dict = {
             'DELTA_dolor_eva': 'Δ Pain', 'DELTA_gravedad_percibida': 'Δ Severity',
@@ -1143,35 +1149,42 @@ try:
         }
         nombres_lime = [delta_ui_dict.get(n.split('__')[-1].split('_1')[0], n.split('__')[-1]) for n in nombres_crudos]
 
+        # Entrenador LIME usando la matriz de entrenamiento segura (X_t_dense)
         explainer = lime.lime_tabular.LimeTabularExplainer(
-            training_data=prep.transform(df_train_sample).toarray(),
+            training_data=X_t_dense,
             feature_names=nombres_lime, mode='classification', random_state=42
         )
 
+        # Explicación usando la fila segura del paciente (X_p_dense)
         exp = explainer.explain_instance(X_p_dense, clf.predict_proba, num_features=10)
         
         # 3. Visualización con Plotly
         lime_list = [item for item in exp.as_list() if 'Δ' in item[0]]
-        if lime_list:
+        if not lime_list:
+             st.info("No significant Delta interaction impacts found for this specific clinical configuration.")
+        else:
             # Ordenar por importancia
             lime_list = sorted(lime_list, key=lambda x: abs(x[1]))
             fig_l = go.Figure(go.Bar(
                 x=[x[1]*100 for x in lime_list], y=[x[0] for x in lime_list],
-                orientation='h', marker_color=['#D62728' if x[1]>0 else '#2CA02C' for x in lime_list]
+                orientation='h', marker_color=['#D62728' if x[1]>0 else '#2CA02C' for x in lime_list],
+                text=[f"+{x[1]*100:.1f}%" if x[1]>0 else f"{x[1]*100:.1f}%" for x in lime_list],
+                textposition='outside', textfont=dict(size=12)
             ))
             
             fig_l.update_layout(
                 title=f"Scenario Impact Analysis (Simulated Data)",
                 xaxis_title="Impact on Probability (%)",
                 plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
-                font=dict(color='gray'), height=400, margin=dict(l=10, r=10, t=40, b=10)
+                margin=dict(l=10, r=40, t=40, b=10),
+                height=max(300, len(lime_list) * 50),
+                xaxis=dict(showgrid=True, gridcolor='rgba(128,128,128,0.2)', zeroline=True, zerolinecolor='rgba(128,128,128,0.6)')
             )
             
             c_l1, c_l2 = st.columns([1, 3])
             with c_l2: st.plotly_chart(fig_l, use_container_width=True)
             with c_l1:
                 st.info("**Simulation Insight**")
-                # Lógica de resumen dinámico
                 st.caption("This graph shows how the specific combination of stay duration and complications you selected would change the model's 'reasoning'.")
                 if abs(dias_sim - dias_base) > 5:
                     st.warning("⚠️ High time divergence detected. Local rules might shift significantly.")
@@ -1179,7 +1192,6 @@ try:
 except Exception as e:
     st.error("Simulation engine failed to initialize.")
     st.warning(str(e))
-
 # ==========================================
 # 8. CLINICAL SIMILARITY NETWORK (ARCHEGO ADVANCED UI)
 # ==========================================
