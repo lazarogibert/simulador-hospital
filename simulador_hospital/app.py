@@ -1136,6 +1136,12 @@ try:
             if col_evo in df_sim.columns and col_ing in df_sim.columns:
                 df_sim[col_delta] = df_sim[col_evo] - df_sim[col_ing]
 
+        # --- CÁLCULO DEL RIESGO SIMULADO ---
+        riesgo_base = pipeline.predict_proba(df_paciente)[0][1]
+        riesgo_simulado = pipeline.predict_proba(df_sim)[0][1]
+        variacion_riesgo = (riesgo_simulado - riesgo_base) * 100
+        # -----------------------------------
+
         # 3. Preprocesamiento Seguro
         prep = pipeline.named_steps['preprocesador']
         clf = pipeline.named_steps['clasificador']
@@ -1215,9 +1221,20 @@ try:
             )
             
             col_l1, col_l2 = st.columns([1, 3])
+            
             with col_l2: 
                 st.plotly_chart(fig_l, use_container_width=True)
+                
             with col_l1:
+                st.markdown("### 📊 Simulated Risk")
+                st.metric(
+                    label="Hypothetical 15-Day Prob.", 
+                    value=f"{riesgo_simulado*100:.1f}%", 
+                    delta=f"{variacion_riesgo:+.1f}% vs Current",
+                    delta_color="inverse"
+                )
+                st.markdown("---")
+                
                 st.info("**Simulation Insight**")
                 st.caption("This graph shows how resolving or acquiring specific complications dynamically changes the model's 'reasoning' for *this specific patient*.")
                 
