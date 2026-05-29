@@ -904,220 +904,202 @@ class ModeloSincronizado:
 if riesgo <= umbral:
     st.info("The patient is in optimal condition for discharge. No stabilization targets required.")
 else:
-    st.warning("High risk detected. Click the button to calculate clinical stabilization targets required to cross the safety threshold.")
+    st.warning("High risk detected. Automatically calculating clinical stabilization targets to reach the safety threshold...")
     
-    if st.button("Calculate Stabilization Targets for Discharge", type="primary", key="btn_calc_targets"):
-        with st.spinner("Calculating multiple clinically viable stabilization routes..."):
-            try:
-                BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-                ruta_ext = os.path.join(BASE_DIR, 'matriz_extended_display_llm.npy')
-                ruta_cols = os.path.join(BASE_DIR, 'columnas_display_llm.npy')
+    # --- EJECUCIÓN AUTOMÁTICA (SIN BOTÓN) ---
+    with st.spinner("Calculating multiple clinically viable stabilization routes..."):
+        try:
+            BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+            ruta_ext = os.path.join(BASE_DIR, 'matriz_extended_display_llm.npy')
+            ruta_cols = os.path.join(BASE_DIR, 'columnas_display_llm.npy')
+            
+            if not os.path.exists(ruta_ext) or not os.path.exists(ruta_cols):
+                raise FileNotFoundError("Historical data matrices are missing from the server volume.")
+            
+            matriz_extended = np.load(ruta_ext, allow_pickle=True)
+            nombres_columnas = np.load(ruta_cols, allow_pickle=True)
+            
+            df_background_raw = pd.DataFrame(matriz_extended, columns=nombres_columnas)
+            columnas_modelo = df_paciente.columns.tolist()
+            
+            df_dice_train = df_background_raw[columnas_modelo].copy()
+            df_dice_train['target'] = df_background_raw['target'].astype(int)
+            
+            for col in columnas_modelo:
+                if df_paciente[col].dtype == object:
+                    df_dice_train[col] = df_background_raw[col].astype(str).str.strip().str.upper()
+                else:
+                    df_dice_train[col] = pd.to_numeric(df_background_raw[col], errors='coerce')
+            
+            df_dice_train = df_dice_train.sample(n=min(1000, len(df_dice_train)), random_state=42)
+            
+            df_paciente_para_dice = df_paciente.copy()
+            df_paciente_para_dice['target'] = 1 
+            df_dice_train = pd.concat([df_dice_train, df_paciente_para_dice], ignore_index=True)
+            
+            features_continuas = df_paciente.select_dtypes(include=[np.number]).columns.tolist()
+            
+            d = dice_ml.Data(
+                dataframe=df_dice_train, 
+                continuous_features=features_continuas, 
+                outcome_name='target'
+            )
+            
+            modelo_sincronizado = ModeloSincronizado(pipeline, columnas_modelo)
+            m = dice_ml.Model(model=modelo_sincronizado, backend="sklearn")
+            exp = dice_ml.Dice(d, m, method="random")
+            
+            variables_accionables = [col for col in columnas_modelo if col.startswith('EVO_')]
+            rangos_permitidos = {}
+            vars_a_variar = []
+            
+            for col in variables_accionables:
+                val_actual = df_paciente[col].iloc[0]
+                if 'cuidados_paliativos' in col or 'fuga' in col: 
+                    continue
                 
-                if not os.path.exists(ruta_ext) or not os.path.exists(ruta_cols):
-                    raise FileNotFoundError("Historical data matrices are missing from the server volume.")
-                
-                matriz_extended = np.load(ruta_ext, allow_pickle=True)
-                nombres_columnas = np.load(ruta_cols, allow_pickle=True)
-                
-                df_background_raw = pd.DataFrame(matriz_extended, columns=nombres_columnas)
-                columnas_modelo = df_paciente.columns.tolist()
-                
-                df_dice_train = df_background_raw[columnas_modelo].copy()
-                df_dice_train['target'] = df_background_raw['target'].astype(int)
-                
-                for col in columnas_modelo:
-                    if df_paciente[col].dtype == object:
-                        df_dice_train[col] = df_background_raw[col].astype(str).str.strip().str.upper()
-                    else:
-                        df_dice_train[col] = pd.to_numeric(df_background_raw[col], errors='coerce')
-                
-                df_dice_train = df_dice_train.sample(n=min(1000, len(df_dice_train)), random_state=42)
-                
-                df_paciente_para_dice = df_paciente.copy()
-                df_paciente_para_dice['target'] = 1 
-                df_dice_train = pd.concat([df_dice_train, df_paciente_para_dice], ignore_index=True)
-                
-                features_continuas = df_paciente.select_dtypes(include=[np.number]).columns.tolist()
-                
-                d = dice_ml.Data(
-                    dataframe=df_dice_train, 
-                    continuous_features=features_continuas, 
-                    outcome_name='target'
+                if 'gravedad' in col:
+                    if val_actual > 1.0:
+                        rangos_permitidos[col] = [1.0, float(val_actual)]
+                        vars_a_variar.append(col)
+                elif 'dolor' in col:
+                    if val_actual > 0.0:
+                        rangos_permitidos[col] = [0.0, float(val_actual)]
+                        vars_a_variar.append(col)
+                else:
+                    if val_actual == 1.0:
+                        rangos_permitidos[col] = [0, 1]
+                        vars_a_variar.append(col)
+
+            # Permitimos a DiCE variar los días de internación
+            if 'dias_internados' in df_paciente.columns:
+                val_dias = float(df_paciente['dias_internados'].iloc[0])
+                rangos_permitidos['dias_internados'] = [val_dias, val_dias + 7.0]
+                vars_a_variar.append('dias_internados')
+            
+            if not vars_a_variar:
+                st.error("There are no modifiable clinical targets in the patient's current evolution that can improve their condition.")
+            else:
+                dice_exp = exp.generate_counterfactuals(
+                    df_paciente, total_CFs=5, desired_class="opposite", 
+                    features_to_vary=vars_a_variar, permitted_range=rangos_permitidos, random_seed=42
                 )
                 
-                modelo_sincronizado = ModeloSincronizado(pipeline, columnas_modelo)
-                m = dice_ml.Model(model=modelo_sincronizado, backend="sklearn")
-                exp = dice_ml.Dice(d, m, method="random")
-                
-                variables_accionables = [col for col in columnas_modelo if col.startswith('EVO_')]
-                rangos_permitidos = {}
-                vars_a_variar = []
-                
-                for col in variables_accionables:
-                    val_actual = df_paciente[col].iloc[0]
-                    if 'cuidados_paliativos' in col or 'fuga' in col: 
-                        continue
+                cf_df = dice_exp.cf_examples_list[0].final_cfs_df
+                if cf_df is not None and not cf_df.empty:
                     
-                    if 'gravedad' in col:
-                        if val_actual > 1.0:
-                            rangos_permitidos[col] = [1.0, float(val_actual)]
-                            vars_a_variar.append(col)
-                    elif 'dolor' in col:
-                        if val_actual > 0.0:
-                            rangos_permitidos[col] = [0.0, float(val_actual)]
-                            vars_a_variar.append(col)
-                    else:
-                        if val_actual == 1.0:
-                            rangos_permitidos[col] = [0, 1]
-                            vars_a_variar.append(col)
+                    # Filtro de redondeo
+                    for col in vars_a_variar:
+                        if col not in ['EVO_dolor_eva', 'EVO_gravedad_percibida', 'dias_internados']:
+                            cf_df[col] = (cf_df[col] >= 0.5).astype(int)
+                        else:
+                            cf_df[col] = cf_df[col].round()
+                            
+                    # Sincronización causal del dataframe simulado
+                    cf_df['DELTA_dolor_eva'] = cf_df['EVO_dolor_eva'] - df_paciente.iloc[0]['ING_dolor_eva']
+                    cf_df['DELTA_gravedad_percibida'] = cf_df['EVO_gravedad_percibida'] - df_paciente.iloc[0]['ING_gravedad_percibida']
+                    cf_df['DELTA_alteracion_mental'] = cf_df['EVO_alteracion_mental'] - df_paciente.iloc[0]['ING_alteracion_mental']
+                    cf_df['DELTA_dependencia_funcional'] = cf_df['EVO_dependencia_funcional'] - df_paciente.iloc[0]['ING_dependencia_funcional']
+                    cf_df['DELTA_portador_dispositivos'] = cf_df['EVO_portador_dispositivos'] - df_paciente.iloc[0]['ING_portador_dispositivos']
+                            
+                    cf_df = cf_df.drop_duplicates(subset=vars_a_variar).reset_index(drop=True)
 
-                # --- NUEVO: Permitimos a DiCE variar los días de internación ---
-                if 'dias_internados' in df_paciente.columns:
-                    val_dias = float(df_paciente['dias_internados'].iloc[0])
-                    # Le permitimos sugerir hasta 7 días extra de internación
-                    rangos_permitidos['dias_internados'] = [val_dias, val_dias + 7.0]
-                    vars_a_variar.append('dias_internados')
-                # ----------------------------------------------------------------
-                
-                if not vars_a_variar:
-                    st.error("There are no modifiable clinical targets in the patient's current evolution that can improve their condition.")
-                else:
-                    dice_exp = exp.generate_counterfactuals(
-                        df_paciente, total_CFs=5, desired_class="opposite", 
-                        features_to_vary=vars_a_variar, permitted_range=rangos_permitidos, random_seed=42
-                    )
+                    st.success(f"✅ **{len(cf_df)} UNIQUE CLINICAL STABILIZATION TARGETS FOUND:**")
+                    st.markdown("The medical staff can select the most feasible goal according to the ward capabilities:")
                     
-                    cf_df = dice_exp.cf_examples_list[0].final_cfs_df
-                    if cf_df is not None and not cf_df.empty:
-                        
-                        # Filtro de redondeo
-                        for col in vars_a_variar:
-                            if col not in ['EVO_dolor_eva', 'EVO_gravedad_percibida', 'dias_internados']:
-                                cf_df[col] = (cf_df[col] >= 0.5).astype(int)
-                            else:
-                                cf_df[col] = cf_df[col].round()
-                        # --- NUEVO: SINCRONIZACIÓN CAUSAL OBLIGATORIA DEL DATAFRAME ---
-                        cf_df['DELTA_dolor_eva'] = cf_df['EVO_dolor_eva'] - df_paciente.iloc[0]['ING_dolor_eva']
-                        cf_df['DELTA_gravedad_percibida'] = cf_df['EVO_gravedad_percibida'] - df_paciente.iloc[0]['ING_gravedad_percibida']
-                        cf_df['DELTA_alteracion_mental'] = cf_df['EVO_alteracion_mental'] - df_paciente.iloc[0]['ING_alteracion_mental']
-                        cf_df['DELTA_dependencia_funcional'] = cf_df['EVO_dependencia_funcional'] - df_paciente.iloc[0]['ING_dependencia_funcional']
-                        cf_df['DELTA_portador_dispositivos'] = cf_df['EVO_portador_dispositivos'] - df_paciente.iloc[0]['ING_portador_dispositivos']
-                        # --------------------------------------------------------------        
-                        cf_df = cf_df.drop_duplicates(subset=vars_a_variar).reset_index(drop=True)
-
-                        st.success(f"✅ **{len(cf_df)} UNIQUE CLINICAL STABILIZATION TARGETS FOUND:**")
-                        st.markdown("The medical staff can select the most feasible goal according to the ward capabilities:")
-                        
-                        evo_output_dict = {
-                            'EVO_dolor_eva': 'Current Pain', 'EVO_gravedad_percibida': 'Current Severity',
-                            'EVO_aislamiento_infeccioso': 'Infectious Isolation', 'EVO_alteracion_mental': 'Mental Alteration',
-                            'EVO_complicacion_internacion': 'Hospitalization Complication', 'EVO_cuidados_paliativos': 'Palliative Care',
-                            'EVO_dependencia_funcional': 'Functional Dependency', 'EVO_fuga_o_alta_irregular': 'Irregular Discharge / Escape',
-                            'EVO_portador_dispositivos': 'Device Bearer', 'EVO_ulceras_presion': 'Pressure Ulcers',
-                            'dias_internados': 'Additional Hospitalization Days'
-                        }
-                        
-                        for r_idx in range(len(cf_df)):
-                            with st.expander(f"➔ 🛤️ Alternative Target Route {r_idx + 1}", expanded=(r_idx == 0)):
-                                cambios_detectados = 0
-                                st.markdown("#### 🎯 Prescriptive Actions:")
+                    evo_output_dict = {
+                        'EVO_dolor_eva': 'Current Pain', 'EVO_gravedad_percibida': 'Current Severity',
+                        'EVO_aislamiento_infeccioso': 'Infectious Isolation', 'EVO_alteracion_mental': 'Mental Alteration',
+                        'EVO_complicacion_internacion': 'Hospitalization Complication', 'EVO_cuidados_paliativos': 'Palliative Care',
+                        'EVO_dependencia_funcional': 'Functional Dependency', 'EVO_fuga_o_alta_irregular': 'Irregular Discharge / Escape',
+                        'EVO_portador_dispositivos': 'Device Bearer', 'EVO_ulceras_presion': 'Pressure Ulcers',
+                        'dias_internados': 'Additional Hospitalization Days'
+                    }
+                    
+                    for r_idx in range(len(cf_df)):
+                        with st.expander(f"➔ 🛤️ Alternative Target Route {r_idx + 1}", expanded=(r_idx == 0)):
+                            cambios_detectados = 0
+                            st.markdown("#### 🎯 Prescriptive Actions:")
+                            
+                            for col in vars_a_variar:
+                                val_orig = df_paciente.iloc[0][col]
+                                val_cf = cf_df.iloc[r_idx][col] 
                                 
-                                for col in vars_a_variar:
-                                    val_orig = df_paciente.iloc[0][col]
-                                    val_cf = cf_df.iloc[r_idx][col] 
+                                if val_orig != val_cf:
+                                    cambios_detectados += 1
+                                    col_en = evo_output_dict.get(col, col)
                                     
-                                    if val_orig != val_cf:
-                                        cambios_detectados += 1
-                                        col_en = evo_output_dict.get(col, col)
+                                    if 'dolor' in col or 'gravedad' in col:
+                                        st.write(f"- 💊 **{col_en}**: Target reduction ➔ **[{val_cf:.0f}]** (Currently: {val_orig:.0f})")
+                                    elif col == 'dias_internados':
+                                        dias_extra = val_cf - val_orig
+                                        st.write(f"- ⏳ **{col_en}**: Extend stay by ➔ **[+{dias_extra:.0f} days]** (Total target: {val_cf:.0f})")
+                                    else:
+                                        status_en = "Resolved/Absent" if val_cf == 0 else "Present"
+                                        st.write(f"- 🛡️ **{col_en}**: Target status ➔ **[{status_en}]**")
                                         
-                                        if 'dolor' in col or 'gravedad' in col:
-                                            st.write(f"- 💊 **{col_en}**: Target reduction ➔ **[{val_cf:.0f}]** (Currently: {val_orig:.0f})")
-                                        elif col == 'dias_internados':
-                                            dias_extra = val_cf - val_orig
-                                            st.write(f"- ⏳ **{col_en}**: Extend stay by ➔ **[+{dias_extra:.0f} days]** (Total target: {val_cf:.0f})")
-                                        else:
-                                            status_en = "Resolved/Absent" if val_cf == 0 else "Present"
-                                            st.write(f"- 🛡️ **{col_en}**: Target status ➔ **[{status_en}]**")
-                                            
-                                if cambios_detectados == 0:
-                                    st.write("This alternative suggests maintaining current parameters based on marginal risk stability.")
-                                else:
-                                    # --- MULTIDIMENSIONAL RADAR CHART (SOLO FOCUS) ---
-                                    radar_map = {
-                                        'Δ Pain': ('EVO_dolor_eva', 'ING_dolor_eva'),
-                                        'Δ Severity': ('EVO_gravedad_percibida', 'ING_gravedad_percibida'),
-                                        'Δ Mental Alt.': ('EVO_alteracion_mental', 'ING_alteracion_mental'),
-                                        'Δ Func. Dep.': ('EVO_dependencia_funcional', 'ING_dependencia_funcional'),
-                                        'Δ Devices': ('EVO_portador_dispositivos', 'ING_portador_dispositivos')
-                                    }
+                            if cambios_detectados == 0:
+                                st.write("This alternative suggests maintaining current parameters based on marginal risk stability.")
+                            else:
+                                # --- MULTIDIMENSIONAL RADAR CHART ---
+                                radar_map = {
+                                    'Δ Pain': ('EVO_dolor_eva', 'ING_dolor_eva'),
+                                    'Δ Severity': ('EVO_gravedad_percibida', 'ING_gravedad_percibida'),
+                                    'Δ Mental Alt.': ('EVO_alteracion_mental', 'ING_alteracion_mental'),
+                                    'Δ Func. Dep.': ('EVO_dependencia_funcional', 'ING_dependencia_funcional'),
+                                    'Δ Devices': ('EVO_portador_dispositivos', 'ING_portador_dispositivos')
+                                }
+                                
+                                categorias_radar = list(radar_map.keys())
+                                valores_actuales_radar = []
+                                valores_meta_radar = []
+                                
+                                for cat, (col_evo, col_ing) in radar_map.items():
+                                    v_ing = df_paciente.iloc[0].get(col_ing, 0)
+                                    v_evo_act = df_paciente.iloc[0].get(col_evo, 0)
+                                    valores_actuales_radar.append(v_evo_act - v_ing)
                                     
-                                    categorias_radar = list(radar_map.keys())
-                                    valores_actuales_radar = []
-                                    valores_meta_radar = []
+                                    v_evo_meta = cf_df.iloc[r_idx].get(col_evo, v_evo_act)
+                                    valores_meta_radar.append(v_evo_meta - v_ing)
                                     
-                                    for cat, (col_evo, col_ing) in radar_map.items():
-                                        v_ing = df_paciente.iloc[0].get(col_ing, 0)
-                                        v_evo_act = df_paciente.iloc[0].get(col_evo, 0)
-                                        valores_actuales_radar.append(v_evo_act - v_ing)
-                                        
-                                        v_evo_meta = cf_df.iloc[r_idx].get(col_evo, v_evo_act)
-                                        valores_meta_radar.append(v_evo_meta - v_ing)
-                                        
-                                    cat_cerradas = categorias_radar + [categorias_radar[0]]
-                                    val_act_cerrados = valores_actuales_radar + [valores_actuales_radar[0]]
-                                    val_meta_cerrados = valores_meta_radar + [valores_meta_radar[0]]
-                                    
-                                    # Renderizado del gráfico centrado y amplio
-                                    fig_radar = go.Figure()
-                                    
-                                    # Estado Actual: Polígono Rojo
-                                    fig_radar.add_trace(go.Scatterpolar(
-                                        r=val_act_cerrados, theta=cat_cerradas,
-                                        fill='toself', fillcolor='rgba(214, 39, 40, 0.25)', # Color clínico con opacidad equilibrada
-                                        line=dict(color='#D62728', width=2.5), name='Current State'
-                                    ))
-                                    
-                                    # Meta DiCE: Polígono Verde
-                                    fig_radar.add_trace(go.Scatterpolar(
-                                        r=val_meta_cerrados, theta=cat_cerradas,
-                                        fill='toself', fillcolor='rgba(44, 160, 44, 0.25)', # Color clínico con opacidad equilibrada
-                                        line=dict(color='#2CA02C', width=2.5), name='DiCE Target'
-                                    ))
-                                    
-                                    # --- CONFIGURACIÓN DE COMPATIBILIDAD DINÁMICA DE TEMAS ---
-                                    # Eliminamos las llamadas fijas a 'font' y 'gridcolor'.
-                                    # Al mantener los fondos transparentes ('rgba(0,0,0,0)'), el gráfico hereda el fondo real de la aplicación
-                                    # y Streamlit ajusta automáticamente los contrastes de los textos y grillas de los ejes.
-                                    fig_radar.update_layout(
-                                        polar=dict(
-                                            radialaxis=dict(
-                                                visible=True, 
-                                                range=[-2, 8]
-                                            ),
-                                            bgcolor='rgba(0,0,0,0)' # Fondo interno transparente
-                                        ),
-                                        paper_bgcolor='rgba(0,0,0,0)', # Contenedor externo transparente
-                                        plot_bgcolor='rgba(0,0,0,0)',
-                                        margin=dict(l=40, r=40, t=40, b=40), 
-                                        height=450,
-                                        legend=dict(
-                                            orientation="h", 
-                                            yanchor="bottom", 
-                                            y=1.05, 
-                                            xanchor="center", 
-                                            x=0.5
-                                        )
-                                    )
-                                    
-                                    # Se ejecuta utilizando el mapeo nativo de temas de Streamlit (activado por defecto)
-                                    st.plotly_chart(fig_radar, use_container_width=True)
-                                    
-                    else:
-                        st.error("No mathematically viable target routes were found.")
-                        
-            except Exception as e:
-                st.error("Counterfactual engine is currently unavailable.")
-                st.warning(f"Technical Context: {str(e)}")
+                                cat_cerradas = categorias_radar + [categorias_radar[0]]
+                                val_act_cerrados = valores_actuales_radar + [valores_actuales_radar[0]]
+                                val_meta_cerrados = valores_meta_radar + [valores_meta_radar[0]]
+                                
+                                fig_radar = go.Figure()
+                                
+                                fig_radar.add_trace(go.Scatterpolar(
+                                    r=val_act_cerrados, theta=cat_cerradas,
+                                    fill='toself', fillcolor='rgba(214, 39, 40, 0.25)', 
+                                    line=dict(color='#D62728', width=2.5), name='Current State'
+                                ))
+                                
+                                fig_radar.add_trace(go.Scatterpolar(
+                                    r=val_meta_cerrados, theta=cat_cerradas,
+                                    fill='toself', fillcolor='rgba(44, 160, 44, 0.25)', 
+                                    line=dict(color='#2CA02C', width=2.5), name='DiCE Target'
+                                ))
+                                
+                                fig_radar.update_layout(
+                                    polar=dict(
+                                        radialaxis=dict(visible=True, range=[-2, 8]),
+                                        bgcolor='rgba(0,0,0,0)' 
+                                    ),
+                                    paper_bgcolor='rgba(0,0,0,0)', 
+                                    plot_bgcolor='rgba(0,0,0,0)',
+                                    margin=dict(l=40, r=40, t=40, b=40), 
+                                    height=450,
+                                    legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="center", x=0.5)
+                                )
+                                
+                                st.plotly_chart(fig_radar, use_container_width=True)
+                                
+                else:
+                    st.error("No mathematically viable target routes were found.")
+                    
+        except Exception as e:
+            st.error("Counterfactual engine is currently unavailable.")
+            st.warning(f"Technical Context: {str(e)}")
 
 # ==========================================
 # 7. LOCAL EXPLANABILITY: DELTA COMBINATORIAL IMPACT (LIME)
