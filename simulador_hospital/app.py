@@ -867,7 +867,7 @@ with col_der:
         except Exception as e:
             st.error("Context map unavailable.")
 
-    st.markdown("---")
+   
 
     
 
