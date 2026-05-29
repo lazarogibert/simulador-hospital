@@ -1,5 +1,6 @@
 
 import streamlit as st
+import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
 from translations import FARMACOS_TRANSLATION_DICT
@@ -583,6 +584,10 @@ with col_der:
     st.subheader("Decision Audit & Clinical Context")
     
     st.markdown("#### 🔍 Prescriptive Explanability (SHAP)")
+    
+    # Checkbox para alternar metodologías
+    filtrar_activos = st.checkbox("🎯 Show only the impact of present conditions (Hide protective factors due to absence)", value=False)
+    
     try:
         clf = pipeline.named_steps['clasificador']
         prep = pipeline.named_steps['preprocesador']
@@ -618,30 +623,23 @@ with col_der:
             'LLM_tabaquismo_activo': 'Chronic: Active Smoking'
         }
 
-        # --- NUEVA LÓGICA DE TRADUCCIÓN ROBUSTA (A PRUEBA DE MAYÚSCULAS/SUFIJOS) ---
+        # --- LÓGICA DE TRADUCCIÓN ROBUSTA ---
         nombres_limpios_traducidos = []
-        
-        # Convertimos las llaves del diccionario a mayúsculas para un match infalible
         cie10_upper = {k.upper(): v for k, v in cie10_ui_dict.items()}
         
         for nombre_crudo in nombres_crudos:
-            # 1. Quitamos prefijos del pipeline (ej. cat__, num__)
             traducido = nombre_crudo.split('__')[-1]
             
-            # 2. Quitamos sufijos residuales del OneHotEncoder
             for sufijo in ['_1.0', '_1', '_True', '_true', '_0.0', '_0', '_False', '_false']:
                 if traducido.endswith(sufijo):
                     traducido = traducido[:-len(sufijo)]
                     break
             
-            # 3. Mapeo específico y seguro para Diagnósticos (CIE10)
             if "CIE10_MACRO" in nombre_crudo:
                 cat_es = traducido.replace("CIE10_MACRO_", "")
-                # Buscamos ignorando mayúsculas/minúsculas
                 cat_en = cie10_upper.get(cat_es.upper(), cat_es.replace('_', ' ').title())
                 traducido = f"Diagnosis: {cat_en}"
             
-            # 4. Mapeo específico para Edad
             elif "rango_edad" in nombre_crudo:
                 cat_es = traducido.replace("rango_edad_", "")
                 match_en = "Unknown Age"
@@ -651,23 +649,20 @@ with col_der:
                         break
                 traducido = f"Age: {match_en}"
             
-            # 5. Mapeo para el resto de variables clínicas
             else:
                 match_encontrado = False
                 for var_es, var_en in shap_ui_dict.items():
-                    # Comparamos ignorando sufijos extraños
                     if var_es in nombre_crudo:
                         traducido = var_en
                         match_encontrado = True
                         break
                 
                 if not match_encontrado:
-                    # Fallback visualmente limpio por si escapa alguna variable
                     traducido = traducido.replace("_", " ").title()
                     
             nombres_limpios_traducidos.append(traducido)
-        # --------------------------------------------------------------------------
 
+        # --- EXTRACCIÓN SHAP ---
         try:
             explainer = shap.TreeExplainer(clf)
             shap_vals = explainer.shap_values(X_proc_dense, check_additivity=False)
@@ -684,90 +679,93 @@ with col_der:
         shap_vals_pct = shap_vals[0] * 100
         exp_val_pct = exp_val * 100
 
-        # --- NUEVA LÓGICA SHAP: FILTRO INTELIGENTE PARA ONE-HOT ENCODING ---
-        indices_activos = []
-        indices_inactivos = []
-        
-        # FIX 1: Quitamos 'Diagnosis' y 'Age' para que los 0s de OHE sí se filtren
-        variables_continuas = ['Days', 'Pain', 'Severity', 'Delta', 'Consultations', 'Complexity']
+        # --- BIFURCACIÓN METODOLÓGICA ---
+        if not filtrar_activos:
+            # 1. WATERFALL PURO: Integridad matemática total
+            explicacion_completa = shap.Explanation(
+                values=np.array(shap_vals_pct), 
+                base_values=exp_val_pct, 
+                data=np.array(X_paciente_1d), 
+                feature_names=nombres_limpios_traducidos
+            )
+            
+            fig_shap, ax_shap = plt.subplots(figsize=(12, 5)) 
+            shap.waterfall_plot(explicacion_completa, show=False, max_display=10) 
+            plt.tight_layout()
+            st.pyplot(fig_shap)
+            plt.close(fig_shap)
+            
+        else:
+            # 2. AISLAMIENTO CLÍNICO: Gráfico de barras horizontal nativo
+            indices_activos = []
+            variables_continuas = ['Days', 'Pain', 'Severity', 'Delta', 'Consultations', 'Complexity']
 
-        for i, (val_proc, nombre_traducido) in enumerate(zip(X_paciente_1d, nombres_limpios_traducidos)):
-            nombre_crudo = nombres_crudos[i]
-            nombre_base = nombre_crudo.split('__')[-1]
-            
-            for sufijo in ['_1.0', '_1', '_True', '_true', '_0.0', '_0', '_False', '_false']:
-                if nombre_base.endswith(sufijo):
-                    nombre_base = nombre_base[:-len(sufijo)]
-                    break
-            
-            # FIX 2: Detección inteligente de variables categóricas (One-Hot Encoded)
-            val_real = val_proc 
-            
-            if nombre_base in df_paciente.columns:
-                val_real = df_paciente[nombre_base].iloc[0]
-            else:
-                # Si la columna no está en el dataframe base, verificamos si fue dividida por el OHE
-                columnas_categoricas = ['CIE10_MACRO', 'CIE10_SUBMACRO', 'rango_edad']
-                for col_cat in columnas_categoricas:
-                    if nombre_base.startswith(col_cat + '_'):
-                        valor_categoria_columna = nombre_base.replace(col_cat + '_', '')
-                        valor_real_paciente = str(df_paciente[col_cat].iloc[0])
-                        
-                        # Si la columna coincide con la categoría real del paciente, es 1. Si no, es 0.
-                        if valor_categoria_columna.strip().upper() == valor_real_paciente.strip().upper():
-                            val_real = 1.0 
-                        else:
-                            val_real = 0.0 
+            for i, (val_proc, nombre_traducido) in enumerate(zip(X_paciente_1d, nombres_limpios_traducidos)):
+                nombre_crudo = nombres_crudos[i]
+                nombre_base = nombre_crudo.split('__')[-1]
+                
+                for sufijo in ['_1.0', '_1', '_True', '_true', '_0.0', '_0', '_False', '_false']:
+                    if nombre_base.endswith(sufijo):
+                        nombre_base = nombre_base[:-len(sufijo)]
                         break
-            
-            es_continua = any(kw in nombre_traducido for kw in variables_continuas)
-            es_inactivo = False
-            
-            # Filtramos si no es continua y su valor real es 0 (o asimilables)
-            if not es_continua:
-                val_str = str(val_real).strip().upper()
-                if val_str in ['0', '0.0', 'FALSE', 'NONE', 'N/A', 'NAN', '']:
+                
+                val_real = val_proc 
+                
+                if nombre_base in df_paciente.columns:
+                    val_real = df_paciente[nombre_base].iloc[0]
+                else:
+                    columnas_categoricas = ['CIE10_MACRO', 'CIE10_SUBMACRO', 'rango_edad']
+                    for col_cat in columnas_categoricas:
+                        if nombre_base.startswith(col_cat + '_'):
+                            valor_categoria_columna = nombre_base.replace(col_cat + '_', '')
+                            valor_real_paciente = str(df_paciente[col_cat].iloc[0])
+                            
+                            if valor_categoria_columna.strip().upper() == valor_real_paciente.strip().upper():
+                                val_real = 1.0 
+                            else:
+                                val_real = 0.0 
+                            break
+                
+                es_continua = any(kw in nombre_traducido for kw in variables_continuas)
+                es_inactivo = False
+                
+                if not es_continua:
+                    val_str = str(val_real).strip().upper()
+                    if val_str in ['0', '0.0', 'FALSE', 'NONE', 'N/A', 'NAN', '']:
+                        es_inactivo = True
+                
+                if abs(shap_vals_pct[i]) < 0.01:
                     es_inactivo = True
-            
-            # Filtramos si el peso es matemáticamente irrelevante (ruido del modelo)
-            if abs(shap_vals_pct[i]) < 0.01:
-                es_inactivo = True
 
-            if es_inactivo:
-                indices_inactivos.append(i)
+                if not es_inactivo:
+                    indices_activos.append(i)
+
+            if not indices_activos:
+                st.info("No significant active clinical factors to isolate.")
             else:
-                indices_activos.append(i)
-
-        # 1. Extraemos SOLO las variables "Activas" (las que el paciente sí tiene)
-        shap_vals_limpio = list(shap_vals_pct[indices_activos])
-        X_paciente_limpio = list(X_paciente_1d[indices_activos])
-        nombres_limpios = [nombres_limpios_traducidos[i] for i in indices_activos]
-
-        # 2. Sumamos TODO el peso de las variables inactivas
-        peso_oculto_total = sum(shap_vals_pct[i] for i in indices_inactivos)
-
-        # 3. Magia Matemática: Modificamos el punto de inicio del gráfico (Expected Value)
-        nuevo_exp_val_pct = exp_val_pct + peso_oculto_total
-
-        # 4. Renderizamos el objeto Explanation
-        # Aumentamos ligeramente el ancho (12) y bajamos el alto (4) para dar más espacio horizontal al texto
-        fig_shap, ax_shap = plt.subplots(figsize=(12, 4)) 
-        
-        explicacion_filtrada = shap.Explanation(
-            values=np.array(shap_vals_limpio), 
-            base_values=nuevo_exp_val_pct, 
-            data=np.array(X_paciente_limpio), 
-            feature_names=nombres_limpios
-        )
-        
-        # max_display=6 mostrará las 5 más importantes y agrupará el resto de "ACTIVAS" en una barra
-        shap.waterfall_plot(explicacion_filtrada, show=False, max_display=6) 
-        
-        # Opcional: Ajuste fino para evitar que el texto se corte en los bordes de la imagen
-        plt.tight_layout()
-        
-        st.pyplot(fig_shap)
-        plt.close(fig_shap)
+                activos_vals = [shap_vals_pct[i] for i in indices_activos]
+                activos_nombres = [nombres_limpios_traducidos[i] for i in indices_activos]
+                
+                # Ordenar para visualización de barras horizontales
+                datos_ordenados = sorted(zip(activos_vals, activos_nombres), key=lambda x: abs(x[0]))
+                y_vals = [x[0] for x in datos_ordenados]
+                y_names = [x[1] for x in datos_ordenados]
+                
+                # Altura dinámica según la cantidad de variables
+                fig_bar, ax_bar = plt.subplots(figsize=(10, max(4, len(y_names) * 0.4)))
+                colores = ['#FF0051' if v > 0 else '#008BFB' for v in y_vals]
+                
+                ax_bar.barh(y_names, y_vals, color=colores)
+                ax_bar.set_xlabel("Impact on Readmission Risk (%)")
+                ax_bar.set_title("Isolation of Present Clinical Factors")
+                
+                ax_bar.spines['top'].set_visible(False)
+                ax_bar.spines['right'].set_visible(False)
+                ax_bar.axvline(0, color='black', linewidth=1)
+                
+                plt.tight_layout()
+                st.pyplot(fig_bar)
+                plt.close(fig_bar)
 
     except Exception as e:
         st.error("SHAP computation failed.")
@@ -914,7 +912,7 @@ with col_der:
         pass 
 
 # ==========================================
-# 6. THERAPEUTIC NAVIGATOR (DiCE - HIGH SECURITY & METRICALLY SOUND)
+# 6. THERAPEUTIC NAVIGATOR (DiCE - DUAL COORDINATED XAI)
 # ==========================================
 st.markdown("---")
 st.subheader("Therapeutic Navigator (Prescriptive AI)")
@@ -1011,6 +1009,14 @@ else:
                         if val_actual == 1.0:
                             rangos_permitidos[col] = [0, 1]
                             vars_a_variar.append(col)
+
+                # --- NUEVO: Permitimos a DiCE variar los días de internación ---
+                if 'dias_internados' in df_paciente.columns:
+                    val_dias = float(df_paciente['dias_internados'].iloc[0])
+                    # Le permitimos sugerir hasta 7 días extra de internación
+                    rangos_permitidos['dias_internados'] = [val_dias, val_dias + 7.0]
+                    vars_a_variar.append('dias_internados')
+                # ----------------------------------------------------------------
                 
                 if not vars_a_variar:
                     st.error("There are no modifiable clinical targets in the patient's current evolution that can improve their condition.")
@@ -1020,27 +1026,24 @@ else:
                         features_to_vary=vars_a_variar, permitted_range=rangos_permitidos, random_seed=42
                     )
                     
-                    dice_exp = exp.generate_counterfactuals(
-                        df_paciente, total_CFs=5, desired_class="opposite", 
-                        features_to_vary=vars_a_variar, permitted_range=rangos_permitidos, random_seed=42
-                    )
-                    
                     cf_df = dice_exp.cf_examples_list[0].final_cfs_df
                     if cf_df is not None and not cf_df.empty:
                         
-                        # --- NUEVO: FILTRO DE REDUNDANCIA CLÍNICA ---
-                        # 1. Normalizamos los valores flotantes a enteros clínicos
+                        # Filtro de redondeo
                         for col in vars_a_variar:
-                            if col not in ['EVO_dolor_eva', 'EVO_gravedad_percibida']:
+                            if col not in ['EVO_dolor_eva', 'EVO_gravedad_percibida', 'dias_internados']:
                                 cf_df[col] = (cf_df[col] >= 0.5).astype(int)
                             else:
                                 cf_df[col] = cf_df[col].round()
-                                
-                        # 2. Eliminamos rutas duplicadas basándonos SÓLO en las variables que se pueden cambiar
+                        # --- NUEVO: SINCRONIZACIÓN CAUSAL OBLIGATORIA DEL DATAFRAME ---
+                        cf_df['DELTA_dolor_eva'] = cf_df['EVO_dolor_eva'] - df_paciente.iloc[0]['ING_dolor_eva']
+                        cf_df['DELTA_gravedad_percibida'] = cf_df['EVO_gravedad_percibida'] - df_paciente.iloc[0]['ING_gravedad_percibida']
+                        cf_df['DELTA_alteracion_mental'] = cf_df['EVO_alteracion_mental'] - df_paciente.iloc[0]['ING_alteracion_mental']
+                        cf_df['DELTA_dependencia_funcional'] = cf_df['EVO_dependencia_funcional'] - df_paciente.iloc[0]['ING_dependencia_funcional']
+                        cf_df['DELTA_portador_dispositivos'] = cf_df['EVO_portador_dispositivos'] - df_paciente.iloc[0]['ING_portador_dispositivos']
+                        # --------------------------------------------------------------        
                         cf_df = cf_df.drop_duplicates(subset=vars_a_variar).reset_index(drop=True)
-                        # --------------------------------------------
 
-                        # Actualizamos el título para reflejar que son rutas ÚNICAS
                         st.success(f"✅ **{len(cf_df)} UNIQUE CLINICAL STABILIZATION TARGETS FOUND:**")
                         st.markdown("The medical staff can select the most feasible goal according to the ward capabilities:")
                         
@@ -1049,31 +1052,131 @@ else:
                             'EVO_aislamiento_infeccioso': 'Infectious Isolation', 'EVO_alteracion_mental': 'Mental Alteration',
                             'EVO_complicacion_internacion': 'Hospitalization Complication', 'EVO_cuidados_paliativos': 'Palliative Care',
                             'EVO_dependencia_funcional': 'Functional Dependency', 'EVO_fuga_o_alta_irregular': 'Irregular Discharge / Escape',
-                            'EVO_portador_dispositivos': 'Device Bearer', 'EVO_ulceras_presion': 'Pressure Ulcers'
+                            'EVO_portador_dispositivos': 'Device Bearer', 'EVO_ulceras_presion': 'Pressure Ulcers',
+                            'dias_internados': 'Additional Hospitalization Days'
                         }
                         
                         for r_idx in range(len(cf_df)):
-                            with st.expander(f"➔ 🛤️ Alternative Target Route {r_idx + 1}"):
+                            with st.expander(f"➔ 🛤️ Alternative Target Route {r_idx + 1}", expanded=(r_idx == 0)):
                                 cambios_detectados = 0
+                                st.markdown("#### 🎯 Prescriptive Actions:")
+                                
                                 for col in vars_a_variar:
                                     val_orig = df_paciente.iloc[0][col]
-                                    
-                                    # Como ya lo normalizamos arriba, solo lo extraemos
                                     val_cf = cf_df.iloc[r_idx][col] 
                                     
-                                    # Comparación limpia
                                     if val_orig != val_cf:
                                         cambios_detectados += 1
                                         col_en = evo_output_dict.get(col, col)
                                         
                                         if 'dolor' in col or 'gravedad' in col:
-                                            st.write(f"- 🎯 **{col_en}**: Target reduction ➔ **[{val_cf:.0f}]** (Currently: {val_orig:.0f})")
+                                            st.write(f"- 💊 **{col_en}**: Target reduction ➔ **[{val_cf:.0f}]** (Currently: {val_orig:.0f})")
+                                        elif col == 'dias_internados':
+                                            dias_extra = val_cf - val_orig
+                                            st.write(f"- ⏳ **{col_en}**: Extend stay by ➔ **[+{dias_extra:.0f} days]** (Total target: {val_cf:.0f})")
                                         else:
                                             status_en = "Resolved/Absent" if val_cf == 0 else "Present"
-                                            st.write(f"- 🎯 **{col_en}**: Target status ➔ **[{status_en}]**")
+                                            st.write(f"- 🛡️ **{col_en}**: Target status ➔ **[{status_en}]**")
                                             
                                 if cambios_detectados == 0:
                                     st.write("This alternative suggests maintaining current parameters based on marginal risk stability.")
+                                else:
+                                    # --- DUAL COORDINATED VISUALIZATION (Plotly) ---
+                                    c_izq, c_der = st.columns(2)
+                                    
+                                    # 1. PREPARACIÓN DE DATOS RADAR
+                                    radar_map = {
+                                        'Δ Pain': ('EVO_dolor_eva', 'ING_dolor_eva'),
+                                        'Δ Severity': ('EVO_gravedad_percibida', 'ING_gravedad_percibida'),
+                                        'Δ Mental Alt.': ('EVO_alteracion_mental', 'ING_alteracion_mental'),
+                                        'Δ Func. Dep.': ('EVO_dependencia_funcional', 'ING_dependencia_funcional'),
+                                        'Δ Devices': ('EVO_portador_dispositivos', 'ING_portador_dispositivos')
+                                    }
+                                    
+                                    categorias_radar = list(radar_map.keys())
+                                    valores_actuales_radar = []
+                                    valores_meta_radar = []
+                                    
+                                    for cat, (col_evo, col_ing) in radar_map.items():
+                                        v_ing = df_paciente.iloc[0].get(col_ing, 0)
+                                        v_evo_act = df_paciente.iloc[0].get(col_evo, 0)
+                                        valores_actuales_radar.append(v_evo_act - v_ing)
+                                        
+                                        v_evo_meta = cf_df.iloc[r_idx].get(col_evo, v_evo_act)
+                                        valores_meta_radar.append(v_evo_meta - v_ing)
+                                        
+                                    cat_cerradas = categorias_radar + [categorias_radar[0]]
+                                    val_act_cerrados = valores_actuales_radar + [valores_actuales_radar[0]]
+                                    val_meta_cerrados = valores_meta_radar + [valores_meta_radar[0]]
+                                    
+                                    with c_der:
+                                        fig_radar = go.Figure()
+                                        fig_radar.add_trace(go.Scatterpolar(
+                                            r=val_act_cerrados, theta=cat_cerradas,
+                                            fill='toself', fillcolor='rgba(214, 39, 40, 0.2)',
+                                            line=dict(color='#d62728', width=2), name='Current State'
+                                        ))
+                                        fig_radar.add_trace(go.Scatterpolar(
+                                            r=val_meta_cerrados, theta=cat_cerradas,
+                                            fill='toself', fillcolor='rgba(44, 160, 44, 0.2)',
+                                            line=dict(color='#2ca02c', width=2), name='DiCE Target'
+                                        ))
+                                        fig_radar.update_layout(
+                                            polar=dict(
+                                                radialaxis=dict(visible=True, range=[-2, 8], gridcolor='rgba(0,0,0,0.1)'),
+                                                gridshape='circular'
+                                            ),
+                                            margin=dict(l=30, r=30, t=30, b=30), height=350,
+                                            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                                        )
+                                        st.plotly_chart(fig_radar, use_container_width=True)
+                                        
+                                    # 2. PREPARACIÓN DE DATOS CONTOUR (Días vs Gravedad)
+                                    dias_actual = df_paciente.iloc[0]['dias_internados']
+                                    dias_meta = cf_df.iloc[r_idx].get('dias_internados', dias_actual)
+                                    
+                                    grav_ing = df_paciente.iloc[0]['ING_gravedad_percibida']
+                                    delta_grav_act = df_paciente.iloc[0]['EVO_gravedad_percibida'] - grav_ing
+                                    delta_grav_meta = cf_df.iloc[r_idx].get('EVO_gravedad_percibida', df_paciente.iloc[0]['EVO_gravedad_percibida']) - grav_ing
+                                    
+                                    # Grid topográfico matemático real
+                                    grid_res = 20
+                                    eje_x = np.linspace(max(1, dias_actual-2), dias_actual+10, grid_res)
+                                    eje_y = np.linspace(-5, 3, grid_res)
+                                    xx, yy = np.meshgrid(eje_x, eje_y)
+                                    
+                                    df_grid = pd.concat([df_paciente.iloc[[0]]] * (grid_res**2), ignore_index=True)
+                                    df_grid['dias_internados'] = xx.ravel()
+                                    df_grid['DELTA_gravedad_percibida'] = yy.ravel()
+                                    df_grid['EVO_gravedad_percibida'] = df_grid['ING_gravedad_percibida'] + df_grid['DELTA_gravedad_percibida']
+                                    
+                                    # Extraemos probabilidad real de tu pipeline
+                                    Z = pipeline.predict_proba(df_grid)[:, 1]
+                                    Z = Z.reshape(xx.shape)
+                                    
+                                    with c_izq:
+                                        fig_contour = go.Figure()
+                                        fig_contour.add_trace(go.Contour(
+                                            x=eje_x, y=eje_y, z=Z,
+                                            colorscale='RdYlGn', reversescale=True, line_smoothing=0.85,
+                                            contours=dict(start=0, end=1, size=0.1, showlines=False),
+                                            colorbar=dict(title="Risk", len=0.8, thickness=15)
+                                        ))
+                                        fig_contour.add_trace(go.Scatter(
+                                            x=[dias_actual, dias_meta], y=[delta_grav_act, delta_grav_meta],
+                                            mode='lines+markers+text',
+                                            line=dict(color='black', width=3, dash='dash'),
+                                            marker=dict(color=['#d62728', '#2ca02c'], size=[12, 14], symbol=['circle', 'star']),
+                                            text=["Current", "Target"], textposition="top center", textfont=dict(color="black", size=10),
+                                            name="Stabilization Route"
+                                        ))
+                                        fig_contour.update_layout(
+                                            xaxis_title="Hospitalization Days", yaxis_title="Δ Perceived Severity",
+                                            margin=dict(l=20, r=20, t=30, b=20), height=350, plot_bgcolor='white',
+                                            showlegend=False
+                                        )
+                                        st.plotly_chart(fig_contour, use_container_width=True)
+                                    # ---------------------------------------------------------------
                     else:
                         st.error("No mathematically viable target routes were found.")
                         
