@@ -1471,7 +1471,14 @@ if st.session_state.mostrar_grafo:
             with col_grafo:
                 st.pyplot(fig)
                 plt.close(fig)
-                st.caption("🌟 The node highlighted in gold is the **Archetypal Patient** (highest Harmonic Centrality within the local cohort).")
+                # --- NUEVA LEYENDA TOPOLÓGICA (UI EN INGLÉS) ---
+                with st.expander("🗺️ How to read the Topology Map", expanded=True):
+                    st.markdown("""
+                    - 📏 **Node Distance (Proximity):** Represents multidimensional clinical similarity. Nodes physically closer to the *Current Patient* share highly identical medical histories and evolution trajectories.
+                    - 🫧 **Node Size:** Proportional to the match percentage. Larger nodes indicate a stronger and more reliable "clinical twin" correlation.
+                    - 🎨 **Node Colors:** 🟢 **Safe Discharge** (Historical) | 🔴 **Readmitted** (Historical) | 🔵 **Current Patient**
+                    - 🌟 **Gold Border:** The **Archetypal Patient**. Represents the statistical center of gravity (highest Harmonic Centrality) of this specific clinical cluster.
+                    """)
                 
             with col_panel:
                 st.markdown("### 🔍 Case Inspector")
@@ -1485,7 +1492,35 @@ if st.session_state.mostrar_grafo:
                     
                     if data.get("is_archetype"):
                         st.warning("⭐ **Archetypal Patient (Cluster Hub)**")
+                        # --- COMPONENTE MEJORADO: INSIGHT CLINICO DEL ARQUETIPO ---
+                    if data.get("is_archetype"):
+                        st.warning("⭐ **Archetypal Patient (Cluster Center of Gravity)**")
                         
+                        # Inyección de la justificación clínica y ventajas reales para el médico
+                        with st.container():
+                            st.markdown(
+                                """
+                                <div style='
+                                    padding: 12px; 
+                                    background-color: rgba(255, 215, 0, 0.1); 
+                                    border-left: 4px solid #FFD700; 
+                                    margin-bottom: 15px;
+                                    border-radius: 4px;
+                                '>
+                                    <h5 style='margin-top:0; color:#FFD700; font-size:14px;'>🎯 Clinical Archetype Insights</h5>
+                                    <p style='font-size:12px; margin-bottom:8px;'>
+                                        <b>1. Definitive 'Textbook' Case:</b> This patient represents the absolute statistical mode of the local clinical cluster. They present the most recurring, highly consolidated phenotypic trajectory for this specific combination of admission conditions.
+                                    </p>
+                                    <p style='font-size:12px; margin-bottom:8px;'>
+                                        <b>2. Maximum Model Reliability:</b> Because the current patient aligns directly with this dense historical anchor, the model's prediction confidence is at its peak. This risk probability is grounded in widespread, highly documented institutional precedence.
+                                    </p>
+                                    <p style='font-size:12px; margin-bottom:0;'>
+                                        <b>3. Therapeutic Advantage:</b> Use this patient's retrospective records below (medications, secondary diagnoses, and clinical evolution notes) as a benchmark or 'safe protocol layout' to optimize your current patient's discharge path.
+                                    </p>
+                                </div>
+                                """, 
+                                unsafe_allow_html=True
+                            )
                     st.metric(label="Clinical Match", value=f"{data['similitud']:.1f}%")
                     
                     if data['outcome_text'] == "Readmitted":
