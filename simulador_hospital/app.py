@@ -504,17 +504,22 @@ with tab_diagnostico:
     # ==========================================
     riesgo = pipeline.predict_proba(df_paciente)[0][1]
     
-    col_izq, col_der = st.columns([1, 3.5])
+    # --- FILA SUPERIOR: MÉTRICAS Y ALERTAS A LO ANCHO ---
+    col_kpi1, col_kpi2, col_kpi3 = st.columns([1, 1.2, 1.5])
     
-    with col_izq:
+    with col_kpi1:
         st.subheader("Readmission Risk")
         st.metric(label="15-Day Probability", value=f"{riesgo*100:.1f}%")
         
+    with col_kpi2:
+        st.write("") # Pequeño espaciador para alinear con la métrica
         if riesgo > umbral:
             st.error(f"⚠️ **CLINICAL ALERT**\n\nExceeds safety threshold ({umbral*100:.1f}%)")
         else:
             st.success(f"✅ **SAFE DISCHARGE**\n\nWithin permitted threshold")
-    
+            
+    with col_kpi3:
+        st.write("") # Pequeño espaciador
         cie10_ui_dict = {
             "Tuberculosis": "Tuberculosis", "Lepra": "Leprosy", "Sífilis": "Syphilis", 
             "Otras infecciosas (A)": "Other infectious (A)", "Hepatitis viral": "Viral hepatitis", 
@@ -586,10 +591,13 @@ with tab_diagnostico:
         
         st.info(f"**Mapped Diagnosis:**\n\n{categoria_cie10_ingles}\n\n(Code: {codigo_normalizado})")
     
+    st.markdown("---")
+    st.subheader("Decision Audit & Clinical Context")
     
-    with col_der:
-        st.subheader("Decision Audit & Clinical Context")
-        
+    # --- FILA INFERIOR: GRÁFICOS LADO A LADO ---
+    col_shap, col_trayectoria = st.columns(2)
+    
+    with col_shap:
         # --- BLOQUE 1: EXPLICABILIDAD (SHAP) ---
         with st.container():
             st.markdown("#### 🔍 1. Prescriptive Explanability (SHAP)")
@@ -744,12 +752,12 @@ with tab_diagnostico:
                         
                         fig_bar.update_layout(
                             title="Isolation of Present Clinical Factors",
-                            xaxis_title="Relative Impact Weight", # Cambiamos el nombre del eje
+                            xaxis_title="Relative Impact Weight", 
                             plot_bgcolor='rgba(0,0,0,0)', 
                             paper_bgcolor='rgba(0,0,0,0)',
                             height=max(350, len(y_names) * 45),
                             margin=dict(l=10, r=40, t=40, b=10),
-                            xaxis=dict(showgrid=True, gridcolor='rgba(128,128,128,0.2)', zeroline=True, zerolinecolor='rgba(128,128,128,0.6)', showticklabels=False), # Ocultamos los números del eje X
+                            xaxis=dict(showgrid=True, gridcolor='rgba(128,128,128,0.2)', zeroline=True, zerolinecolor='rgba(128,128,128,0.6)', showticklabels=False),
                             yaxis=dict(showgrid=False)
                         )
                         
@@ -759,9 +767,8 @@ with tab_diagnostico:
             except Exception as e:
                 st.error("SHAP computation failed.")
                 st.warning(str(e))
-    
-        st.markdown("---")
-    
+
+    with col_trayectoria:
         # --- BLOQUE 2: TRAYECTORIA DINÁMICA (PLOTLY) ---
         with st.container():
             st.markdown("#### 📉 2. Dynamic Trajectory")
@@ -833,7 +840,6 @@ with tab_diagnostico:
                     )
     
                 # --- FIX: LÍNEAS VERTICALES DE GUÍA (SOPORTE DARK/LIGHT MODE) ---
-                # El uso de gris con opacidad (0.4) hace que se vean bien en cualquier tema
                 fig_slope.add_vline(x='Admission', line_width=1.5, line_dash="dash", line_color="rgba(128,128,128,0.4)")
                 fig_slope.add_vline(x='Current', line_width=1.5, line_dash="dash", line_color="rgba(128,128,128,0.4)")
                 # ----------------------------------------------------------------
