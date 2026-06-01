@@ -855,11 +855,10 @@ with tab_diagnostico:
 
 with tab_estrategia:
     col_simulador, col_rutas = st.columns([1, 1.2]) # Divide la pantalla a la mitad
+    
     with col_simulador:
-        # PEGA AQUÍ TODA TU SECCIÓN 7 (SandBox y LIME)
-        # Ajustando los tamaños para que quepan en la columna
         # ==========================================
-        # 7. INTERACTIVE CLINICAL SANDBOX (LIME WHAT-IF)
+        # 7. INTERACTIVE CLINICAL SANDBOX (CONTROLES)
         # ==========================================
         st.markdown("---")
         st.markdown("#### 🧪 Clinical Hypothesis Simulator (SandBox)")
@@ -932,135 +931,8 @@ with tab_estrategia:
                     
                     # FIX STICKY STATE: El toggle ahora detecta si el estado base del paciente cambió
                     status_evo_sim[col] = st.toggle(label, value=val_init, key=f"sim_{col}_base_{val_init}")
-        
-        # --- MOTOR DE CÁLCULO DINÁMICO ---
-        try:
-            with st.spinner("Analyzing combinatorial impacts of simulated trajectory..."):
-                # 1. Crear el clon simulado del paciente (Pasado Inmutable)
-                df_sim = df_paciente.copy()
-                
-                # Inyectar las simulaciones de variables temporales y continuas
-                df_sim['dias_internados'] = float(dias_sim)
-                df_sim['EVO_dolor_eva'] = float(dolor_sim)
-                df_sim['EVO_gravedad_percibida'] = float(severidad_sim)
-                
-                # Inyectar las simulaciones de variables categóricas (Toggles)
-                for col, val in status_evo_sim.items(): 
-                    df_sim[col] = 1.0 if val else 0.0
-                
-                # 2. SINCRONIZACIÓN CAUSAL EXPANDIDA DE DELTAS
-                pares_delta = {
-                    'DELTA_alteracion_mental': ('EVO_alteracion_mental', 'ING_alteracion_mental'),
-                    'DELTA_dependencia_funcional': ('EVO_dependencia_funcional', 'ING_dependencia_funcional'),
-                    'DELTA_portador_dispositivos': ('EVO_portador_dispositivos', 'ING_portador_dispositivos'),
-                    'DELTA_dolor_eva': ('EVO_dolor_eva', 'ING_dolor_eva'),
-                    'DELTA_gravedad_percibida': ('EVO_gravedad_percibida', 'ING_gravedad_percibida')
-                }
-                for col_delta, (col_evo, col_ing) in pares_delta.items():
-                    if col_evo in df_sim.columns and col_ing in df_sim.columns:
-                        df_sim[col_delta] = df_sim[col_evo] - df_sim[col_ing]
-        
-                # --- CÁLCULO DEL RIESGO SIMULADO ---
-                riesgo_base = pipeline.predict_proba(df_paciente)[0][1]
-                riesgo_simulado = pipeline.predict_proba(df_sim)[0][1]
-                variacion_riesgo = (riesgo_simulado - riesgo_base) * 100
-        
-                # 3. Preprocesamiento Seguro
-                prep = pipeline.named_steps['preprocesador']
-                clf = pipeline.named_steps['clasificador']
-                
-                X_p_proc = prep.transform(df_sim)
-                X_p_dense = X_p_proc.toarray()[0] if hasattr(X_p_proc, 'toarray') else np.array(X_p_proc)[0]
-                
-                X_t_proc = prep.transform(df_train_sample)
-                X_t_dense = X_t_proc.toarray() if hasattr(X_t_proc, 'toarray') else np.array(X_t_proc)
-                
-                # 4. Mapeo de Nombres para la UI de LIME
-                nombres_crudos = prep.get_feature_names_out()
-                
-                ui_dict = {
-                    'DELTA_dolor_eva': 'Δ Pain', 'DELTA_gravedad_percibida': 'Δ Severity',
-                    'DELTA_alteracion_mental': 'Δ Mental Alt.', 'DELTA_dependencia_funcional': 'Δ Func. Dep.',
-                    'DELTA_portador_dispositivos': 'Δ Medical Devices',
-                    'EVO_dolor_eva': 'Current Pain', 'EVO_gravedad_percibida': 'Current Severity',
-                    'EVO_aislamiento_infeccioso': 'Current Infect. Isolation',
-                    'EVO_complicacion_internacion': 'Current Hosp. Complication',
-                    'EVO_cuidados_paliativos': 'Current Palliat. Care',
-                    'EVO_fuga_o_alta_irregular': 'Current Irreg. Discharge',
-                    'EVO_ulceras_presion': 'Current Pressure Ulcers',
-                    'EVO_alteracion_mental': 'Current Mental Alt.',
-                    'EVO_dependencia_funcional': 'Current Func. Dep.',
-                    'EVO_portador_dispositivos': 'Current Device Bearer'
-                }
-                
-                nombres_lime = [ui_dict.get(n.split('__')[-1].split('_1')[0], n.split('__')[-1]) for n in nombres_crudos]
-        
-                # 5. Inicialización de LIME
-                explainer = lime.lime_tabular.LimeTabularExplainer(
-                    training_data=X_t_dense,
-                    feature_names=nombres_lime, 
-                    mode='classification', 
-                    random_state=42
-                )
-        
-                exp = explainer.explain_instance(
-                    data_row=X_p_dense, 
-                    predict_fn=clf.predict_proba, 
-                    num_features=len(nombres_lime) 
-                )
-                
-                # 6. Filtrado Ampliado
-                lime_list = [item for item in exp.as_list() if 'Δ' in item[0] or 'Current' in item[0]]
-                
-                if not lime_list:
-                     st.info("No significant clinical interaction impacts found for this specific configuration.")
-                else:
-                    lime_list = [x for x in lime_list if abs(x[1]) > 0.001]
-                    lime_list = sorted(lime_list, key=lambda x: abs(x[1]))
-                    
-                    fig_l = go.Figure(go.Bar(
-                        x=[x[1]*100 for x in lime_list], 
-                        y=[x[0] for x in lime_list],
-                        orientation='h', 
-                        marker_color=['#D62728' if x[1]>0 else '#2CA02C' for x in lime_list],
-                        text=[f"+{x[1]*100:.1f}%" if x[1]>0 else f"{x[1]*100:.1f}%" for x in lime_list],
-                        textposition='outside', 
-                        textfont=dict(size=12)
-                    ))
-                    
-                    fig_l.update_layout(
-                        title=f"Scenario Impact Analysis (Simulated Trajectory)",
-                        xaxis_title="Impact on Probability (%)",
-                        plot_bgcolor='rgba(0,0,0,0)', 
-                        paper_bgcolor='rgba(0,0,0,0)',
-                        margin=dict(l=10, r=40, t=40, b=10),
-                        height=max(350, len(lime_list) * 38), 
-                        xaxis=dict(
-                            showgrid=True, gridcolor='rgba(128,128,128,0.2)', 
-                            zeroline=True, zerolinecolor='rgba(128,128,128,0.6)'
-                        )
-                    )
-                    
-                    col_l1, col_l2 = st.columns([1, 3])
-                    
-                    with col_l2: 
-                        st.plotly_chart(fig_l, use_container_width=True)
-                        
-                    with col_l1:
-                        st.markdown("### 📊 Simulated Risk")
-                        st.metric(
-                            label="Hypothetical 15-Day Prob.", 
-                            value=f"{riesgo_simulado*100:.1f}%", 
-                            delta=f"{variacion_riesgo:+.1f}% vs Current",
-                            delta_color="inverse"
-                        )
-                        st.markdown("---")
-        
-        except Exception as e:
-            st.error("Simulation engine failed to initialize.")
-            st.warning(str(e))
+
     with col_rutas:
-        # PEGA AQUÍ TODA TU SECCIÓN 6 (DiCE y Radares)
         # ==========================================
         # 6. THERAPEUTIC NAVIGATOR (DiCE - DUAL COORDINATED XAI)
         # ==========================================
@@ -1201,6 +1073,7 @@ with tab_estrategia:
                                 'EVO_portador_dispositivos': 'Device Bearer', 'EVO_ulceras_presion': 'Pressure Ulcers',
                                 'dias_internados': 'Additional Hospitalization Days'
                             }
+                            
                             with st.container(height=500):
                                 for r_idx in range(len(cf_df)):
                                     with st.expander(f"➔ 🛤️ Alternative Target Route {r_idx + 1}", expanded=(r_idx == 0)):
@@ -1279,13 +1152,143 @@ with tab_estrategia:
                                             )
                                             
                                             st.plotly_chart(fig_radar, use_container_width=True, key=f"dice_radar_ruta_cf_{r_idx}")
-                                        
+                                            
                         else:
                             st.error("No mathematically viable target routes were found.")
-                        
+                            
                 except Exception as e:
                     st.error("Counterfactual engine is currently unavailable.")
                     st.warning(f"Technical Context: {str(e)}")
+
+    # ==========================================
+    # --- MOTOR DE CÁLCULO DINÁMICO (LIME - ANCHO COMPLETO) ---
+    # ==========================================
+    st.markdown("---")
+    try:
+        with st.spinner("Analyzing combinatorial impacts of simulated trajectory..."):
+            # 1. Crear el clon simulado del paciente (Pasado Inmutable)
+            df_sim = df_paciente.copy()
+            
+            # Inyectar las simulaciones de variables temporales y continuas
+            df_sim['dias_internados'] = float(dias_sim)
+            df_sim['EVO_dolor_eva'] = float(dolor_sim)
+            df_sim['EVO_gravedad_percibida'] = float(severidad_sim)
+            
+            # Inyectar las simulaciones de variables categóricas (Toggles)
+            for col, val in status_evo_sim.items(): 
+                df_sim[col] = 1.0 if val else 0.0
+            
+            # 2. SINCRONIZACIÓN CAUSAL EXPANDIDA DE DELTAS
+            pares_delta = {
+                'DELTA_alteracion_mental': ('EVO_alteracion_mental', 'ING_alteracion_mental'),
+                'DELTA_dependencia_funcional': ('EVO_dependencia_funcional', 'ING_dependencia_funcional'),
+                'DELTA_portador_dispositivos': ('EVO_portador_dispositivos', 'ING_portador_dispositivos'),
+                'DELTA_dolor_eva': ('EVO_dolor_eva', 'ING_dolor_eva'),
+                'DELTA_gravedad_percibida': ('EVO_gravedad_percibida', 'ING_gravedad_percibida')
+            }
+            for col_delta, (col_evo, col_ing) in pares_delta.items():
+                if col_evo in df_sim.columns and col_ing in df_sim.columns:
+                    df_sim[col_delta] = df_sim[col_evo] - df_sim[col_ing]
+
+            # --- CÁLCULO DEL RIESGO SIMULADO ---
+            riesgo_base = pipeline.predict_proba(df_paciente)[0][1]
+            riesgo_simulado = pipeline.predict_proba(df_sim)[0][1]
+            variacion_riesgo = (riesgo_simulado - riesgo_base) * 100
+
+            # 3. Preprocesamiento Seguro
+            prep = pipeline.named_steps['preprocesador']
+            clf = pipeline.named_steps['clasificador']
+            
+            X_p_proc = prep.transform(df_sim)
+            X_p_dense = X_p_proc.toarray()[0] if hasattr(X_p_proc, 'toarray') else np.array(X_p_proc)[0]
+            
+            X_t_proc = prep.transform(df_train_sample)
+            X_t_dense = X_t_proc.toarray() if hasattr(X_t_proc, 'toarray') else np.array(X_t_proc)
+            
+            # 4. Mapeo de Nombres para la UI de LIME
+            nombres_crudos = prep.get_feature_names_out()
+            
+            ui_dict = {
+                'DELTA_dolor_eva': 'Δ Pain', 'DELTA_gravedad_percibida': 'Δ Severity',
+                'DELTA_alteracion_mental': 'Δ Mental Alt.', 'DELTA_dependencia_funcional': 'Δ Func. Dep.',
+                'DELTA_portador_dispositivos': 'Δ Medical Devices',
+                'EVO_dolor_eva': 'Current Pain', 'EVO_gravedad_percibida': 'Current Severity',
+                'EVO_aislamiento_infeccioso': 'Current Infect. Isolation',
+                'EVO_complicacion_internacion': 'Current Hosp. Complication',
+                'EVO_cuidados_paliativos': 'Current Palliat. Care',
+                'EVO_fuga_o_alta_irregular': 'Current Irreg. Discharge',
+                'EVO_ulceras_presion': 'Current Pressure Ulcers',
+                'EVO_alteracion_mental': 'Current Mental Alt.',
+                'EVO_dependencia_funcional': 'Current Func. Dep.',
+                'EVO_portador_dispositivos': 'Current Device Bearer'
+            }
+            
+            nombres_lime = [ui_dict.get(n.split('__')[-1].split('_1')[0], n.split('__')[-1]) for n in nombres_crudos]
+
+            # 5. Inicialización de LIME
+            explainer = lime.lime_tabular.LimeTabularExplainer(
+                training_data=X_t_dense,
+                feature_names=nombres_lime, 
+                mode='classification', 
+                random_state=42
+            )
+
+            exp = explainer.explain_instance(
+                data_row=X_p_dense, 
+                predict_fn=clf.predict_proba, 
+                num_features=len(nombres_lime) 
+            )
+            
+            # 6. Filtrado Ampliado
+            lime_list = [item for item in exp.as_list() if 'Δ' in item[0] or 'Current' in item[0]]
+            
+            if not lime_list:
+                 st.info("No significant clinical interaction impacts found for this specific configuration.")
+            else:
+                lime_list = [x for x in lime_list if abs(x[1]) > 0.001]
+                lime_list = sorted(lime_list, key=lambda x: abs(x[1]))
+                
+                fig_l = go.Figure(go.Bar(
+                    x=[x[1]*100 for x in lime_list], 
+                    y=[x[0] for x in lime_list],
+                    orientation='h', 
+                    marker_color=['#D62728' if x[1]>0 else '#2CA02C' for x in lime_list],
+                    text=[f"+{x[1]*100:.1f}%" if x[1]>0 else f"{x[1]*100:.1f}%" for x in lime_list],
+                    textposition='outside', 
+                    textfont=dict(size=12)
+                ))
+                
+                fig_l.update_layout(
+                    title=f"Scenario Impact Analysis (Simulated Trajectory)",
+                    xaxis_title="Impact on Probability (%)",
+                    plot_bgcolor='rgba(0,0,0,0)', 
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    margin=dict(l=10, r=40, t=40, b=10),
+                    height=max(350, len(lime_list) * 38), 
+                    xaxis=dict(
+                        showgrid=True, gridcolor='rgba(128,128,128,0.2)', 
+                        zeroline=True, zerolinecolor='rgba(128,128,128,0.6)'
+                    )
+                )
+                
+                col_l1, col_l2 = st.columns([1, 3])
+                
+                with col_l2: 
+                    st.plotly_chart(fig_l, use_container_width=True)
+                    
+                with col_l1:
+                    st.markdown("### 📊 Simulated Risk")
+                    st.metric(
+                        label="Hypothetical 15-Day Prob.", 
+                        value=f"{riesgo_simulado*100:.1f}%", 
+                        delta=f"{variacion_riesgo:+.1f}% vs Current",
+                        delta_color="inverse"
+                    )
+                    st.markdown("---")
+
+    except Exception as e:
+        st.error("Simulation engine failed to initialize.")
+        st.warning(str(e))
 
 
 
