@@ -1067,7 +1067,7 @@ else:
                                     legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="center", x=0.5)
                                 )
                                 
-                                st.plotly_chart(fig_radar, use_container_width=True, key=f"dice_radar_{i}")
+                                st.plotly_chart(fig_radar, use_container_width=True, key=f"dice_radar_ruta_cf_{r_idx}")
                                 
                 else:
                     st.error("No mathematically viable target routes were found.")
