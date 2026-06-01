@@ -1349,12 +1349,10 @@ def renderizar_notas_gemelo(texto_evolucion, citas_llm, lista_enfermedades):
         
     texto_resaltado = texto_evolucion
     
-    # --- MODIFICADO: Marcadores adaptados para modo oscuro ---
     if isinstance(citas_llm, dict):
         for cita, variable in citas_llm.items():
             if isinstance(cita, str) and cita.strip():
                 cita_escapada = re.escape(cita)
-                # FIX: Se fuerza 'color: #000000;' dentro del mark para que la letra no se ponga blanca con el fondo amarillo
                 marcador = f"<mark style='background-color: #FFF2CC; color: #000000; border-radius: 3px; padding: 2px 4px;'><b>{cita}</b> <span style='font-size: 0.7em; background-color: #FFD966; padding: 2px 5px; border-radius: 8px; color: #594000; margin-left: 4px; display: inline-block; vertical-align: middle; line-height: 1;'>{variable}</span></mark>"
                 texto_resaltado = re.sub(cita_escapada, marcador, texto_resaltado, flags=re.IGNORECASE)
                 
@@ -1362,11 +1360,9 @@ def renderizar_notas_gemelo(texto_evolucion, citas_llm, lista_enfermedades):
         for enfermedad in lista_enfermedades:
             if isinstance(enfermedad, str) and enfermedad.strip():
                 patron = rf"\b({re.escape(enfermedad)})\b"
-                # FIX: Fuerza letra negra en la marca de enfermedad
                 marcador = r"<mark style='background-color: #FFCCCC; color: #000000; border-radius: 3px; padding: 0px 2px;'>\1</mark>"
                 texto_resaltado = re.sub(patron, marcador, texto_resaltado, flags=re.IGNORECASE)
                 
-    # FIX PRINCIPAL: Uso de var(--secondary-background-color) y var(--text-color) nativos de Streamlit
     return f"""
     <div style='
         line-height: 1.8; 
@@ -1381,14 +1377,10 @@ def renderizar_notas_gemelo(texto_evolucion, citas_llm, lista_enfermedades):
     </div>
     """
 
-
-
 st.markdown("---")
-st.subheader("Clinical Similarity Network & Topology")
-st.markdown("Topological visualization using K-NN and Harmonic Centrality. Identifies the Archetypal Patient within the cluster.")
+# Reducción de la jerarquía del título y eliminación del subtítulo técnico
+st.markdown("#### Clinical Similarity Network & Topology")
 
-# 🌟 FIX: Cambiamos a cache_data con TTL (Time To Live) para que no se quede pegado para siempre, 
-# o simplemente mantenemos resource pero sabiendo que hay que limpiar la caché.
 @st.cache_resource
 def load_similarity_assets():
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1441,10 +1433,9 @@ if st.session_state.mostrar_grafo:
             
             similitudes_brutas = [max(0, (1 - d)) * 100 for d in distancias_vecinos]
             
-            # --- NUEVA LÓGICA DE ESCALADO DE TAMAÑOS (MIN-MAX SCALING) ---
             min_sim = min(similitudes_brutas)
             max_sim = max(similitudes_brutas)
-            rango_sim = max_sim - min_sim if max_sim != min_sim else 1.0 # Evitar división por cero
+            rango_sim = max_sim - min_sim if max_sim != min_sim else 1.0 
             
             G = nx.Graph()
             nodo_paciente = "Current\nPatient"
@@ -1453,26 +1444,21 @@ if st.session_state.mostrar_grafo:
             nodos_gemelos = []
             info_inspeccion = {}
             
-            # --- LISTA DE MARCADORES INVÁLIDOS (Definir justo antes del bucle) ---
             invalid_markers = ["N/A", "MISSING_DATA", "NONE", "NAN", ""]
             
             for i, (idx, similitud_pct) in enumerate(zip(vecinos_idx, similitudes_brutas)):
                 reingreso_real = float(matriz_extended[idx, col_idx['target']])
                 color_nodo = COLOR_HIST_READMIT if reingreso_real == 1.0 else COLOR_HIST_SAFE
                 
-                # --- NUEVO: DETECCIÓN ANTICIPADA DE TEXTO ---
                 raw_ing = str(matriz_extended[idx, col_idx.get('texto_anamnesis_ingreso', -1)] if 'texto_anamnesis_ingreso' in col_idx else "")
                 raw_evo = str(matriz_extended[idx, col_idx.get('texto_evolucion_internacion', -1)] if 'texto_evolucion_internacion' in col_idx else "")
                 
                 tiene_texto = (raw_ing.upper().strip() not in invalid_markers) or (raw_evo.upper().strip() not in invalid_markers)
                 icono_texto = " [TXT]" if tiene_texto else ""
-                # --------------------------------------------
                 
-                # Agregamos el ícono a la etiqueta (esto actualiza el grafo y el selectbox a la vez)
                 label_grafo = f"Patient {i+1}{icono_texto}\n({similitud_pct:.1f}%)"
                 nodos_gemelos.append(label_grafo)
                 
-                # Escalamos el tamaño dinámicamente entre 400 (mínimo) y 1800 (máximo)
                 norm_sim = (similitud_pct - min_sim) / rango_sim
                 tamaño_dinamico = 400 + (norm_sim * 1400)
                 
@@ -1509,9 +1495,6 @@ if st.session_state.mostrar_grafo:
             centrality.pop(nodo_paciente, None) 
             arquetipo_label = max(centrality, key=centrality.get)
             
-            # --- CORRECCIÓN DEL ARQUETIPO ---
-            # ELIMINAMOS la línea que modificaba el tamaño: G.nodes[arquetipo_label]['size'] = 1800
-            # Solo mantenemos el resaltado del borde dorado y grueso
             G.nodes[arquetipo_label]['edge_color'] = COLOR_ARCHETYPE
             G.nodes[arquetipo_label]['line_width'] = 4.5
             info_inspeccion[arquetipo_label]["is_archetype"] = True
@@ -1535,8 +1518,8 @@ if st.session_state.mostrar_grafo:
             with col_grafo:
                 st.pyplot(fig)
                 plt.close(fig)
-                # --- NUEVA LEYENDA TOPOLÓGICA (UI EN INGLÉS) ---
-                with st.expander("🗺️ How to read the Topology Map", expanded=True):
+                # Leyenda colapsada por defecto
+                with st.expander("🗺️ How to read the Topology Map", expanded=False):
                     st.markdown("""
                     - 📏 **Node Distance (Proximity):** Represents multidimensional clinical similarity. Nodes physically closer to the *Current Patient* share highly identical medical histories and evolution trajectories.
                     - 🫧 **Node Size:** Proportional to the match percentage. Larger nodes indicate a stronger and more reliable "clinical twin" correlation.
@@ -1554,19 +1537,27 @@ if st.session_state.mostrar_grafo:
                     idx_gemelo_matriz = vecinos_idx[lista_nodos.index(seleccion)]
                     data = info_inspeccion[seleccion]
                     
+                    # Match y Outcome posicionados inmediatamente debajo del selectbox
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        st.metric(label="Clinical Match", value=f"{data['similitud']:.1f}%")
+                    with c2:
+                        if data['outcome_text'] == "Readmitted":
+                            st.error(f"**Outcome:**\n{data['outcome_text']}")
+                        else:
+                            st.success(f"**Outcome:**\n{data['outcome_text']}")
                     
-                        # --- COMPONENTE MEJORADO: INSIGHT CLINICO HONESTO (LOCAL PROTOTYPE) ---
+                    st.markdown("---")
+                    
+                    # Insights Colapsados
                     if data.get("is_archetype"):
-                        st.warning("⭐ **Local Prototype (Micro-Cluster Anchor)**")
-                        
-                        with st.container():
+                        with st.expander("⭐ Local Prototype Insights (Micro-Cluster Anchor)", expanded=False):
                             st.markdown(
                                 """
                                 <div style='
                                     padding: 12px; 
                                     background-color: rgba(255, 215, 0, 0.1); 
                                     border-left: 4px solid #FFD700; 
-                                    margin-bottom: 15px;
                                     border-radius: 4px;
                                 '>
                                     <h5 style='margin-top:0; color:#FFD700; font-size:14px;'>🎯 Local Network Insights</h5>
@@ -1583,15 +1574,7 @@ if st.session_state.mostrar_grafo:
                                 """, 
                                 unsafe_allow_html=True
                             )
-                    # ---------------------------------------------------------------------
-                    st.metric(label="Clinical Match", value=f"{data['similitud']:.1f}%")
                     
-                    if data['outcome_text'] == "Readmitted":
-                        st.error(f"**Outcome:** {data['outcome_text']}")
-                    else:
-                        st.success(f"**Outcome:** {data['outcome_text']}")
-                    
-                    st.markdown("---")
                     st.markdown("#### 🤝 Shared Clinical Profile")
                     with st.expander("View Core Matching Variables", expanded=True):
                         for nombre_var_es, valor_var in data['datos_comunes'].items():
@@ -1624,7 +1607,6 @@ if st.session_state.mostrar_grafo:
                     st.markdown(f"**Prior ER Visits (6m):** {safe_int(data['guardia'])}")
                     st.markdown(f"**Consultations:** {safe_int(data['interconsultas'])}")
                     
-                    # --- BLOQUE DE FENOTIPO NARRATIVO LIMPIO ---
                     st.markdown("#### 📜 Narrative Phenotype (Notes)")
                     
                     raw_ing = str(matriz_extended[idx_gemelo_matriz, col_idx.get('texto_anamnesis_ingreso', -1)] if 'texto_anamnesis_ingreso' in col_idx else "")
@@ -1641,7 +1623,6 @@ if st.session_state.mostrar_grafo:
                         if texto_ing: texto_completo += f"**Admission:**\n{texto_ing}\n\n"
                         if texto_evo: texto_completo += f"**Evolution:**\n{texto_evo}"
                         
-                        # --- MODIFICADO: Ahora extraemos un DICCIONARIO ---
                         citas_gemelo = {} 
                         for col_nombre in nombres_columnas:
                             if col_nombre.startswith("TX_"):
@@ -1651,51 +1632,32 @@ if st.session_state.mostrar_grafo:
                                     var_traducida = TRANSLATION_DICT.get(var_original, var_original.replace('_', ' ').title())
                                     citas_gemelo[cita_val.strip()] = var_traducida
                         
-                            enfermedades_a_resaltar = [
-                            # --- Base original ---
+                        enfermedades_a_resaltar = [
                             "diabetes", "hipertensión", "epoc", "neumonía", "tuberculosis", "iam", "acv", "cáncer",
                             "trombosis", "celulitis", "plaquetopenia", "fa", "fibrilación auricular", "insuficiencia cardíaca",
                             "sepsis", "infarto", "arritmia", "infección", "sme compartimental",
-                        
-                            # --- Cardiovasculares y Hemodinámicas ---
                             "isquemia", "angina", "miocardiopatía", "endocarditis", "pericarditis", "shock",
                             "aneurisma", "taponamiento cardíaco", "tvp", "tromboembolismo", "tep",
                             "hipertensión arterial", "hta", "hipotensión", "bradicardia", "taquicardia", "ic",
                             "sca", "síndrome coronario agudo", "insuficiencia venosa",
-                        
-                            # --- Respiratorias ---
                             "asma", "bronquitis", "derrame pleural", "edema agudo de pulmón", "eap",
                             "insuficiencia respiratoria", "sdra", "neumotórax", "fibrosis pulmonar", "broncoespasmo",
-                        
-                            # --- Renales y Urológicas ---
                             "itu", "infección urinaria", "insuficiencia renal", "ira", "irc", "pielonefritis",
                             "litiasis", "nefropatía", "retención aguda de orina", "rao", "hematuria",
-                        
-                            # --- Metabólicas y Endocrinas ---
                             "hipotiroidismo", "hipertiroidismo", "cetoacidosis", "hipoglucemia", "hiperglucemia",
                             "dislipidemia", "obesidad", "desnutrición", "sme metabólico", "acidosis",
-                        
-                            # --- Neurológicas y Psiquiátricas ---
                             "convulsión", "epilepsia", "demencia", "alzheimer", "parkinson", "delirium",
                             "encefalopatía", "meningitis", "isquemia cerebral", "hemorragia subaracnoidea",
                             "ataque isquémico transitorio", "ait", "sme confusional", "delirio",
-                        
-                            # --- Digestivas y Hepáticas ---
                             "cirrosis", "hepatitis", "pancreatitis", "colecistitis", "apendicitis", "peritonitis",
                             "hemorragia digestiva", "hda", "hdb", "úlcera", "úlceras", "úlcera gástrica", 
                             "obstrucción intestinal", "íleo", "isquemia mesentérica", "ascitis", 
                             "insuficiencia hepática", "gastroenteritis", "colitis", "colitis ulcerosa", 
                             "enfermedad de crohn", "diverticulitis", "celiaquía",
-                        
-                            # --- Hematológicas y Oncológicas ---
                             "anemia", "leucemia", "linfoma", "neutropenia", "coagulopatía", "metástasis",
                             "tumor", "neoplasia", "leucocitosis", "pancitopenia", "mieloma",
-                        
-                            # --- Infecciosas y Sistémicas ---
                             "bacteriemia", "shock séptico", "covid", "osteomielitis", "fascitis",
                             "candidiasis", "aspergilosis", "vih", "sida", "dengue", "bacteraemia", "sir", "tbc",
-                        
-                            # --- Traumatológicas, Piel y Quirúrgicas ---
                             "fractura", "luxación", "artrosis", "artritis", "sme de aplastamiento",
                             "úlcera por presión", "úlceras por presión", "escara", "escaras", 
                             "herida quirúrgica", "evisceración", "dehiscencia", "osteomielitis", "necrosis", "gangrena"
