@@ -987,84 +987,84 @@ else:
                         'EVO_portador_dispositivos': 'Device Bearer', 'EVO_ulceras_presion': 'Pressure Ulcers',
                         'dias_internados': 'Additional Hospitalization Days'
                     }
-                    
-                    for r_idx in range(len(cf_df)):
-                        with st.expander(f"➔ 🛤️ Alternative Target Route {r_idx + 1}", expanded=(r_idx == 0)):
-                            cambios_detectados = 0
-                            st.markdown("##### 🎯 Stabilization Actions:")
-                            
-                            for col in vars_a_variar:
-                                val_orig = df_paciente.iloc[0][col]
-                                val_cf = cf_df.iloc[r_idx][col] 
+                    with st.container(height=500):
+                        for r_idx in range(len(cf_df)):
+                            with st.expander(f"➔ 🛤️ Alternative Target Route {r_idx + 1}", expanded=(r_idx == 0)):
+                                cambios_detectados = 0
+                                st.markdown("##### 🎯 Stabilization Actions:")
                                 
-                                if val_orig != val_cf:
-                                    cambios_detectados += 1
-                                    col_en = evo_output_dict.get(col, col)
+                                for col in vars_a_variar:
+                                    val_orig = df_paciente.iloc[0][col]
+                                    val_cf = cf_df.iloc[r_idx][col] 
                                     
-                                    if 'dolor' in col or 'gravedad' in col:
-                                        st.write(f"- 💊 **{col_en}**: Target reduction ➔ **[{val_cf:.0f}]** (Currently: {val_orig:.0f})")
-                                    elif col == 'dias_internados':
-                                        dias_extra = val_cf - val_orig
-                                        st.write(f"- ⏳ **{col_en}**: Extend stay by ➔ **[+{dias_extra:.0f} days]** (Total target: {val_cf:.0f})")
-                                    else:
-                                        status_en = "Resolved/Absent" if val_cf == 0 else "Present"
-                                        st.write(f"- 🛡️ **{col_en}**: Target status ➔ **[{status_en}]**")
+                                    if val_orig != val_cf:
+                                        cambios_detectados += 1
+                                        col_en = evo_output_dict.get(col, col)
                                         
-                            if cambios_detectados == 0:
-                                st.write("This alternative suggests maintaining current parameters based on marginal risk stability.")
-                            else:
-                                # --- MULTIDIMENSIONAL RADAR CHART ---
-                                radar_map = {
-                                    'Δ Pain': ('EVO_dolor_eva', 'ING_dolor_eva'),
-                                    'Δ Severity': ('EVO_gravedad_percibida', 'ING_gravedad_percibida'),
-                                    'Δ Mental Alt.': ('EVO_alteracion_mental', 'ING_alteracion_mental'),
-                                    'Δ Func. Dep.': ('EVO_dependencia_funcional', 'ING_dependencia_funcional'),
-                                    'Δ Devices': ('EVO_portador_dispositivos', 'ING_portador_dispositivos')
-                                }
-                                
-                                categorias_radar = list(radar_map.keys())
-                                valores_actuales_radar = []
-                                valores_meta_radar = []
-                                
-                                for cat, (col_evo, col_ing) in radar_map.items():
-                                    v_ing = df_paciente.iloc[0].get(col_ing, 0)
-                                    v_evo_act = df_paciente.iloc[0].get(col_evo, 0)
-                                    valores_actuales_radar.append(v_evo_act - v_ing)
+                                        if 'dolor' in col or 'gravedad' in col:
+                                            st.write(f"- 💊 **{col_en}**: Target reduction ➔ **[{val_cf:.0f}]** (Currently: {val_orig:.0f})")
+                                        elif col == 'dias_internados':
+                                            dias_extra = val_cf - val_orig
+                                            st.write(f"- ⏳ **{col_en}**: Extend stay by ➔ **[+{dias_extra:.0f} days]** (Total target: {val_cf:.0f})")
+                                        else:
+                                            status_en = "Resolved/Absent" if val_cf == 0 else "Present"
+                                            st.write(f"- 🛡️ **{col_en}**: Target status ➔ **[{status_en}]**")
+                                            
+                                if cambios_detectados == 0:
+                                    st.write("This alternative suggests maintaining current parameters based on marginal risk stability.")
+                                else:
+                                    # --- MULTIDIMENSIONAL RADAR CHART ---
+                                    radar_map = {
+                                        'Δ Pain': ('EVO_dolor_eva', 'ING_dolor_eva'),
+                                        'Δ Severity': ('EVO_gravedad_percibida', 'ING_gravedad_percibida'),
+                                        'Δ Mental Alt.': ('EVO_alteracion_mental', 'ING_alteracion_mental'),
+                                        'Δ Func. Dep.': ('EVO_dependencia_funcional', 'ING_dependencia_funcional'),
+                                        'Δ Devices': ('EVO_portador_dispositivos', 'ING_portador_dispositivos')
+                                    }
                                     
-                                    v_evo_meta = cf_df.iloc[r_idx].get(col_evo, v_evo_act)
-                                    valores_meta_radar.append(v_evo_meta - v_ing)
+                                    categorias_radar = list(radar_map.keys())
+                                    valores_actuales_radar = []
+                                    valores_meta_radar = []
                                     
-                                cat_cerradas = categorias_radar + [categorias_radar[0]]
-                                val_act_cerrados = valores_actuales_radar + [valores_actuales_radar[0]]
-                                val_meta_cerrados = valores_meta_radar + [valores_meta_radar[0]]
-                                
-                                fig_radar = go.Figure()
-                                
-                                fig_radar.add_trace(go.Scatterpolar(
-                                    r=val_act_cerrados, theta=cat_cerradas,
-                                    fill='toself', fillcolor='rgba(214, 39, 40, 0.25)', 
-                                    line=dict(color='#D62728', width=2.5), name='Current State'
-                                ))
-                                
-                                fig_radar.add_trace(go.Scatterpolar(
-                                    r=val_meta_cerrados, theta=cat_cerradas,
-                                    fill='toself', fillcolor='rgba(44, 160, 44, 0.25)', 
-                                    line=dict(color='#2CA02C', width=2.5), name='DiCE Target'
-                                ))
-                                
-                                fig_radar.update_layout(
-                                    polar=dict(
-                                        radialaxis=dict(visible=True, range=[-2, 8]),
-                                        bgcolor='rgba(0,0,0,0)' 
-                                    ),
-                                    paper_bgcolor='rgba(0,0,0,0)', 
-                                    plot_bgcolor='rgba(0,0,0,0)',
-                                    margin=dict(l=40, r=40, t=40, b=40), 
-                                    height=450,
-                                    legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="center", x=0.5)
-                                )
-                                
-                                st.plotly_chart(fig_radar, use_container_width=True, key=f"dice_radar_ruta_cf_{r_idx}")
+                                    for cat, (col_evo, col_ing) in radar_map.items():
+                                        v_ing = df_paciente.iloc[0].get(col_ing, 0)
+                                        v_evo_act = df_paciente.iloc[0].get(col_evo, 0)
+                                        valores_actuales_radar.append(v_evo_act - v_ing)
+                                        
+                                        v_evo_meta = cf_df.iloc[r_idx].get(col_evo, v_evo_act)
+                                        valores_meta_radar.append(v_evo_meta - v_ing)
+                                        
+                                    cat_cerradas = categorias_radar + [categorias_radar[0]]
+                                    val_act_cerrados = valores_actuales_radar + [valores_actuales_radar[0]]
+                                    val_meta_cerrados = valores_meta_radar + [valores_meta_radar[0]]
+                                    
+                                    fig_radar = go.Figure()
+                                    
+                                    fig_radar.add_trace(go.Scatterpolar(
+                                        r=val_act_cerrados, theta=cat_cerradas,
+                                        fill='toself', fillcolor='rgba(214, 39, 40, 0.25)', 
+                                        line=dict(color='#D62728', width=2.5), name='Current State'
+                                    ))
+                                    
+                                    fig_radar.add_trace(go.Scatterpolar(
+                                        r=val_meta_cerrados, theta=cat_cerradas,
+                                        fill='toself', fillcolor='rgba(44, 160, 44, 0.25)', 
+                                        line=dict(color='#2CA02C', width=2.5), name='DiCE Target'
+                                    ))
+                                    
+                                    fig_radar.update_layout(
+                                        polar=dict(
+                                            radialaxis=dict(visible=True, range=[-2, 8]),
+                                            bgcolor='rgba(0,0,0,0)' 
+                                        ),
+                                        paper_bgcolor='rgba(0,0,0,0)', 
+                                        plot_bgcolor='rgba(0,0,0,0)',
+                                        margin=dict(l=40, r=40, t=40, b=40), 
+                                        height=450,
+                                        legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="center", x=0.5)
+                                    )
+                                    
+                                    st.plotly_chart(fig_radar, use_container_width=True, key=f"dice_radar_ruta_cf_{r_idx}")
                                 
                 else:
                     st.error("No mathematically viable target routes were found.")
