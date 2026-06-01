@@ -851,7 +851,7 @@ with col_der:
 # 6. THERAPEUTIC NAVIGATOR (DiCE - DUAL COORDINATED XAI)
 # ==========================================
 st.markdown("---")
-st.subheader("Therapeutic Navigator (Prescriptive AI)")
+st.markdown("#### Clinical Stabilization Routes")
 
 class ModeloSincronizado:
     def __init__(self, pipeline_original, columnas_modelo):
@@ -879,8 +879,6 @@ class ModeloSincronizado:
 if riesgo <= umbral:
     st.info("The patient is in optimal condition for discharge. No stabilization targets required.")
 else:
-    st.warning("High risk detected. Automatically calculating clinical stabilization targets to reach the safety threshold...")
-    
     # --- EJECUCIÓN AUTOMÁTICA (SIN BOTÓN) ---
     with st.spinner("Calculating multiple clinically viable stabilization routes..."):
         try:
@@ -980,7 +978,6 @@ else:
                     cf_df = cf_df.drop_duplicates(subset=vars_a_variar).reset_index(drop=True)
 
                     st.success(f"✅ **{len(cf_df)} UNIQUE CLINICAL STABILIZATION TARGETS FOUND:**")
-                    st.markdown("The medical staff can select the most feasible goal according to the ward capabilities:")
                     
                     evo_output_dict = {
                         'EVO_dolor_eva': 'Current Pain', 'EVO_gravedad_percibida': 'Current Severity',
@@ -994,7 +991,7 @@ else:
                     for r_idx in range(len(cf_df)):
                         with st.expander(f"➔ 🛤️ Alternative Target Route {r_idx + 1}", expanded=(r_idx == 0)):
                             cambios_detectados = 0
-                            st.markdown("#### 🎯 Prescriptive Actions:")
+                            st.markdown("##### 🎯 Stabilization Actions:")
                             
                             for col in vars_a_variar:
                                 val_orig = df_paciente.iloc[0][col]
@@ -1069,9 +1066,9 @@ else:
                                 
                                 st.plotly_chart(fig_radar, use_container_width=True, key=f"dice_radar_ruta_cf_{r_idx}")
                                 
-                else:
-                    st.error("No mathematically viable target routes were found.")
-                    
+            else:
+                st.error("No mathematically viable target routes were found.")
+                
         except Exception as e:
             st.error("Counterfactual engine is currently unavailable.")
             st.warning(f"Technical Context: {str(e)}")
