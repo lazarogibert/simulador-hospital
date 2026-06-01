@@ -1088,9 +1088,12 @@ with st.expander("🛠️ Configure Stabilization Scenario", expanded=True):
     # Fila 1: Control de Tiempo Dinámico
     dias_base = int(float(df_paciente['dias_internados'].iloc[0] if 'dias_internados' in df_paciente.columns else 1.0))
     max_permitido = max(dias_base + 20, 30) 
+    
+    # FIX STICKY STATE: Clave dinámica basada en el valor base
     dias_sim = st.slider(
         label="Hospitalization Stay (Days):", 
         min_value=1, max_value=max_permitido, value=dias_base, step=1,
+        key=f"sim_dias_base_{dias_base}",
         help="Drag left to simulate premature discharge or right to project extended stay impacts."
     )
     
@@ -1103,19 +1106,23 @@ with st.expander("🛠️ Configure Stabilization Scenario", expanded=True):
     with col_dolor:
         dolor_crudo = df_paciente['EVO_dolor_eva'].iloc[0] if 'EVO_dolor_eva' in df_paciente.columns else 0.0
         dolor_base = int(float(dolor_crudo))
+        
+        # FIX STICKY STATE: Clave dinámica
         dolor_sim = st.slider(
             label="Current Pain Level (VAS 0-10):", 
             min_value=0, max_value=10, value=dolor_base, step=1,
-            key="sim_EVO_dolor_eva"
+            key=f"sim_dolor_base_{dolor_base}"
         )
         
     with col_severidad:
         sev_crudo = df_paciente['EVO_gravedad_percibida'].iloc[0] if 'EVO_gravedad_percibida' in df_paciente.columns else 0.0
         sev_base = int(float(sev_crudo))
+        
+        # FIX STICKY STATE: Clave dinámica
         severidad_sim = st.slider(
             label="Current Perceived Severity (0-10):", 
             min_value=0, max_value=10, value=sev_base, step=1,
-            key="sim_EVO_gravedad_percibida"
+            key=f"sim_sev_base_{sev_base}"
         )
     
     st.markdown("---")
@@ -1139,11 +1146,11 @@ with st.expander("🛠️ Configure Stabilization Scenario", expanded=True):
     for i, (label, col) in enumerate(sim_evo_map.items()):
         with cols_evo[i % 4]:
             val_raw = df_paciente[col].iloc[0] if col in df_paciente.columns else 0
-            # FIX: Validación estricta que soporta enteros, flotantes y cadenas de texto
             val_str = str(val_raw).strip().upper()
             val_init = True if val_str in ['1', '1.0', 'TRUE', 'YES'] else False
             
-            status_evo_sim[col] = st.toggle(label, value=val_init, key=f"sim_{col}")
+            # FIX STICKY STATE: El toggle ahora detecta si el estado base del paciente cambió
+            status_evo_sim[col] = st.toggle(label, value=val_init, key=f"sim_{col}_base_{val_init}")
 
 # --- MOTOR DE CÁLCULO DINÁMICO ---
 try:
