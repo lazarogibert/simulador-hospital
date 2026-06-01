@@ -1080,8 +1080,7 @@ else:
 # 7. INTERACTIVE CLINICAL SANDBOX (LIME WHAT-IF)
 # ==========================================
 st.markdown("---")
-st.subheader("🧪 Clinical Hypothesis Simulator (SandBox)")
-st.markdown("Modify stay duration, continuous clinical metrics, or toggle evolution complications to observe how the risk boundaries and interaction weights react. **Admission parameters remain locked.**")
+st.markdown("#### 🧪 Clinical Hypothesis Simulator (SandBox)")
 
 # --- HYPOTHESIS CONTROL PANEL ---
 with st.expander("🛠️ Configure Stabilization Scenario", expanded=True):
@@ -1274,14 +1273,6 @@ try:
                     delta_color="inverse"
                 )
                 st.markdown("---")
-                
-                st.info("**Simulation Insight**")
-                st.caption("This graph shows how resolving or acquiring specific complications dynamically changes the model's 'reasoning' for *this specific patient*.")
-                
-                if dias_sim > dias_base:
-                    st.warning("⚠️ **Future Projection:** Simulating extended stay. Observe if protective factors degrade over time.")
-                elif dias_sim < dias_base:
-                    st.caption("⏪ **Retrospective View:** Simulating premature discharge conditions.")
 
 except Exception as e:
     st.error("Simulation engine failed to initialize.")
