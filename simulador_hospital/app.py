@@ -1081,18 +1081,45 @@ else:
 # ==========================================
 st.markdown("---")
 st.subheader("🧪 Clinical Hypothesis Simulator (SandBox)")
-st.markdown("Modify stay duration or toggle evolution complications to observe how the local risk boundaries and interaction weights (LIME) react to different clinical outcomes. **Admission parameters are locked to preserve temporal causality.**")
+st.markdown("Modify stay duration, continuous clinical metrics, or toggle evolution complications to observe how the risk boundaries and interaction weights react. **Admission parameters remain locked.**")
 
 # --- HYPOTHESIS CONTROL PANEL ---
 with st.expander("🛠️ Configure Stabilization Scenario", expanded=True):
-    # Control de Tiempo
+    # Fila 1: Control de Tiempo Dinámico
     dias_base = int(df_paciente['dias_internados'].iloc[0] if 'dias_internados' in df_paciente.columns else 1)
-    dias_sim = st.slider("Hospitalization Stay (Days):", min_value=1, max_value=60, value=dias_base, step=1)
+    max_permitido = max(dias_base + 20, 30) 
+    dias_sim = st.slider(
+        label="Hospitalization Stay (Days):", 
+        min_value=1, max_value=max_permitido, value=dias_base, step=1,
+        help="Drag left to simulate premature discharge or right to project extended stay impacts."
+    )
     
     st.markdown("---")
-    st.markdown("**Evolution Status (EVO)** - *Toggle acquired complications or resolved states*")
     
-    # Mapa completo de complicaciones de evolución
+    # Fila 2: NUEVOS CONTROLES CONTINUOS (Dolor y Severidad)
+    st.markdown("**Continuous Evolution Metrics** - *Simulate symptom progression*")
+    col_dolor, col_severidad = st.columns(2)
+    
+    with col_dolor:
+        dolor_base = float(df_paciente['EVO_dolor_eva'].iloc[0] if 'EVO_dolor_eva' in df_paciente.columns else 0.0)
+        dolor_sim = st.slider(
+            label="Current Pain Level (VAS 0-10):", 
+            min_value=0.0, max_value=10.0, value=dolor_base, step=0.5,
+            key="sim_EVO_dolor_eva"
+        )
+        
+    with col_severidad:
+        sev_base = float(df_paciente['EVO_gravedad_percibida'].iloc[0] if 'EVO_gravedad_percibida' in df_paciente.columns else 0.0)
+        severidad_sim = st.slider(
+            label="Current Perceived Severity (0-10):", 
+            min_value=0.0, max_value=10.0, value=sev_base, step=0.5,
+            key="sim_EVO_gravedad_percibida"
+        )
+    
+    st.markdown("---")
+    
+    # Fila 3: Controles de Complicaciones (Toggles)
+    st.markdown("**Evolution Status (EVO)** - *Toggle acquired complications or resolved states*")
     sim_evo_map = {
         'Mental Alteration': 'EVO_alteracion_mental',
         'Functional Dependency': 'EVO_dependencia_funcional',
@@ -1104,12 +1131,10 @@ with st.expander("🛠️ Configure Stabilization Scenario", expanded=True):
         'Irregular Discharge': 'EVO_fuga_o_alta_irregular'
     }
     
-    # Cuadrícula de 4 columnas para organizar los 8 toggles limpiamente
     cols_evo = st.columns(4)
     status_evo_sim = {}
     
     for i, (label, col) in enumerate(sim_evo_map.items()):
-        # divmod reparte los toggles equitativamente entre las 4 columnas
         with cols_evo[i % 4]:
             val_init = bool(df_paciente[col].iloc[0] if col in df_paciente.columns else 0)
             status_evo_sim[col] = st.toggle(label, value=val_init, key=f"sim_{col}")
@@ -1120,17 +1145,23 @@ try:
         # 1. Crear el clon simulado del paciente (Pasado Inmutable)
         df_sim = df_paciente.copy()
         
-        # Inyectar las simulaciones de futuro/presente
+        # Inyectar las simulaciones de variables temporales y continuas
         df_sim['dias_internados'] = float(dias_sim)
+        df_sim['EVO_dolor_eva'] = float(dolor_sim)
+        df_sim['EVO_gravedad_percibida'] = float(severidad_sim)
+        
+        # Inyectar las simulaciones de variables categóricas (Toggles)
         for col, val in status_evo_sim.items(): 
             df_sim[col] = 1.0 if val else 0.0
         
-        # 2. SINCRONIZACIÓN CAUSAL DE DELTAS
-        # (Solo recalculamos los deltas de las variables que tienen equivalente al ingreso)
+        # 2. SINCRONIZACIÓN CAUSAL EXPANDIDA DE DELTAS
+        # Añadimos los deltas de dolor y severidad para mantener coherencia temporal estricta
         pares_delta = {
             'DELTA_alteracion_mental': ('EVO_alteracion_mental', 'ING_alteracion_mental'),
             'DELTA_dependencia_funcional': ('EVO_dependencia_funcional', 'ING_dependencia_funcional'),
-            'DELTA_portador_dispositivos': ('EVO_portador_dispositivos', 'ING_portador_dispositivos')
+            'DELTA_portador_dispositivos': ('EVO_portador_dispositivos', 'ING_portador_dispositivos'),
+            'DELTA_dolor_eva': ('EVO_dolor_eva', 'ING_dolor_eva'),
+            'DELTA_gravedad_percibida': ('EVO_gravedad_percibida', 'ING_gravedad_percibida')
         }
         for col_delta, (col_evo, col_ing) in pares_delta.items():
             if col_evo in df_sim.columns and col_ing in df_sim.columns:
@@ -1140,7 +1171,6 @@ try:
         riesgo_base = pipeline.predict_proba(df_paciente)[0][1]
         riesgo_simulado = pipeline.predict_proba(df_sim)[0][1]
         variacion_riesgo = (riesgo_simulado - riesgo_base) * 100
-        # -----------------------------------
 
         # 3. Preprocesamiento Seguro
         prep = pipeline.named_steps['preprocesador']
@@ -1152,20 +1182,19 @@ try:
         X_t_proc = prep.transform(df_train_sample)
         X_t_dense = X_t_proc.toarray() if hasattr(X_t_proc, 'toarray') else np.array(X_t_proc)
         
-        # 4. Mapeo de Nombres (Traducido al inglés para la UI)
+        # 4. Mapeo de Nombres para la UI de LIME
         nombres_crudos = prep.get_feature_names_out()
         
-        # Diccionario para unificar nomenclaturas en LIME
         ui_dict = {
             'DELTA_dolor_eva': 'Δ Pain', 'DELTA_gravedad_percibida': 'Δ Severity',
             'DELTA_alteracion_mental': 'Δ Mental Alt.', 'DELTA_dependencia_funcional': 'Δ Func. Dep.',
             'DELTA_portador_dispositivos': 'Δ Medical Devices',
+            'EVO_dolor_eva': 'Current Pain', 'EVO_gravedad_percibida': 'Current Severity',
             'EVO_aislamiento_infeccioso': 'Current Infect. Isolation',
             'EVO_complicacion_internacion': 'Current Hosp. Complication',
             'EVO_cuidados_paliativos': 'Current Palliat. Care',
             'EVO_fuga_o_alta_irregular': 'Current Irreg. Discharge',
             'EVO_ulceras_presion': 'Current Pressure Ulcers',
-            # Mapeamos las evoluciones que SÍ tienen delta por si el modelo las usa aisladas
             'EVO_alteracion_mental': 'Current Mental Alt.',
             'EVO_dependencia_funcional': 'Current Func. Dep.',
             'EVO_portador_dispositivos': 'Current Device Bearer'
@@ -1187,13 +1216,12 @@ try:
             num_features=len(nombres_lime) 
         )
         
-        # 6. Filtrado Ampliado: Mostramos Deltas Y Complicaciones Adquiridas
+        # 6. Filtrado Ampliado: Mostramos Deltas Y Complicaciones Adquiridas/Métricas Actuales
         lime_list = [item for item in exp.as_list() if 'Δ' in item[0] or 'Current' in item[0]]
         
         if not lime_list:
              st.info("No significant clinical interaction impacts found for this specific configuration.")
         else:
-            # Eliminar ceros matemáticos y ordenar por peso
             lime_list = [x for x in lime_list if abs(x[1]) > 0.001]
             lime_list = sorted(lime_list, key=lambda x: abs(x[1]))
             
@@ -1213,7 +1241,7 @@ try:
                 plot_bgcolor='rgba(0,0,0,0)', 
                 paper_bgcolor='rgba(0,0,0,0)',
                 margin=dict(l=10, r=40, t=40, b=10),
-                height=max(300, len(lime_list) * 40), # Ajuste dinámico de altura
+                height=max(350, len(lime_list) * 38), 
                 xaxis=dict(
                     showgrid=True, gridcolor='rgba(128,128,128,0.2)', 
                     zeroline=True, zerolinecolor='rgba(128,128,128,0.6)'
