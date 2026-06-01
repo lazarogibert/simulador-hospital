@@ -1086,7 +1086,7 @@ st.markdown("Modify stay duration, continuous clinical metrics, or toggle evolut
 # --- HYPOTHESIS CONTROL PANEL ---
 with st.expander("🛠️ Configure Stabilization Scenario", expanded=True):
     # Fila 1: Control de Tiempo Dinámico
-    dias_base = int(df_paciente['dias_internados'].iloc[0] if 'dias_internados' in df_paciente.columns else 1)
+    dias_base = int(float(df_paciente['dias_internados'].iloc[0] if 'dias_internados' in df_paciente.columns else 1.0))
     max_permitido = max(dias_base + 20, 30) 
     dias_sim = st.slider(
         label="Hospitalization Stay (Days):", 
@@ -1096,29 +1096,31 @@ with st.expander("🛠️ Configure Stabilization Scenario", expanded=True):
     
     st.markdown("---")
     
-    # Fila 2: NUEVOS CONTROLES CONTINUOS (Dolor y Severidad)
+    # Fila 2: CONTROLES CONTINUOS (Dolor y Severidad forzados a Enteros)
     st.markdown("**Continuous Evolution Metrics** - *Simulate symptom progression*")
     col_dolor, col_severidad = st.columns(2)
     
     with col_dolor:
-        dolor_base = float(df_paciente['EVO_dolor_eva'].iloc[0] if 'EVO_dolor_eva' in df_paciente.columns else 0.0)
+        dolor_crudo = df_paciente['EVO_dolor_eva'].iloc[0] if 'EVO_dolor_eva' in df_paciente.columns else 0.0
+        dolor_base = int(float(dolor_crudo))
         dolor_sim = st.slider(
             label="Current Pain Level (VAS 0-10):", 
-            min_value=0.0, max_value=10.0, value=dolor_base, step=0.5,
+            min_value=0, max_value=10, value=dolor_base, step=1,
             key="sim_EVO_dolor_eva"
         )
         
     with col_severidad:
-        sev_base = float(df_paciente['EVO_gravedad_percibida'].iloc[0] if 'EVO_gravedad_percibida' in df_paciente.columns else 0.0)
+        sev_crudo = df_paciente['EVO_gravedad_percibida'].iloc[0] if 'EVO_gravedad_percibida' in df_paciente.columns else 0.0
+        sev_base = int(float(sev_crudo))
         severidad_sim = st.slider(
             label="Current Perceived Severity (0-10):", 
-            min_value=0.0, max_value=10.0, value=sev_base, step=0.5,
+            min_value=0, max_value=10, value=sev_base, step=1,
             key="sim_EVO_gravedad_percibida"
         )
     
     st.markdown("---")
     
-    # Fila 3: Controles de Complicaciones (Toggles)
+    # Fila 3: Controles de Complicaciones (Toggles con validación robusta)
     st.markdown("**Evolution Status (EVO)** - *Toggle acquired complications or resolved states*")
     sim_evo_map = {
         'Mental Alteration': 'EVO_alteracion_mental',
@@ -1136,7 +1138,11 @@ with st.expander("🛠️ Configure Stabilization Scenario", expanded=True):
     
     for i, (label, col) in enumerate(sim_evo_map.items()):
         with cols_evo[i % 4]:
-            val_init = bool(df_paciente[col].iloc[0] if col in df_paciente.columns else 0)
+            val_raw = df_paciente[col].iloc[0] if col in df_paciente.columns else 0
+            # FIX: Validación estricta que soporta enteros, flotantes y cadenas de texto
+            val_str = str(val_raw).strip().upper()
+            val_init = True if val_str in ['1', '1.0', 'TRUE', 'YES'] else False
+            
             status_evo_sim[col] = st.toggle(label, value=val_init, key=f"sim_{col}")
 
 # --- MOTOR DE CÁLCULO DINÁMICO ---
@@ -1155,7 +1161,6 @@ try:
             df_sim[col] = 1.0 if val else 0.0
         
         # 2. SINCRONIZACIÓN CAUSAL EXPANDIDA DE DELTAS
-        # Añadimos los deltas de dolor y severidad para mantener coherencia temporal estricta
         pares_delta = {
             'DELTA_alteracion_mental': ('EVO_alteracion_mental', 'ING_alteracion_mental'),
             'DELTA_dependencia_funcional': ('EVO_dependencia_funcional', 'ING_dependencia_funcional'),
@@ -1216,7 +1221,7 @@ try:
             num_features=len(nombres_lime) 
         )
         
-        # 6. Filtrado Ampliado: Mostramos Deltas Y Complicaciones Adquiridas/Métricas Actuales
+        # 6. Filtrado Ampliado
         lime_list = [item for item in exp.as_list() if 'Δ' in item[0] or 'Current' in item[0]]
         
         if not lime_list:
