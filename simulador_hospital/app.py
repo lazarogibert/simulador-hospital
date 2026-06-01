@@ -1066,8 +1066,8 @@ else:
                                 
                                 st.plotly_chart(fig_radar, use_container_width=True, key=f"dice_radar_ruta_cf_{r_idx}")
                                 
-            else:
-                st.error("No mathematically viable target routes were found.")
+                else:
+                    st.error("No mathematically viable target routes were found.")
                 
         except Exception as e:
             st.error("Counterfactual engine is currently unavailable.")
