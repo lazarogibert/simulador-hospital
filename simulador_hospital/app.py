@@ -226,7 +226,7 @@ def mapear_cie10_macro(cod):
 # ==========================================
 st.set_page_config(page_title="Safe Discharge Simulator", layout="wide")
 st.title("🏥 Clinical Safe Discharge Simulator (15 Days)")
-st.markdown("Decision support tool based on narrative phenotypes and prescriptive explainability.")
+#st.markdown("Decision support tool based on narrative phenotypes and prescriptive explainability.")
 
 # ==========================================
 # 2. MODEL AND DATA LOADING (CACHE)
