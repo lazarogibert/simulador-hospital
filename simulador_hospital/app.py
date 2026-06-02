@@ -946,9 +946,10 @@ with tab_estrategia:
         st.markdown("#### Clinical Stabilization Routes")
         
         class ModeloSincronizado:
-            def __init__(self, pipeline_original, columnas_modelo):
+            def __init__(self, pipeline_original, columnas_modelo, umbral_real):
                 self.pipeline = pipeline_original
                 self.columnas_modelo = columnas_modelo
+                self.umbral = umbral_real
                 
             def predict_proba(self, X):
                 if isinstance(X, np.ndarray):
@@ -966,7 +967,28 @@ with tab_estrategia:
                 sync_delta(X_sync, 'DELTA_dependencia_funcional', 'EVO_dependencia_funcional', 'ING_dependencia_funcional')
                 sync_delta(X_sync, 'DELTA_portador_dispositivos', 'EVO_portador_dispositivos', 'ING_portador_dispositivos')
                 
-                return self.pipeline.predict_proba(X_sync)
+                # 1. Obtener la probabilidad real del modelo
+                probas_originales = self.pipeline.predict_proba(X_sync)
+                
+                # 2. Calibración Geométrica para forzar el rigor en DiCE
+                probas_calibradas = np.zeros_like(probas_originales)
+                p1 = probas_originales[:, 1]
+                
+                mask_low = p1 <= self.umbral
+                mask_high = p1 > self.umbral
+                
+                p1_calib = np.zeros_like(p1)
+                # Escalar los riesgos por debajo del umbral real al rango [0.0, 0.5]
+                if np.any(mask_low):
+                    p1_calib[mask_low] = p1[mask_low] * (0.5 / self.umbral)
+                # Escalar los riesgos por encima del umbral real al rango (0.5, 1.0]
+                if np.any(mask_high):
+                    p1_calib[mask_high] = 0.5 + ((p1[mask_high] - self.umbral) * (0.5 / (1.0 - self.umbral)))
+                    
+                probas_calibradas[:, 1] = p1_calib
+                probas_calibradas[:, 0] = 1.0 - p1_calib
+                
+                return probas_calibradas
         
         if riesgo <= umbral:
             st.info("The patient is in optimal condition for discharge. No stabilization targets required.")
@@ -1010,7 +1032,7 @@ with tab_estrategia:
                         outcome_name='target'
                     )
                     
-                    modelo_sincronizado = ModeloSincronizado(pipeline, columnas_modelo)
+                    modelo_sincronizado = ModeloSincronizado(pipeline, columnas_modelo, umbral)
                     m = dice_ml.Model(model=modelo_sincronizado, backend="sklearn")
                     exp = dice_ml.Dice(d, m, method="random")
                     
