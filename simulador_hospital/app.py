@@ -1617,19 +1617,80 @@ with tab_evidencia:
             nx.draw_networkx_labels(G, pos, ax=ax, font_size=8, font_weight='bold', font_color='black')
             ax.axis('off')
             
+            # ==========================================
+            # --- CONSTRUCCIÓN DE UMAP (MACRO-LEVEL) ---
+            # ==========================================
+            y_hist = matriz_extended[:, col_idx['target']].astype(float)
+            mask_safe = y_hist == 0
+            mask_readmit = y_hist == 1
+            
+            fig_umap = go.Figure()
+            
+            # Nube Verde: Alta Segura Histórica
+            fig_umap.add_trace(go.Scatter(
+                x=umap_embeddings[mask_safe, 0], 
+                y=umap_embeddings[mask_safe, 1],
+                mode='markers', 
+                name='Safe Discharge (Historical)',
+                marker=dict(color='#00C851', size=6, opacity=0.4)
+            ))
+            
+            # Nube Roja: Reingresos Históricos
+            fig_umap.add_trace(go.Scatter(
+                x=umap_embeddings[mask_readmit, 0], 
+                y=umap_embeddings[mask_readmit, 1],
+                mode='markers', 
+                name='Readmitted (Historical)',
+                marker=dict(color='#FF4444', size=6, opacity=0.4)
+            ))
+            
+            # Estrella: Paciente Actual
+            fig_umap.add_trace(go.Scatter(
+                x=[paciente_umap_coords[0, 0]], 
+                y=[paciente_umap_coords[0, 1]],
+                mode='markers', 
+                name='Current Patient',
+                marker=dict(color='#87CEEB', size=18, symbol='star', line=dict(color='black', width=2))
+            ))
+            
+            fig_umap.update_layout(
+                plot_bgcolor='rgba(0,0,0,0)', 
+                paper_bgcolor='rgba(0,0,0,0)',
+                xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                margin=dict(l=10, r=10, t=30, b=10),
+                height=500,
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5)
+            )
+
+            # ==========================================
+            # --- RENDERIZADO VISUAL (NUEVA DISTRIBUCIÓN) ---
+            # ==========================================
             col_grafo, col_panel = st.columns([2, 1])
             
             with col_grafo:
-                st.pyplot(fig)
-                plt.close(fig)
-                # Leyenda colapsada por defecto
-                with st.expander("🗺️ How to read the Topology Map", expanded=False):
-                    st.markdown("""
-                    - 📏 **Node Distance (Proximity):** Represents multidimensional clinical similarity. Nodes physically closer to the *Current Patient* share highly identical medical histories and evolution trajectories.
-                    - 🫧 **Node Size:** Proportional to the match percentage. Larger nodes indicate a stronger and more reliable "clinical twin" correlation.
-                    - 🎨 **Node Colors:** 🟢 **Safe Discharge** (Historical) | 🔴 **Readmitted** (Historical) | 🔵 **Current Patient**
-                    - 🌟 **Gold Border:** The **Archetypal Patient**. Represents the statistical center of gravity (highest Harmonic Centrality) of this specific clinical cluster.
-                    """)
+                # Sub-pestañas para evitar el scroll vertical
+                sub_tab_knn, sub_tab_umap = st.tabs(["🧬 Micro-Neighborhood (K-NN)", "🌌 Global Universe (UMAP)"])
+                
+                with sub_tab_knn:
+                    st.pyplot(fig)
+                    plt.close(fig)
+                    with st.expander("🗺️ How to read the Topology Map", expanded=False):
+                        st.markdown("""
+                        - 📏 **Node Distance (Proximity):** Represents multidimensional clinical similarity. Nodes physically closer to the *Current Patient* share highly identical medical histories and evolution trajectories.
+                        - 🫧 **Node Size:** Proportional to the match percentage. Larger nodes indicate a stronger and more reliable "clinical twin" correlation.
+                        - 🎨 **Node Colors:** 🟢 **Safe Discharge** (Historical) | 🔴 **Readmitted** (Historical) | 🔵 **Current Patient**
+                        - 🌟 **Gold Border:** The **Archetypal Patient**. Represents the statistical center of gravity (highest Harmonic Centrality) of this specific clinical cluster.
+                        """)
+                        
+                with sub_tab_umap:
+                    st.plotly_chart(fig_umap, use_container_width=True)
+                    with st.expander("🗺️ How to read the UMAP Map", expanded=False):
+                        st.markdown("""
+                        - 🌌 **Global View:** Shows the entire hospital population clustered by multidimensional clinical phenotype, not just the immediate neighbors.
+                        - 🔴/🟢 **Risk Zones:** Identifies macro-regions of historical failure (Red) and success (Green) across the hospital.
+                        - ⭐ **Current Patient:** See if your patient lands safely inside a known cluster, or if they are an outlier in an uncharted area of risk.
+                        """)
                 
             with col_panel:
                 st.markdown("### 🔍 Case Inspector")
@@ -1789,59 +1850,7 @@ with tab_evidencia:
                             
                         for f in lista_traducida:
                             st.markdown(f"- {f}")
-            
-            # ==========================================
-            # --- NUEVO: MACRO-LEVEL INSIGHT (UMAP) ---
-            # ==========================================
-            st.markdown("---")
-            st.markdown("#### 🌌 Macro-Level Insight: Global Hospital Universe (UMAP)")
-            
-            # Separamos las clases históricas
-            y_hist = matriz_extended[:, col_idx['target']].astype(float)
-            mask_safe = y_hist == 0
-            mask_readmit = y_hist == 1
-            
-            fig_umap = go.Figure()
-            
-            # Nube Verde: Alta Segura Histórica
-            fig_umap.add_trace(go.Scatter(
-                x=umap_embeddings[mask_safe, 0], 
-                y=umap_embeddings[mask_safe, 1],
-                mode='markers', 
-                name='Safe Discharge (Historical)',
-                marker=dict(color='#00C851', size=6, opacity=0.4)
-            ))
-            
-            # Nube Roja: Reingresos Históricos
-            fig_umap.add_trace(go.Scatter(
-                x=umap_embeddings[mask_readmit, 0], 
-                y=umap_embeddings[mask_readmit, 1],
-                mode='markers', 
-                name='Readmitted (Historical)',
-                marker=dict(color='#FF4444', size=6, opacity=0.4)
-            ))
-            
-            # Estrella: Paciente Actual
-            fig_umap.add_trace(go.Scatter(
-                x=[paciente_umap_coords[0, 0]], 
-                y=[paciente_umap_coords[0, 1]],
-                mode='markers', 
-                name='Current Patient',
-                marker=dict(color='#87CEEB', size=18, symbol='star', line=dict(color='black', width=2))
-            ))
-            
-            fig_umap.update_layout(
-                plot_bgcolor='rgba(0,0,0,0)', 
-                paper_bgcolor='rgba(0,0,0,0)',
-                xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                margin=dict(l=10, r=10, t=30, b=10),
-                height=500,
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5)
-            )
-            
-            st.plotly_chart(fig_umap, use_container_width=True)
-            
+                            
     except Exception as e:
         st.error("Error generating similarity topology graph.")
         st.warning(f"Technical Detail: {str(e)}")
