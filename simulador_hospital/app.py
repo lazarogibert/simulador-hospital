@@ -939,6 +939,7 @@ with tab_estrategia:
                     status_evo_sim[col] = st.toggle(label, value=val_init, key=f"sim_{col}_base_{val_init}")
 
     with col_rutas:
+        
         # ==========================================
         # 6. THERAPEUTIC NAVIGATOR (DiCE - DUAL COORDINATED XAI)
         # ==========================================
@@ -1067,12 +1068,38 @@ with tab_estrategia:
                     if not vars_a_variar:
                         st.error("There are no modifiable clinical targets in the patient's current evolution that can improve their condition.")
                     else:
-                        dice_exp = exp.generate_counterfactuals(
-                            df_paciente, total_CFs=5, desired_class="opposite", 
-                            features_to_vary=vars_a_variar, permitted_range=rangos_permitidos, random_seed=42
-                        )
+                        cf_df = None
+                        modo_mitigacion = False
                         
-                        cf_df = dice_exp.cf_examples_list[0].final_cfs_df
+                        # --- FASE 1: BÚSQUEDA ESTRICTA (Alta Segura) ---
+                        try:
+                            dice_exp = exp.generate_counterfactuals(
+                                df_paciente, total_CFs=5, desired_class="opposite", 
+                                features_to_vary=vars_a_variar, permitted_range=rangos_permitidos, random_seed=42
+                            )
+                            if dice_exp.cf_examples_list[0].final_cfs_df is not None:
+                                cf_df = dice_exp.cf_examples_list[0].final_cfs_df
+                        except Exception:
+                            pass
+                            
+                        # --- FASE 2: BÚSQUEDA PERMISIVA (Mitigación de Daños) ---
+                        if cf_df is None or cf_df.empty:
+                            modo_mitigacion = True
+                            # Usamos 0.5 como umbral para permitir estabilización matemática intermedia
+                            modelo_sincronizado_mit = ModeloSincronizado(pipeline, columnas_modelo, 0.5)
+                            m_mit = dice_ml.Model(model=modelo_sincronizado_mit, backend="sklearn")
+                            exp_mit = dice_ml.Dice(d, m_mit, method="random")
+                            
+                            try:
+                                dice_exp_mit = exp_mit.generate_counterfactuals(
+                                    df_paciente, total_CFs=5, desired_class="opposite", 
+                                    features_to_vary=vars_a_variar, permitted_range=rangos_permitidos, random_seed=42
+                                )
+                                if dice_exp_mit.cf_examples_list[0].final_cfs_df is not None:
+                                    cf_df = dice_exp_mit.cf_examples_list[0].final_cfs_df
+                            except Exception:
+                                pass
+                        
                         if cf_df is not None and not cf_df.empty:
                             
                             # Filtro de redondeo
@@ -1091,7 +1118,11 @@ with tab_estrategia:
                                     
                             cf_df = cf_df.drop_duplicates(subset=vars_a_variar).reset_index(drop=True)
         
-                            st.success(f"✅ **{len(cf_df)} UNIQUE CLINICAL STABILIZATION TARGETS FOUND:**")
+                            # --- SEÑALIZACIÓN VISUAL DINÁMICA ---
+                            if modo_mitigacion:
+                                st.warning(f"⚠️ **{len(cf_df)} HARM REDUCTION ROUTES FOUND:**\nSafe discharge threshold (< {umbral*100:.1f}%) is not mathematically viable in one step. Showing intermediate targets to mitigate critical risk.")
+                            else:
+                                st.success(f"✅ **{len(cf_df)} UNIQUE CLINICAL STABILIZATION TARGETS FOUND:**")
                             
                             evo_output_dict = {
                                 'EVO_dolor_eva': 'Current Pain', 'EVO_gravedad_percibida': 'Current Severity',
@@ -1161,10 +1192,14 @@ with tab_estrategia:
                                                 line=dict(color='#D62728', width=2.5), name='Current State'
                                             ))
                                             
+                                            # --- COLOR DINÁMICO PARA EL OBJETIVO (MITIGACIÓN vs ALTA SEGURA) ---
+                                            color_target = '#FF8C00' if modo_mitigacion else '#2CA02C'
+                                            fill_target = 'rgba(255, 140, 0, 0.25)' if modo_mitigacion else 'rgba(44, 160, 44, 0.25)'
+                                            
                                             fig_radar.add_trace(go.Scatterpolar(
                                                 r=val_meta_cerrados, theta=cat_cerradas,
-                                                fill='toself', fillcolor='rgba(44, 160, 44, 0.25)', 
-                                                line=dict(color='#2CA02C', width=2.5), name='DiCE Target'
+                                                fill='toself', fillcolor=fill_target, 
+                                                line=dict(color=color_target, width=2.5), name='DiCE Target'
                                             ))
                                             
                                             fig_radar.update_layout(
@@ -1182,7 +1217,7 @@ with tab_estrategia:
                                             st.plotly_chart(fig_radar, use_container_width=True, key=f"dice_radar_ruta_cf_{r_idx}")
                                             
                         else:
-                            st.error("No mathematically viable target routes were found.")
+                            st.error("No mathematically viable target routes were found for discharge or mitigation.")
                             
                 except Exception as e:
                     st.error("Counterfactual engine is currently unavailable.")
