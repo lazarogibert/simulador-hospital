@@ -1504,24 +1504,26 @@ with tab_evidencia:
         umap_reducer = umap.UMAP(n_neighbors=15, min_dist=0.1, metric='cosine', random_state=42)
         umap_embeddings = umap_reducer.fit_transform(X_train_proc)
         
-        return knn_engine, matriz_ext, nombres_columnas, X_train_proc, umap_reducer, umap_embeddings
+        # FIX: Eliminamos umap_reducer del return para que Streamlit no lo serialice y no detone el bug de NNDescent
+        return knn_engine, matriz_ext, nombres_columnas, X_train_proc, umap_embeddings
     
     plt.close('all') 
     
     try:
         with st.spinner("Calculating topological metrics and embedding projections..."):
-            knn, matriz_extended, nombres_columnas, X_train_proc, umap_reducer, umap_embeddings = load_similarity_assets()
+            knn, matriz_extended, nombres_columnas, X_train_proc, umap_embeddings = load_similarity_assets()
             
             prep = pipeline.named_steps['preprocesador']
             X_paciente_proc = prep.transform(df_paciente)
             
-            # Proyección del Paciente Actual en el espacio UMAP
-            paciente_umap_coords = umap_reducer.transform(X_paciente_proc)
-            
-            # Cálculo K-NN
+            # 1. Calculamos K-NN PRIMERO
             distancias, indices = knn.kneighbors(X_paciente_proc)
             vecinos_idx = indices[0]
             distancias_vecinos = distancias[0]
+            
+            # 2. FIX: PROYECCIÓN ROBUSTA DEL PACIENTE ACTUAL (Evitando transform)
+            # Ubicamos a la estrella en el promedio exacto de sus 3 vecinos históricos más cercanos
+            paciente_umap_coords = np.mean(umap_embeddings[vecinos_idx[:3]], axis=0, keepdims=True)
             
             col_idx = {col: i for i, col in enumerate(nombres_columnas)}
             prefijos_nlp = ('LLM_', 'ING_', 'EVO_', 'DELTA_', 'rango_', 'pluripatologico', 'dias_', 'CIE10_MACRO')
@@ -1660,7 +1662,6 @@ with tab_evidencia:
                         """)
                         
                 with sub_tab_umap:
-                    # Filtros Topológicos UMAP
                     modo_color = st.radio(
                         "🎨 Select UMAP Coloring Mode:",
                         ["Default (Outcome)", "Diagnosis Search (One-vs-Rest)", "Age Distribution", "Multimorbidity Status"],
@@ -1728,7 +1729,6 @@ with tab_evidencia:
                     elif modo_color == "Multimorbidity Status":
                         pluri_raw = get_col_data('pluripatologico', 0.0)
                         try:
-                            # Tolerancia estricta a NaNs o blancos provenientes del NLP
                             pluri_floats = np.array([float(x) if str(x).strip() != '' and str(x).strip().upper() not in ['NAN', 'NONE', 'N/A'] else 0.0 for x in pluri_raw])
                             mask_yes = pluri_floats == 1.0
                         except:
@@ -1749,7 +1749,7 @@ with tab_evidencia:
                             marker=dict(color='#9B59B6', size=6, opacity=0.7)
                         ))
 
-                    # Proyección Estrella Paciente Actual (Capa Superior)
+                    # Proyección Estrella Paciente Actual
                     diag_paciente = format_clinical_value('CIE10_MACRO', df_paciente['CIE10_MACRO'].iloc[0] if 'CIE10_MACRO' in df_paciente.columns else 'N/A')
                     edad_paciente = format_clinical_value('rango_edad', df_paciente['rango_edad'].iloc[0] if 'rango_edad' in df_paciente.columns else 'N/A')
                     dias_paciente = safe_int(df_paciente['dias_internados'].iloc[0] if 'dias_internados' in df_paciente.columns else 0)
