@@ -1109,14 +1109,48 @@ with tab_estrategia:
                                 else:
                                     cf_df[col] = cf_df[col].round()
                                     
-                            # Sincronización causal del dataframe simulado
+                            cf_df = cf_df.drop_duplicates(subset=vars_a_variar).reset_index(drop=True)
+                                    
+                            # --- NUEVO: FILTRADO DE DOMINANCIA CLÍNICA (Eliminar rutas redundantes) ---
+                            rutas_unicas = []
+                            firmas_vistas = {}
+                            
+                            for idx_row, row in cf_df.iterrows():
+                                firma_cualitativa = []
+                                esfuerzo_clinico = 0
+                                
+                                for col in vars_a_variar:
+                                    val_orig = df_paciente.iloc[0][col]
+                                    val_cf = row[col]
+                                    if val_orig != val_cf:
+                                        firma_cualitativa.append(col)
+                                        # Calculamos el esfuerzo: cuánto tuvo que bajar el dolor/gravedad
+                                        if 'dolor' in col or 'gravedad' in col:
+                                            esfuerzo_clinico += abs(val_orig - val_cf)
+                                            
+                                firma_str = str(sorted(firma_cualitativa))
+                                
+                                if firma_str not in firmas_vistas:
+                                    firmas_vistas[firma_str] = (idx_row, esfuerzo_clinico)
+                                    rutas_unicas.append(idx_row)
+                                else:
+                                    # Si ya vimos esta combinación, nos quedamos con la que exija MENOS esfuerzo (cota máxima)
+                                    idx_previo, esfuerzo_previo = firmas_vistas[firma_str]
+                                    if esfuerzo_clinico < esfuerzo_previo:
+                                        firmas_vistas[firma_str] = (idx_row, esfuerzo_clinico)
+                                        rutas_unicas.remove(idx_previo)
+                                        rutas_unicas.append(idx_row)
+                                        
+                            # Filtramos el dataframe para dejar solo las rutas óptimas
+                            cf_df = cf_df.loc[rutas_unicas].reset_index(drop=True)
+                            # -------------------------------------------------------------------------
+                                    
+                            # Sincronización causal del dataframe simulado final
                             cf_df['DELTA_dolor_eva'] = cf_df['EVO_dolor_eva'] - df_paciente.iloc[0]['ING_dolor_eva']
                             cf_df['DELTA_gravedad_percibida'] = cf_df['EVO_gravedad_percibida'] - df_paciente.iloc[0]['ING_gravedad_percibida']
                             cf_df['DELTA_alteracion_mental'] = cf_df['EVO_alteracion_mental'] - df_paciente.iloc[0]['ING_alteracion_mental']
                             cf_df['DELTA_dependencia_funcional'] = cf_df['EVO_dependencia_funcional'] - df_paciente.iloc[0]['ING_dependencia_funcional']
                             cf_df['DELTA_portador_dispositivos'] = cf_df['EVO_portador_dispositivos'] - df_paciente.iloc[0]['ING_portador_dispositivos']
-                                    
-                            cf_df = cf_df.drop_duplicates(subset=vars_a_variar).reset_index(drop=True)
         
                             # --- SEÑALIZACIÓN VISUAL DINÁMICA ---
                             if modo_mitigacion:
