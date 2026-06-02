@@ -1421,8 +1421,73 @@ with tab_evidencia:
         if key_es == 'rango_edad':
             traducciones_edad = {'ADULTO DE MEDIANA EDAD': 'Middle-Aged Adult', 'ADULTO MAYOR': 'Senior Adult', 'ADULTO JOVEN': 'Young Adult', 'ANCIANO': 'Elderly'}
             return traducciones_edad.get(val_str, value)
+            
         if key_es == 'CIE10_MACRO':
-            traducciones_cie = {'CARDIOPATÍA ISQUÉMICA': 'Ischemic Heart Disease', 'HIPERTENSIÓN': 'Hypertension', 'DIABETES': 'Diabetes', 'ENFERMEDAD CARDIOPULMONAR': 'Cardiopulmonary Disease'}
+            cie10_ui_dict = {
+                "Tuberculosis": "Tuberculosis", "Lepra": "Leprosy", "Sífilis": "Syphilis", 
+                "Otras infecciosas (A)": "Other infectious (A)", "Hepatitis viral": "Viral hepatitis", 
+                "Enfermedad por VIH": "HIV disease", "Enfermedad de Chagas": "Chagas disease", 
+                "Toxoplasmosis": "Toxoplasmosis", "Equinococosis / Hidatidosis": "Echinococcosis / Hydatidosis", 
+                "Secuelas de enfermedades infecciosas": "Sequelae of infectious diseases", "Otras infecciosas (B)": "Other infectious (B)",
+                "Cáncer de labio / boca / faringe": "Lip / mouth / pharynx cancer", "Cáncer digestivo": "Digestive cancer", 
+                "Cáncer respiratorio / intratorácico": "Respiratory / intrathoracic cancer", "Cáncer de hueso / cartílago": "Bone / cartilage cancer", 
+                "Melanoma / Cáncer de piel": "Melanoma / Skin cancer", "Cáncer de mama": "Breast cancer", 
+                "Cáncer genital femenino": "Female genital cancer", "Cáncer genital masculino": "Male genital cancer", 
+                "Cáncer de vías urinarias": "Urinary tract cancer", "Cáncer de sistema nervioso central": "Central nervous system cancer", 
+                "Cáncer linfoide / hematopoyético": "Lymphoid / hematopoietic cancer", "Otros tumores malignos": "Other malignant tumors", 
+                "Tumores in situ o benignos": "In situ or benign tumors", "Anemias nutricionales": "Nutritional anemias", 
+                "Anemias hemolíticas": "Hemolytic anemias", "Aplasias y otras anemias": "Aplasias and other anemias", 
+                "Defectos de coagulación / púrpura": "Coagulation defects / purpura", "Trastornos de inmunodeficiencia": "Immunodeficiency disorders", 
+                "Otros trastornos de la sangre": "Other blood disorders",
+                "Tiroides": "Thyroid", "Diabetes": "Diabetes", "Glucosa / hipoglucemia": "Glucose / hypoglycemia", 
+                "Otros endocrinos y metabólicos": "Other endocrine and metabolic", "Obesidad y trastornos de hiperalimentación": "Obesity and hyperalimentation disorders", 
+                "Dislipidemia": "Dyslipidemia", "Fibrosis quística": "Cystic fibrosis", "Trastornos metabólicos": "Metabolic disorders", 
+                "Otros metabólicos / nutricionales": "Other metabolic / nutritional",
+                "Trastornos mentales orgánicos (Demencias)": "Organic mental disorders (Dementias)", "Trastornos por uso de sustancias": "Substance use disorders", 
+                "Esquizofrenia y trastornos psicóticos": "Schizophrenia and psychotic disorders", "Trastornos del humor (Afectivos)": "Mood (Affective) disorders", 
+                "Trastornos neuróticos y de ansiedad": "Neurotic and anxiety disorders", "Trastornos de la conducta alimentaria / sueño": "Eating / sleep disorders", 
+                "Trastornos de la personalidad": "Personality disorders", "Discapacidad intelectual": "Intellectual disability", 
+                "Trastornos del desarrollo psicobiológico (Autismo)": "Psychobiological development disorders (Autism)", "Otros trastornos mentales": "Other mental disorders",
+                "Atrofias sistémicas del SNC": "Systemic atrophies of CNS", "Trastornos extrapiramidales y del movimiento (Parkinson)": "Extrapyramidal and movement disorders (Parkinson's)", 
+                "Enfermedades degenerativas (Alzheimer)": "Degenerative diseases (Alzheimer's)", "Enfermedades desmielinizantes (Esclerosis Múltiple)": "Demyelinating diseases (Multiple Sclerosis)", 
+                "Trastornos episódicos y paroxísticos (Epilepsia, Migraña)": "Episodic and paroxysmal disorders (Epilepsy, Migraine)", "Trastornos de nervios y plexos": "Nerve and plexus disorders", 
+                "Polineuropatías": "Polyneuropathies", "Enfermedades de la unión neuromuscular (Miastenia)": "Diseases of the neuromuscular junction (Myasthenia)", 
+                "Parálisis cerebral y síndromes paralíticos": "Cerebral palsy and paralytic syndromes", "Otros trastornos neurológicos": "Other neurological disorders",
+                "Ojo": "Eye", "Oído": "Ear", "Otros órganos de los sentidos": "Other sense organs",
+                "Hipertensión": "Hypertension", "Cardiopatía isquémica": "Ischemic heart disease", "Enfermedad cardiopulmonar": "Cardiopulmonary disease", 
+                "Otras enfermedades del corazón (Insuficiencia Cardíaca)": "Other heart diseases (Heart Failure)", "Cerebrovascular": "Cerebrovascular", 
+                "Enfermedades de arterias y capilares": "Diseases of arteries and capillaries", "Enfermedades de venas y vasos linfáticos": "Diseases of veins and lymphatic vessels", 
+                "Otros circulatorios": "Other circulatory",
+                "Vías respiratorias altas": "Upper respiratory tract", "Infecciones agudas / neumonía / influenza": "Acute infections / pneumonia / influenza", 
+                "Infecciones respiratorias bajas": "Lower respiratory infections", "Enfermedades de vías respiratorias superiores": "Diseases of upper respiratory tract", 
+                "Asma / EPOC / bronquitis": "Asthma / COPD / bronchitis", "Enfermedades del pulmón por agentes externos (Neumoconiosis)": "Lung diseases due to external agents (Pneumoconiosis)", 
+                "Enfermedades pulmonares intersticiales": "Interstitial lung diseases", "Otros respiratorios": "Other respiratory",
+                "Boca / dientes / faringe": "Mouth / teeth / pharynx", "Esófago / estómago / duodeno": "Esophagus / stomach / duodenum", 
+                "Apendicitis": "Appendicitis", "Hernias": "Hernias", "Enfermedad de Crohn y colitis": "Crohn's disease and colitis", 
+                "Otras enfermedades de los intestinos": "Other diseases of the intestines", "Hígado": "Liver", 
+                "Vesícula / vías biliares / páncreas": "Gallbladder / biliary tract / pancreas", "Otros digestivos": "Other digestive",
+                "Dermatitis y eczema": "Dermatitis and eczema", "Trastornos papuloescamosos (Psoriasis)": "Papulosquamous disorders (Psoriasis)", 
+                "Urticaria y eritema": "Urticaria and erythema", "Trastornos de las faneras / Otros trastornos de piel": "Disorders of skin appendages / Other skin disorders", 
+                "Otras enfermedades de la piel": "Other skin diseases",
+                "Artropatías": "Arthropathies", "Tejido conectivo (Lupus, etc.)": "Connective tissue (Lupus, etc.)", "Dorsopatías": "Dorsopathies", 
+                "Tejidos blandos": "Soft tissues", "Osteopatías y condropatías (Osteoporosis)": "Osteopathies and chondropathies (Osteoporosis)", 
+                "Otros osteomusculares": "Other musculoskeletal",
+                "Riñón (Insuficiencia Renal Crónica)": "Kidney (Chronic Renal Failure)", "Vías urinarias bajas": "Lower urinary tract", 
+                "Genital masculino (Hiperplasia Prostática)": "Male genital (Prostatic Hyperplasia)", "Mama": "Breast", 
+                "Genital femenino (Endometriosis, etc.)": "Female genital (Endometriosis, etc.)", "Otros genitourinarios": "Other genitourinary",
+                "Malformaciones del sistema nervioso (Espina bífida)": "Malformations of the nervous system (Spina bifida)", "Malformaciones cardíacas congénitas": "Congenital heart malformations", 
+                "Anomalías cromosómicas (Síndrome de Down)": "Chromosomal abnormalities (Down Syndrome)", "Otras malformaciones congénitas": "Other congenital malformations",
+                "Enfermedad respiratoria crónica perinatal": "Chronic perinatal respiratory disease", 
+                "Secuelas crónicas de traumatismos": "Chronic sequelae of injuries",
+                "Síndrome Post-COVID (Long COVID)": "Post-COVID Syndrome (Long COVID)", "Otras condiciones especiales (U)": "Other special conditions (U)",
+                "Historia personal de tumores / enfermedades": "Personal history of tumors / diseases", "Ausencia adquirida de miembros / órganos": "Acquired absence of limbs / organs", 
+                "Aberturas artificiales (Ostomías)": "Artificial openings (Ostomies)", "Estado de órgano trasplantado": "Transplanted organ status", 
+                "Presencia de implantes cardíacos / vasculares": "Presence of cardiac / vascular implants", "Dependencia de máquinas (diálisis, oxígeno)": "Machine dependence (dialysis, oxygen)", 
+                "Otros factores de salud": "Other health factors",
+                "DESCONOCIDO": "UNKNOWN"
+            }
+            # Convertir claves a mayúsculas para asegurar el match
+            traducciones_cie = {k.upper(): v for k, v in cie10_ui_dict.items()}
             return traducciones_cie.get(val_str, value)
         
         bool_suffixes = ('_mental', '_funcional', '_dispositivos', '_reiteradas', '_hemorragico', '_internacion', '_irregular', '_paliativos', '_presion', '_infeccioso')
@@ -1504,7 +1569,6 @@ with tab_evidencia:
         umap_reducer = umap.UMAP(n_neighbors=15, min_dist=0.1, metric='cosine', random_state=42)
         umap_embeddings = umap_reducer.fit_transform(X_train_proc)
         
-        # FIX: Eliminamos umap_reducer del return para que Streamlit no lo serialice y no detone el bug de NNDescent
         return knn_engine, matriz_ext, nombres_columnas, X_train_proc, umap_embeddings
     
     plt.close('all') 
@@ -1516,13 +1580,10 @@ with tab_evidencia:
             prep = pipeline.named_steps['preprocesador']
             X_paciente_proc = prep.transform(df_paciente)
             
-            # 1. Calculamos K-NN PRIMERO
             distancias, indices = knn.kneighbors(X_paciente_proc)
             vecinos_idx = indices[0]
             distancias_vecinos = distancias[0]
             
-            # 2. FIX: PROYECCIÓN ROBUSTA DEL PACIENTE ACTUAL (Evitando transform)
-            # Ubicamos a la estrella en el promedio exacto de sus 3 vecinos históricos más cercanos
             paciente_umap_coords = np.mean(umap_embeddings[vecinos_idx[:3]], axis=0, keepdims=True)
             
             col_idx = {col: i for i, col in enumerate(nombres_columnas)}
@@ -1541,7 +1602,6 @@ with tab_evidencia:
             max_sim = max(similitudes_brutas)
             rango_sim = max_sim - min_sim if max_sim != min_sim else 1.0 
             
-            # --- CONSTRUCCIÓN DEL GRAFO NETWORKX (MICRO-NEIGHBORHOOD) ---
             G = nx.Graph()
             nodo_paciente = "Current\nPatient"
             G.add_node(nodo_paciente, color=COLOR_NEW_PATIENT, size=SIZE_NEW_PATIENT, edge_color='black', line_width=3)
@@ -1617,9 +1677,6 @@ with tab_evidencia:
             nx.draw_networkx_labels(G, pos, ax=ax, font_size=8, font_weight='bold', font_color='black')
             ax.axis('off')
             
-            # ==========================================
-            # --- PREPARACIÓN DE DATOS MACRO (TOOLTIPS UMAP) ---
-            # ==========================================
             y_hist = matriz_extended[:, col_idx['target']].astype(float)
             
             def get_col_data(col_name, default="Unknown"):
@@ -1642,9 +1699,6 @@ with tab_evidencia:
                                    f"<b>Stay:</b> {dias_val} days")
             hover_texts = np.array(hover_texts)
 
-            # ==========================================
-            # --- RENDERIZADO VISUAL EN TABS INTERNAS ---
-            # ==========================================
             col_grafo, col_panel = st.columns([2, 1])
             
             with col_grafo:
