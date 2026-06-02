@@ -1446,7 +1446,6 @@ with tab_evidencia:
         """
     
     st.markdown("---")
-    # Reducción de la jerarquía del título y eliminación del subtítulo técnico
     st.markdown("#### Clinical Similarity Network & Topology")
     
     @st.cache_resource
@@ -1468,292 +1467,285 @@ with tab_evidencia:
         
         return knn_engine, matriz_ext, nombres_columnas, X_train_proc
     
-    if 'mostrar_grafo' not in st.session_state:
-        st.session_state.mostrar_grafo = False
+    plt.close('all') 
     
-    if st.button("Generate Archetype Graph", key="btn_gen_arch_graph"):
-        st.session_state.mostrar_grafo = True
+    try:
+        with st.spinner("Calculating topological metrics and harmonic centrality..."):
+            knn, matriz_extended, nombres_columnas, X_train_proc = load_similarity_assets()
+            
+            prep = pipeline.named_steps['preprocesador']
+            X_paciente_proc = prep.transform(df_paciente)
+            
+            distancias, indices = knn.kneighbors(X_paciente_proc)
+            vecinos_idx = indices[0]
+            distancias_vecinos = distancias[0]
+            
+            col_idx = {col: i for i, col in enumerate(nombres_columnas)}
+            prefijos_nlp = ('LLM_', 'ING_', 'EVO_', 'DELTA_', 'rango_', 'pluripatologico', 'dias_', 'CIE10_MACRO')
+            columnas_comunes_dinamicas = [col for col in nombres_columnas if str(col).startswith(prefijos_nlp)]
+            
+            COLOR_NEW_PATIENT = '#87CEEB' 
+            COLOR_HIST_READMIT = '#FF4444' 
+            COLOR_HIST_SAFE = '#00C851'    
+            COLOR_ARCHETYPE = '#FFD700' 
+            
+            SIZE_NEW_PATIENT = 2500 
+            
+            similitudes_brutas = [max(0, (1 - d)) * 100 for d in distancias_vecinos]
+            
+            min_sim = min(similitudes_brutas)
+            max_sim = max(similitudes_brutas)
+            rango_sim = max_sim - min_sim if max_sim != min_sim else 1.0 
+            
+            G = nx.Graph()
+            nodo_paciente = "Current\nPatient"
+            G.add_node(nodo_paciente, color=COLOR_NEW_PATIENT, size=SIZE_NEW_PATIENT, edge_color='black', line_width=3)
+            
+            nodos_gemelos = []
+            info_inspeccion = {}
+            
+            invalid_markers = ["N/A", "MISSING_DATA", "NONE", "NAN", ""]
+            
+            for i, (idx, similitud_pct) in enumerate(zip(vecinos_idx, similitudes_brutas)):
+                reingreso_real = float(matriz_extended[idx, col_idx['target']])
+                color_nodo = COLOR_HIST_READMIT if reingreso_real == 1.0 else COLOR_HIST_SAFE
+                
+                raw_ing = str(matriz_extended[idx, col_idx.get('texto_anamnesis_ingreso', -1)] if 'texto_anamnesis_ingreso' in col_idx else "")
+                raw_evo = str(matriz_extended[idx, col_idx.get('texto_evolucion_internacion', -1)] if 'texto_evolucion_internacion' in col_idx else "")
+                
+                tiene_texto = (raw_ing.upper().strip() not in invalid_markers) or (raw_evo.upper().strip() not in invalid_markers)
+                icono_texto = " [TXT]" if tiene_texto else ""
+                
+                label_grafo = f"Patient {i+1}{icono_texto}\n({similitud_pct:.1f}%)"
+                nodos_gemelos.append(label_grafo)
+                
+                norm_sim = (similitud_pct - min_sim) / rango_sim
+                tamaño_dinamico = 400 + (norm_sim * 1400)
+                
+                G.add_node(label_grafo, color=color_nodo, size=tamaño_dinamico, edge_color='white', line_width=1.5)
+                G.add_edge(nodo_paciente, label_grafo, weight=similitud_pct/10) 
+                
+                datos_gemelo = {
+                    "similitud": similitud_pct,
+                    "outcome_text": "Readmitted" if reingreso_real == 1.0 else "Safe Discharge",
+                    "area": matriz_extended[idx, col_idx.get('Area', -1)] if 'Area' in col_idx else "N/A",
+                    "sexo": matriz_extended[idx, col_idx.get('sexo', -1)] if 'sexo' in col_idx else "N/A",
+                    "interconsultas": matriz_extended[idx, col_idx.get('cantidad_interconsultas', -1)] if 'cantidad_interconsultas' in col_idx else "N/A",
+                    "guardia": matriz_extended[idx, col_idx.get('visitas_guardia_6meses_previos', -1)] if 'visitas_guardia_6meses_previos' in col_idx else "N/A",
+                    "complejidad": matriz_extended[idx, col_idx.get('IN_COMPLEJIDAD', -1)] if 'IN_COMPLEJIDAD' in col_idx else "N/A",
+                    "farmacos": matriz_extended[idx, col_idx.get('FARMACOS_TEXTO', -1)] if 'FARMACOS_TEXTO' in col_idx else "N/A",
+                    "diagsec": matriz_extended[idx, col_idx.get('DIAGNOSTICOS_SEC_ACTIVOS', -1)] if 'DIAGNOSTICOS_SEC_ACTIVOS' in col_idx else "N/A",
+                    "datos_comunes": {}
+                }
+                for col_comun in columnas_comunes_dinamicas:
+                    datos_gemelo["datos_comunes"][col_comun] = matriz_extended[idx, col_idx[col_comun]]
+                info_inspeccion[label_grafo] = datos_gemelo
     
-    if st.session_state.mostrar_grafo:
-        plt.close('all') 
-        
-        try:
-            with st.spinner("Calculating topological metrics and harmonic centrality..."):
-                knn, matriz_extended, nombres_columnas, X_train_proc = load_similarity_assets()
-                
-                prep = pipeline.named_steps['preprocesador']
-                X_paciente_proc = prep.transform(df_paciente)
-                
-                distancias, indices = knn.kneighbors(X_paciente_proc)
-                vecinos_idx = indices[0]
-                distancias_vecinos = distancias[0]
-                
-                col_idx = {col: i for i, col in enumerate(nombres_columnas)}
-                prefijos_nlp = ('LLM_', 'ING_', 'EVO_', 'DELTA_', 'rango_', 'pluripatologico', 'dias_', 'CIE10_MACRO')
-                columnas_comunes_dinamicas = [col for col in nombres_columnas if str(col).startswith(prefijos_nlp)]
-                
-                COLOR_NEW_PATIENT = '#87CEEB' 
-                COLOR_HIST_READMIT = '#FF4444' 
-                COLOR_HIST_SAFE = '#00C851'    
-                COLOR_ARCHETYPE = '#FFD700' 
-                
-                SIZE_NEW_PATIENT = 2500 
-                
-                similitudes_brutas = [max(0, (1 - d)) * 100 for d in distancias_vecinos]
-                
-                min_sim = min(similitudes_brutas)
-                max_sim = max(similitudes_brutas)
-                rango_sim = max_sim - min_sim if max_sim != min_sim else 1.0 
-                
-                G = nx.Graph()
-                nodo_paciente = "Current\nPatient"
-                G.add_node(nodo_paciente, color=COLOR_NEW_PATIENT, size=SIZE_NEW_PATIENT, edge_color='black', line_width=3)
-                
-                nodos_gemelos = []
-                info_inspeccion = {}
-                
-                invalid_markers = ["N/A", "MISSING_DATA", "NONE", "NAN", ""]
-                
-                for i, (idx, similitud_pct) in enumerate(zip(vecinos_idx, similitudes_brutas)):
-                    reingreso_real = float(matriz_extended[idx, col_idx['target']])
-                    color_nodo = COLOR_HIST_READMIT if reingreso_real == 1.0 else COLOR_HIST_SAFE
-                    
-                    raw_ing = str(matriz_extended[idx, col_idx.get('texto_anamnesis_ingreso', -1)] if 'texto_anamnesis_ingreso' in col_idx else "")
-                    raw_evo = str(matriz_extended[idx, col_idx.get('texto_evolucion_internacion', -1)] if 'texto_evolucion_internacion' in col_idx else "")
-                    
-                    tiene_texto = (raw_ing.upper().strip() not in invalid_markers) or (raw_evo.upper().strip() not in invalid_markers)
-                    icono_texto = " [TXT]" if tiene_texto else ""
-                    
-                    label_grafo = f"Patient {i+1}{icono_texto}\n({similitud_pct:.1f}%)"
-                    nodos_gemelos.append(label_grafo)
-                    
-                    norm_sim = (similitud_pct - min_sim) / rango_sim
-                    tamaño_dinamico = 400 + (norm_sim * 1400)
-                    
-                    G.add_node(label_grafo, color=color_nodo, size=tamaño_dinamico, edge_color='white', line_width=1.5)
-                    G.add_edge(nodo_paciente, label_grafo, weight=similitud_pct/10) 
-                    
-                    datos_gemelo = {
-                        "similitud": similitud_pct,
-                        "outcome_text": "Readmitted" if reingreso_real == 1.0 else "Safe Discharge",
-                        "area": matriz_extended[idx, col_idx.get('Area', -1)] if 'Area' in col_idx else "N/A",
-                        "sexo": matriz_extended[idx, col_idx.get('sexo', -1)] if 'sexo' in col_idx else "N/A",
-                        "interconsultas": matriz_extended[idx, col_idx.get('cantidad_interconsultas', -1)] if 'cantidad_interconsultas' in col_idx else "N/A",
-                        "guardia": matriz_extended[idx, col_idx.get('visitas_guardia_6meses_previos', -1)] if 'visitas_guardia_6meses_previos' in col_idx else "N/A",
-                        "complejidad": matriz_extended[idx, col_idx.get('IN_COMPLEJIDAD', -1)] if 'IN_COMPLEJIDAD' in col_idx else "N/A",
-                        "farmacos": matriz_extended[idx, col_idx.get('FARMACOS_TEXTO', -1)] if 'FARMACOS_TEXTO' in col_idx else "N/A",
-                        "diagsec": matriz_extended[idx, col_idx.get('DIAGNOSTICOS_SEC_ACTIVOS', -1)] if 'DIAGNOSTICOS_SEC_ACTIVOS' in col_idx else "N/A",
-                        "datos_comunes": {}
-                    }
-                    for col_comun in columnas_comunes_dinamicas:
-                        datos_gemelo["datos_comunes"][col_comun] = matriz_extended[idx, col_idx[col_comun]]
-                    info_inspeccion[label_grafo] = datos_gemelo
+            X_gemelos = X_train_proc[vecinos_idx]
+            dist_gemelos = pairwise_distances(X_gemelos, metric='cosine')
+            umbral_conexion = np.percentile(dist_gemelos, 30) 
+            
+            for i in range(len(vecinos_idx)):
+                for j in range(i + 1, len(vecinos_idx)):
+                    if dist_gemelos[i, j] < umbral_conexion:
+                        peso_interno = max(0.1, 1 - dist_gemelos[i, j])
+                        G.add_edge(nodos_gemelos[i], nodos_gemelos[j], weight=peso_interno * 2)
+            
+            centrality = nx.harmonic_centrality(G)
+            centrality.pop(nodo_paciente, None) 
+            arquetipo_label = max(centrality, key=centrality.get)
+            
+            G.nodes[arquetipo_label]['edge_color'] = COLOR_ARCHETYPE
+            G.nodes[arquetipo_label]['line_width'] = 4.5
+            info_inspeccion[arquetipo_label]["is_archetype"] = True
     
-                X_gemelos = X_train_proc[vecinos_idx]
-                dist_gemelos = pairwise_distances(X_gemelos, metric='cosine')
-                umbral_conexion = np.percentile(dist_gemelos, 30) 
+            fig, ax = plt.subplots(figsize=(10, 8))
+            pos = nx.spring_layout(G, seed=42, k=0.85)
+            
+            node_colors = [data['color'] for node, data in G.nodes(data=True)]
+            node_sizes = [data['size'] for node, data in G.nodes(data=True)]
+            edge_colors = [data.get('edge_color', 'white') for node, data in G.nodes(data=True)]
+            line_widths = [data.get('line_width', 1) for node, data in G.nodes(data=True)]
+            
+            nx.draw_networkx_edges(G, pos, ax=ax, alpha=0.3, edge_color='#A0A0A0')
+            nx.draw_networkx_nodes(G, pos, ax=ax, node_color=node_colors, node_size=node_sizes, 
+                                   edgecolors=edge_colors, linewidths=line_widths, alpha=0.95)
+            nx.draw_networkx_labels(G, pos, ax=ax, font_size=8, font_weight='bold', font_color='black')
+            ax.axis('off')
+            
+            col_grafo, col_panel = st.columns([2, 1])
+            
+            with col_grafo:
+                st.pyplot(fig)
+                plt.close(fig)
+                # Leyenda colapsada por defecto
+                with st.expander("🗺️ How to read the Topology Map", expanded=False):
+                    st.markdown("""
+                    - 📏 **Node Distance (Proximity):** Represents multidimensional clinical similarity. Nodes physically closer to the *Current Patient* share highly identical medical histories and evolution trajectories.
+                    - 🫧 **Node Size:** Proportional to the match percentage. Larger nodes indicate a stronger and more reliable "clinical twin" correlation.
+                    - 🎨 **Node Colors:** 🟢 **Safe Discharge** (Historical) | 🔴 **Readmitted** (Historical) | 🔵 **Current Patient**
+                    - 🌟 **Gold Border:** The **Archetypal Patient**. Represents the statistical center of gravity (highest Harmonic Centrality) of this specific clinical cluster.
+                    """)
                 
-                for i in range(len(vecinos_idx)):
-                    for j in range(i + 1, len(vecinos_idx)):
-                        if dist_gemelos[i, j] < umbral_conexion:
-                            peso_interno = max(0.1, 1 - dist_gemelos[i, j])
-                            G.add_edge(nodos_gemelos[i], nodos_gemelos[j], weight=peso_interno * 2)
+            with col_panel:
+                st.markdown("### 🔍 Case Inspector")
                 
-                centrality = nx.harmonic_centrality(G)
-                centrality.pop(nodo_paciente, None) 
-                arquetipo_label = max(centrality, key=centrality.get)
+                lista_nodos = list(info_inspeccion.keys())
+                seleccion = st.selectbox("Inspect Patient Twin:", lista_nodos, index=lista_nodos.index(arquetipo_label))
                 
-                G.nodes[arquetipo_label]['edge_color'] = COLOR_ARCHETYPE
-                G.nodes[arquetipo_label]['line_width'] = 4.5
-                info_inspeccion[arquetipo_label]["is_archetype"] = True
-    
-                fig, ax = plt.subplots(figsize=(10, 8))
-                pos = nx.spring_layout(G, seed=42, k=0.85)
-                
-                node_colors = [data['color'] for node, data in G.nodes(data=True)]
-                node_sizes = [data['size'] for node, data in G.nodes(data=True)]
-                edge_colors = [data.get('edge_color', 'white') for node, data in G.nodes(data=True)]
-                line_widths = [data.get('line_width', 1) for node, data in G.nodes(data=True)]
-                
-                nx.draw_networkx_edges(G, pos, ax=ax, alpha=0.3, edge_color='#A0A0A0')
-                nx.draw_networkx_nodes(G, pos, ax=ax, node_color=node_colors, node_size=node_sizes, 
-                                       edgecolors=edge_colors, linewidths=line_widths, alpha=0.95)
-                nx.draw_networkx_labels(G, pos, ax=ax, font_size=8, font_weight='bold', font_color='black')
-                ax.axis('off')
-                
-                col_grafo, col_panel = st.columns([2, 1])
-                
-                with col_grafo:
-                    st.pyplot(fig)
-                    plt.close(fig)
-                    # Leyenda colapsada por defecto
-                    with st.expander("🗺️ How to read the Topology Map", expanded=False):
-                        st.markdown("""
-                        - 📏 **Node Distance (Proximity):** Represents multidimensional clinical similarity. Nodes physically closer to the *Current Patient* share highly identical medical histories and evolution trajectories.
-                        - 🫧 **Node Size:** Proportional to the match percentage. Larger nodes indicate a stronger and more reliable "clinical twin" correlation.
-                        - 🎨 **Node Colors:** 🟢 **Safe Discharge** (Historical) | 🔴 **Readmitted** (Historical) | 🔵 **Current Patient**
-                        - 🌟 **Gold Border:** The **Archetypal Patient**. Represents the statistical center of gravity (highest Harmonic Centrality) of this specific clinical cluster.
-                        """)
+                if seleccion:
+                    idx_gemelo_matriz = vecinos_idx[lista_nodos.index(seleccion)]
+                    data = info_inspeccion[seleccion]
                     
-                with col_panel:
-                    st.markdown("### 🔍 Case Inspector")
-                    
-                    lista_nodos = list(info_inspeccion.keys())
-                    seleccion = st.selectbox("Inspect Patient Twin:", lista_nodos, index=lista_nodos.index(arquetipo_label))
-                    
-                    if seleccion:
-                        idx_gemelo_matriz = vecinos_idx[lista_nodos.index(seleccion)]
-                        data = info_inspeccion[seleccion]
-                        
-                        # Match y Outcome posicionados inmediatamente debajo del selectbox
-                        c1, c2 = st.columns(2)
-                        with c1:
-                            st.metric(label="Clinical Match", value=f"{data['similitud']:.1f}%")
-                        with c2:
-                            if data['outcome_text'] == "Readmitted":
-                                st.error(f"**Outcome:**\n{data['outcome_text']}")
-                            else:
-                                st.success(f"**Outcome:**\n{data['outcome_text']}")
-                        
-                        st.markdown("---")
-                        
-                        # Insights Colapsados
-                        if data.get("is_archetype"):
-                            with st.expander("⭐ Local Prototype Insights (Micro-Cluster Anchor)", expanded=False):
-                                st.markdown(
-                                    """
-                                    <div style='
-                                        padding: 12px; 
-                                        background-color: rgba(255, 215, 0, 0.1); 
-                                        border-left: 4px solid #FFD700; 
-                                        border-radius: 4px;
-                                    '>
-                                        <h5 style='margin-top:0; color:#FFD700; font-size:14px;'>🎯 Local Network Insights</h5>
-                                        <p style='font-size:12px; margin-bottom:8px;'>
-                                            <b>1. Representative Variant:</b> This is not a general textbook case, but rather the <b>Local Prototype</b>. Among the 20 historical patients most similar to your current case, this specific patient represents the mathematical center of gravity (averaging out the extreme outliers of this specific sub-group).
-                                        </p>
-                                        <p style='font-size:12px; margin-bottom:8px;'>
-                                            <b>2. Micro-Cluster Anchor:</b> The current prediction relies heavily on the density of this immediate neighborhood. Because your patient aligns closely with this local anchor, the risk probability is highly reliable for this specific phenotypic variant.
-                                        </p>
-                                        <p style='font-size:12px; margin-bottom:0;'>
-                                            <b>3. Tailored Reference:</b> Use this patient's retrospective records below as a highly specific baseline template. Their outcome is the most statistically probable path for your current patient's unique condition.
-                                        </p>
-                                    </div>
-                                    """, 
-                                    unsafe_allow_html=True
-                                )
-                        
-                        st.markdown("#### 🤝 Shared Clinical Profile")
-                        with st.expander("View Core Matching Variables", expanded=True):
-                            for nombre_var_es, valor_var in data['datos_comunes'].items():
-                                nombre_en = TRANSLATION_DICT.get(nombre_var_es, nombre_var_es.replace('_', ' ').title())
-                                valor_en = format_clinical_value(nombre_var_es, valor_var)
-                                st.markdown(f"**{nombre_en}:** {valor_en}")
-                        
-                        st.markdown("---")
-                        
-                        traduccion_sexo = {'MASCULINO': 'Male', 'FEMENINO': 'Female'}
-                        traduccion_area = {'CIRUGIA': 'Surgery', 'CLINICA MEDICA': 'Internal Medicine', 'TERAPIA INTENSIVA': 'ICU', 'UNIDAD CORONARIA': 'CCU', 'GUARDIA': 'ER', 'TRAUMATOLOGIA': 'Traumatology', 'PEDIATRIA': 'Pediatrics'}
-                        traduccion_complejidad = {'ALTA': 'High', 'MEDIA': 'Medium', 'BAJA': 'Low'}
-                        
-                        def traducir_ninguno(texto):
-                            texto_str = str(texto).strip()
-                            if texto_str.upper() == 'NINGUNO': return 'None'
-                            elif texto_str == '': return 'Unknown'
-                            return texto_str
-    
-                        sexo_en = traduccion_sexo.get(str(data['sexo']).strip().upper(), data['sexo'])
-                        area_en = traduccion_area.get(str(data['area']).strip().upper(), data['area'])
-                        complejidad_en = traduccion_complejidad.get(str(data['complejidad']).strip().upper(), data['complejidad'])
-                        
-                        diagsec_en = traducir_ninguno(data['diagsec'])
-                        farmacos_raw = data['farmacos']
-                        
-                        st.markdown("#### 🏥 Retrospective Details")
-                        st.markdown(f"**Sex:** {sexo_en} | **Area:** {area_en}")
-                        st.markdown(f"**Complexity:** {complejidad_en}")
-                        st.markdown(f"**Prior ER Visits (6m):** {safe_int(data['guardia'])}")
-                        st.markdown(f"**Consultations:** {safe_int(data['interconsultas'])}")
-                        
-                        st.markdown("#### 📜 Narrative Phenotype (Notes)")
-                        
-                        raw_ing = str(matriz_extended[idx_gemelo_matriz, col_idx.get('texto_anamnesis_ingreso', -1)] if 'texto_anamnesis_ingreso' in col_idx else "")
-                        raw_evo = str(matriz_extended[idx_gemelo_matriz, col_idx.get('texto_evolucion_internacion', -1)] if 'texto_evolucion_internacion' in col_idx else "")
-                        
-                        invalid_markers = ["N/A", "MISSING_DATA", "NONE", "NAN", ""]
-                        texto_ing = "" if raw_ing.upper().strip() in invalid_markers else raw_ing
-                        texto_evo = "" if raw_evo.upper().strip() in invalid_markers else raw_evo
-                        
-                        if not texto_ing and not texto_evo:
-                            st.info("ℹ️ No narrative clinical notes available for this patient.")
+                    # Match y Outcome posicionados inmediatamente debajo del selectbox
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        st.metric(label="Clinical Match", value=f"{data['similitud']:.1f}%")
+                    with c2:
+                        if data['outcome_text'] == "Readmitted":
+                            st.error(f"**Outcome:**\n{data['outcome_text']}")
                         else:
-                            texto_completo = ""
-                            if texto_ing: texto_completo += f"**Admission:**\n{texto_ing}\n\n"
-                            if texto_evo: texto_completo += f"**Evolution:**\n{texto_evo}"
-                            
-                            citas_gemelo = {} 
-                            for col_nombre in nombres_columnas:
-                                if col_nombre.startswith("TX_"):
-                                    cita_val = str(matriz_extended[idx_gemelo_matriz, col_idx[col_nombre]])
-                                    if cita_val and cita_val.strip() not in ["nan", "None", "", "N/A"]:
-                                        var_original = col_nombre.replace("TX_", "")
-                                        var_traducida = TRANSLATION_DICT.get(var_original, var_original.replace('_', ' ').title())
-                                        citas_gemelo[cita_val.strip()] = var_traducida
-                            
-                            enfermedades_a_resaltar = [
-                                "diabetes", "hipertensión", "epoc", "neumonía", "tuberculosis", "iam", "acv", "cáncer",
-                                "trombosis", "celulitis", "plaquetopenia", "fa", "fibrilación auricular", "insuficiencia cardíaca",
-                                "sepsis", "infarto", "arritmia", "infección", "sme compartimental",
-                                "isquemia", "angina", "miocardiopatía", "endocarditis", "pericarditis", "shock",
-                                "aneurisma", "taponamiento cardíaco", "tvp", "tromboembolismo", "tep",
-                                "hipertensión arterial", "hta", "hipotensión", "bradicardia", "taquicardia", "ic",
-                                "sca", "síndrome coronario agudo", "insuficiencia venosa",
-                                "asma", "bronquitis", "derrame pleural", "edema agudo de pulmón", "eap",
-                                "insuficiencia respiratoria", "sdra", "neumotórax", "fibrosis pulmonar", "broncoespasmo",
-                                "itu", "infección urinaria", "insuficiencia renal", "ira", "irc", "pielonefritis",
-                                "litiasis", "nefropatía", "retención aguda de orina", "rao", "hematuria",
-                                "hipotiroidismo", "hipertiroidismo", "cetoacidosis", "hipoglucemia", "hiperglucemia",
-                                "dislipidemia", "obesidad", "desnutrición", "sme metabólico", "acidosis",
-                                "convulsión", "epilepsia", "demencia", "alzheimer", "parkinson", "delirium",
-                                "encefalopatía", "meningitis", "isquemia cerebral", "hemorragia subaracnoidea",
-                                "ataque isquémico transitorio", "ait", "sme confusional", "delirio",
-                                "cirrosis", "hepatitis", "pancreatitis", "colecistitis", "apendicitis", "peritonitis",
-                                "hemorragia digestiva", "hda", "hdb", "úlcera", "úlceras", "úlcera gástrica", 
-                                "obstrucción intestinal", "íleo", "isquemia mesentérica", "ascitis", 
-                                "insuficiencia hepática", "gastroenteritis", "colitis", "colitis ulcerosa", 
-                                "enfermedad de crohn", "diverticulitis", "celiaquía",
-                                "anemia", "leucemia", "linfoma", "neutropenia", "coagulopatía", "metástasis",
-                                "tumor", "neoplasia", "leucocitosis", "pancitopenia", "mieloma",
-                                "bacteriemia", "shock séptico", "covid", "osteomielitis", "fascitis",
-                                "candidiasis", "aspergilosis", "vih", "sida", "dengue", "bacteraemia", "sir", "tbc",
-                                "fractura", "luxación", "artrosis", "artritis", "sme de aplastamiento",
-                                "úlcera por presión", "úlceras por presión", "escara", "escaras", 
-                                "herida quirúrgica", "evisceración", "dehiscencia", "osteomielitis", "necrosis", "gangrena"
-                            ]
-                            texto_html = renderizar_notas_gemelo(texto_completo, citas_gemelo, enfermedades_a_resaltar)
-                            
-                            with st.expander("🔍 Inspect Original Clinical Notes", expanded=False):
-                                st.caption("🟡 **Yellow:** Extracted Phenotype Evidence | 🔴 **Red:** Disease Mention")
-                                st.markdown(texto_html, unsafe_allow_html=True)
-    
-                        st.markdown("#### Clinical Background")
-                        st.markdown(f"**Secondary Diagnoses:**\n{diagsec_en}")
-                        st.markdown(f"**Medications:**")
+                            st.success(f"**Outcome:**\n{data['outcome_text']}")
+                    
+                    st.markdown("---")
+                    
+                    # Insights Colapsados
+                    if data.get("is_archetype"):
+                        with st.expander("⭐ Local Prototype Insights (Micro-Cluster Anchor)", expanded=False):
+                            st.markdown(
+                                """
+                                <div style='
+                                    padding: 12px; 
+                                    background-color: rgba(255, 215, 0, 0.1); 
+                                    border-left: 4px solid #FFD700; 
+                                    border-radius: 4px;
+                                '>
+                                    <h5 style='margin-top:0; color:#FFD700; font-size:14px;'>🎯 Local Network Insights</h5>
+                                    <p style='font-size:12px; margin-bottom:8px;'>
+                                        <b>1. Representative Variant:</b> This is not a general textbook case, but rather the <b>Local Prototype</b>. Among the 20 historical patients most similar to your current case, this specific patient represents the mathematical center of gravity (averaging out the extreme outliers of this specific sub-group).
+                                    </p>
+                                    <p style='font-size:12px; margin-bottom:8px;'>
+                                        <b>2. Micro-Cluster Anchor:</b> The current prediction relies heavily on the density of this immediate neighborhood. Because your patient aligns closely with this local anchor, the risk probability is highly reliable for this specific phenotypic variant.
+                                    </p>
+                                    <p style='font-size:12px; margin-bottom:0;'>
+                                        <b>3. Tailored Reference:</b> Use this patient's retrospective records below as a highly specific baseline template. Their outcome is the most statistically probable path for your current patient's unique condition.
+                                    </p>
+                                </div>
+                                """, 
+                                unsafe_allow_html=True
+                            )
+                    
+                    st.markdown("#### 🤝 Shared Clinical Profile")
+                    with st.expander("View Core Matching Variables", expanded=True):
+                        for nombre_var_es, valor_var in data['datos_comunes'].items():
+                            nombre_en = TRANSLATION_DICT.get(nombre_var_es, nombre_var_es.replace('_', ' ').title())
+                            valor_en = format_clinical_value(nombre_var_es, valor_var)
+                            st.markdown(f"**{nombre_en}:** {valor_en}")
+                    
+                    st.markdown("---")
+                    
+                    traduccion_sexo = {'MASCULINO': 'Male', 'FEMENINO': 'Female'}
+                    traduccion_area = {'CIRUGIA': 'Surgery', 'CLINICA MEDICA': 'Internal Medicine', 'TERAPIA INTENSIVA': 'ICU', 'UNIDAD CORONARIA': 'CCU', 'GUARDIA': 'ER', 'TRAUMATOLOGIA': 'Traumatology', 'PEDIATRIA': 'Pediatrics'}
+                    traduccion_complejidad = {'ALTA': 'High', 'MEDIA': 'Medium', 'BAJA': 'Low'}
+                    
+                    def traducir_ninguno(texto):
+                        texto_str = str(texto).strip()
+                        if texto_str.upper() == 'NINGUNO': return 'None'
+                        elif texto_str == '': return 'Unknown'
+                        return texto_str
+
+                    sexo_en = traduccion_sexo.get(str(data['sexo']).strip().upper(), data['sexo'])
+                    area_en = traduccion_area.get(str(data['area']).strip().upper(), data['area'])
+                    complejidad_en = traduccion_complejidad.get(str(data['complejidad']).strip().upper(), data['complejidad'])
+                    
+                    diagsec_en = traducir_ninguno(data['diagsec'])
+                    farmacos_raw = data['farmacos']
+                    
+                    st.markdown("#### 🏥 Retrospective Details")
+                    st.markdown(f"**Sex:** {sexo_en} | **Area:** {area_en}")
+                    st.markdown(f"**Complexity:** {complejidad_en}")
+                    st.markdown(f"**Prior ER Visits (6m):** {safe_int(data['guardia'])}")
+                    st.markdown(f"**Consultations:** {safe_int(data['interconsultas'])}")
+                    
+                    st.markdown("#### 📜 Narrative Phenotype (Notes)")
+                    
+                    raw_ing = str(matriz_extended[idx_gemelo_matriz, col_idx.get('texto_anamnesis_ingreso', -1)] if 'texto_anamnesis_ingreso' in col_idx else "")
+                    raw_evo = str(matriz_extended[idx_gemelo_matriz, col_idx.get('texto_evolucion_internacion', -1)] if 'texto_evolucion_internacion' in col_idx else "")
+                    
+                    invalid_markers = ["N/A", "MISSING_DATA", "NONE", "NAN", ""]
+                    texto_ing = "" if raw_ing.upper().strip() in invalid_markers else raw_ing
+                    texto_evo = "" if raw_evo.upper().strip() in invalid_markers else raw_evo
+                    
+                    if not texto_ing and not texto_evo:
+                        st.info("ℹ️ No narrative clinical notes available for this patient.")
+                    else:
+                        texto_completo = ""
+                        if texto_ing: texto_completo += f"**Admission:**\n{texto_ing}\n\n"
+                        if texto_evo: texto_completo += f"**Evolution:**\n{texto_evo}"
                         
-                        if str(farmacos_raw).strip().upper() in ('NINGUNO', '', 'NONE', 'N/A'):
-                            st.markdown("None")
-                        else:
-                            lista_farmacos = [f.strip() for f in str(farmacos_raw).split(',')]
-                            try:
-                                from translations import FARMACOS_TRANSLATION_DICT
-                                dict_farmacos_upper = {k.upper(): v for k, v in FARMACOS_TRANSLATION_DICT.items()}
-                                lista_traducida = [dict_farmacos_upper.get(f.upper(), f.strip().title()) for f in lista_farmacos]
-                            except ImportError:
-                                lista_traducida = [f.strip().title() for f in lista_farmacos]
-                                
-                            for f in lista_traducida:
-                                st.markdown(f"- {f}")
-                                
-        except Exception as e:
-            st.error("Error generating similarity topology graph.")
-            st.warning(f"Technical Detail: {str(e)}")
+                        citas_gemelo = {} 
+                        for col_nombre in nombres_columnas:
+                            if col_nombre.startswith("TX_"):
+                                cita_val = str(matriz_extended[idx_gemelo_matriz, col_idx[col_nombre]])
+                                if cita_val and cita_val.strip() not in ["nan", "None", "", "N/A"]:
+                                    var_original = col_nombre.replace("TX_", "")
+                                    var_traducida = TRANSLATION_DICT.get(var_original, var_original.replace('_', ' ').title())
+                                    citas_gemelo[cita_val.strip()] = var_traducida
+                        
+                        enfermedades_a_resaltar = [
+                            "diabetes", "hipertensión", "epoc", "neumonía", "tuberculosis", "iam", "acv", "cáncer",
+                            "trombosis", "celulitis", "plaquetopenia", "fa", "fibrilación auricular", "insuficiencia cardíaca",
+                            "sepsis", "infarto", "arritmia", "infección", "sme compartimental",
+                            "isquemia", "angina", "miocardiopatía", "endocarditis", "pericarditis", "shock",
+                            "aneurisma", "taponamiento cardíaco", "tvp", "tromboembolismo", "tep",
+                            "hipertensión arterial", "hta", "hipotensión", "bradicardia", "taquicardia", "ic",
+                            "sca", "síndrome coronario agudo", "insuficiencia venosa",
+                            "asma", "bronquitis", "derrame pleural", "edema agudo de pulmón", "eap",
+                            "insuficiencia respiratoria", "sdra", "neumotórax", "fibrosis pulmonar", "broncoespasmo",
+                            "itu", "infección urinaria", "insuficiencia renal", "ira", "irc", "pielonefritis",
+                            "litiasis", "nefropatía", "retención aguda de orina", "rao", "hematuria",
+                            "hipotiroidismo", "hipertiroidismo", "cetoacidosis", "hipoglucemia", "hiperglucemia",
+                            "dislipidemia", "obesidad", "desnutrición", "sme metabólico", "acidosis",
+                            "convulsión", "epilepsia", "demencia", "alzheimer", "parkinson", "delirium",
+                            "encefalopatía", "meningitis", "isquemia cerebral", "hemorragia subaracnoidea",
+                            "ataque isquémico transitorio", "ait", "sme confusional", "delirio",
+                            "cirrosis", "hepatitis", "pancreatitis", "colecistitis", "apendicitis", "peritonitis",
+                            "hemorragia digestiva", "hda", "hdb", "úlcera", "úlceras", "úlcera gástrica", 
+                            "obstrucción intestinal", "íleo", "isquemia mesentérica", "ascitis", 
+                            "insuficiencia hepática", "gastroenteritis", "colitis", "colitis ulcerosa", 
+                            "enfermedad de crohn", "diverticulitis", "celiaquía",
+                            "anemia", "leucemia", "linfoma", "neutropenia", "coagulopatía", "metástasis",
+                            "tumor", "neoplasia", "leucocitosis", "pancitopenia", "mieloma",
+                            "bacteriemia", "shock séptico", "covid", "osteomielitis", "fascitis",
+                            "candidiasis", "aspergilosis", "vih", "sida", "dengue", "bacteraemia", "sir", "tbc",
+                            "fractura", "luxación", "artrosis", "artritis", "sme de aplastamiento",
+                            "úlcera por presión", "úlceras por presión", "escara", "escaras", 
+                            "herida quirúrgica", "evisceración", "dehiscencia", "osteomielitis", "necrosis", "gangrena"
+                        ]
+                        texto_html = renderizar_notas_gemelo(texto_completo, citas_gemelo, enfermedades_a_resaltar)
+                        
+                        with st.expander("🔍 Inspect Original Clinical Notes", expanded=False):
+                            st.caption("🟡 **Yellow:** Extracted Phenotype Evidence | 🔴 **Red:** Disease Mention")
+                            st.markdown(texto_html, unsafe_allow_html=True)
+
+                    st.markdown("#### Clinical Background")
+                    st.markdown(f"**Secondary Diagnoses:**\n{diagsec_en}")
+                    st.markdown(f"**Medications:**")
+                    
+                    if str(farmacos_raw).strip().upper() in ('NINGUNO', '', 'NONE', 'N/A'):
+                        st.markdown("None")
+                    else:
+                        lista_farmacos = [f.strip() for f in str(farmacos_raw).split(',')]
+                        try:
+                            from translations import FARMACOS_TRANSLATION_DICT
+                            dict_farmacos_upper = {k.upper(): v for k, v in FARMACOS_TRANSLATION_DICT.items()}
+                            lista_traducida = [dict_farmacos_upper.get(f.upper(), f.strip().title()) for f in lista_farmacos]
+                        except ImportError:
+                            lista_traducida = [f.strip().title() for f in lista_farmacos]
+                            
+                        for f in lista_traducida:
+                            st.markdown(f"- {f}")
+                            
+    except Exception as e:
+        st.error("Error generating similarity topology graph.")
+        st.warning(f"Technical Detail: {str(e)}")
