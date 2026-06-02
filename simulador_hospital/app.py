@@ -19,6 +19,7 @@ from sklearn.metrics import pairwise_distances
 from sklearn.inspection import PartialDependenceDisplay
 import lime
 import lime.lime_tabular
+import umap
 warnings.filterwarnings("ignore")
 
 # ==========================================
@@ -1499,16 +1500,25 @@ with tab_evidencia:
         knn_engine = NearestNeighbors(n_neighbors=20, metric='cosine')
         knn_engine.fit(X_train_proc)
         
-        return knn_engine, matriz_ext, nombres_columnas, X_train_proc
+        # --- NUEVO: ENTRENAMIENTO CACHEADO DE UMAP ---
+        import umap
+        umap_reducer = umap.UMAP(n_neighbors=15, min_dist=0.1, metric='cosine', random_state=42)
+        umap_embeddings = umap_reducer.fit_transform(X_train_proc)
+        
+        return knn_engine, matriz_ext, nombres_columnas, X_train_proc, umap_reducer, umap_embeddings
     
     plt.close('all') 
     
     try:
         with st.spinner("Calculating topological metrics and harmonic centrality..."):
-            knn, matriz_extended, nombres_columnas, X_train_proc = load_similarity_assets()
+            # Desempaquetamos los nuevos activos UMAP
+            knn, matriz_extended, nombres_columnas, X_train_proc, umap_reducer, umap_embeddings = load_similarity_assets()
             
             prep = pipeline.named_steps['preprocesador']
             X_paciente_proc = prep.transform(df_paciente)
+            
+            # --- NUEVO: PROYECCIÓN DEL PACIENTE ACTUAL EN UMAP ---
+            paciente_umap_coords = umap_reducer.transform(X_paciente_proc)
             
             distancias, indices = knn.kneighbors(X_paciente_proc)
             vecinos_idx = indices[0]
@@ -1779,7 +1789,59 @@ with tab_evidencia:
                             
                         for f in lista_traducida:
                             st.markdown(f"- {f}")
-                            
+            
+            # ==========================================
+            # --- NUEVO: MACRO-LEVEL INSIGHT (UMAP) ---
+            # ==========================================
+            st.markdown("---")
+            st.markdown("#### 🌌 Macro-Level Insight: Global Hospital Universe (UMAP)")
+            
+            # Separamos las clases históricas
+            y_hist = matriz_extended[:, col_idx['target']].astype(float)
+            mask_safe = y_hist == 0
+            mask_readmit = y_hist == 1
+            
+            fig_umap = go.Figure()
+            
+            # Nube Verde: Alta Segura Histórica
+            fig_umap.add_trace(go.Scatter(
+                x=umap_embeddings[mask_safe, 0], 
+                y=umap_embeddings[mask_safe, 1],
+                mode='markers', 
+                name='Safe Discharge (Historical)',
+                marker=dict(color='#00C851', size=6, opacity=0.4)
+            ))
+            
+            # Nube Roja: Reingresos Históricos
+            fig_umap.add_trace(go.Scatter(
+                x=umap_embeddings[mask_readmit, 0], 
+                y=umap_embeddings[mask_readmit, 1],
+                mode='markers', 
+                name='Readmitted (Historical)',
+                marker=dict(color='#FF4444', size=6, opacity=0.4)
+            ))
+            
+            # Estrella: Paciente Actual
+            fig_umap.add_trace(go.Scatter(
+                x=[paciente_umap_coords[0, 0]], 
+                y=[paciente_umap_coords[0, 1]],
+                mode='markers', 
+                name='Current Patient',
+                marker=dict(color='#87CEEB', size=18, symbol='star', line=dict(color='black', width=2))
+            ))
+            
+            fig_umap.update_layout(
+                plot_bgcolor='rgba(0,0,0,0)', 
+                paper_bgcolor='rgba(0,0,0,0)',
+                xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                margin=dict(l=10, r=10, t=30, b=10),
+                height=500,
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5)
+            )
+            
+            st.plotly_chart(fig_umap, use_container_width=True)
+            
     except Exception as e:
         st.error("Error generating similarity topology graph.")
         st.warning(f"Technical Detail: {str(e)}")
