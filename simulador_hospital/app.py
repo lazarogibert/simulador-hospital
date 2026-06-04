@@ -584,7 +584,7 @@ with tab_diagnostico:
             "Otros factores de salud": "Other health factors",
             "DESCONOCIDO": "UNKNOWN"
         }
-    
+        
         if pd.isna(categoria_cie10):
             categoria_cie10_ingles = "N/A"
         else:
@@ -638,15 +638,21 @@ with tab_diagnostico:
                     'LLM_oxigenodependiente': 'Chronic: Oxygen Dependent', 'LLM_polifarmacia': 'Chronic: Polypharmacy',
                     'LLM_tabaquismo_activo': 'Chronic: Active Smoking'
                 }
-    
+                
                 nombres_limpios_traducidos = []
+                human_data = [] # <--- NUEVO: Matriz de valores reales para la UI
                 cie10_upper = {k.upper(): v for k, v in cie10_ui_dict.items()}
                 
+                # --- NUEVA LÓGICA: DECODIFICACIÓN CRUDA SIMULTÁNEA ---
                 for nombre_crudo in nombres_crudos:
+                    # 1. Traducción del nombre
                     traducido = nombre_crudo.split('__')[-1]
+                    nombre_base = traducido # Guardamos la raíz para buscar el valor real
+                    
                     for sufijo in ['_1.0', '_1', '_True', '_true', '_0.0', '_0', '_False', '_false']:
                         if traducido.endswith(sufijo):
                             traducido = traducido[:-len(sufijo)]
+                            nombre_base = nombre_base[:-len(sufijo)]
                             break
                     
                     if "CIE10_MACRO" in nombre_crudo:
@@ -670,8 +676,32 @@ with tab_diagnostico:
                                 break
                         if not match_encontrado:
                             traducido = traducido.replace("_", " ").title()
+                            
                     nombres_limpios_traducidos.append(traducido)
-    
+                    
+                    # 2. Extracción del Valor Real para SHAP UI
+                    if nombre_base in df_paciente.columns:
+                        val = df_paciente[nombre_base].iloc[0]
+                        try:
+                            val = float(val)
+                            if val.is_integer(): val = int(val)
+                        except:
+                            pass
+                        human_data.append(val)
+                    else:
+                        # Recuperación de categorías One-Hot (Ej. Rango etario o Diagnóstico)
+                        val_real = 0
+                        columnas_categoricas = ['CIE10_MACRO', 'CIE10_SUBMACRO', 'rango_edad', 'PA_NIVEL', 'PA_SITLABO', 'Area', 'TR_Prioridad', 'IN_COMPLEJIDAD', 'sexo']
+                        for col_cat in columnas_categoricas:
+                            if nombre_base.startswith(col_cat + '_'):
+                                valor_categoria_columna = nombre_base.replace(col_cat + '_', '')
+                                if col_cat in df_paciente.columns:
+                                    valor_real_paciente = str(df_paciente[col_cat].iloc[0])
+                                    if valor_categoria_columna.strip().upper() == valor_real_paciente.strip().upper():
+                                        val_real = 1
+                                break
+                        human_data.append(val_real)
+                
                 try:
                     explainer = shap.TreeExplainer(clf)
                     shap_vals = explainer.shap_values(X_proc_dense, check_additivity=False)
@@ -692,7 +722,7 @@ with tab_diagnostico:
                     explicacion_completa = shap.Explanation(
                         values=np.array(shap_vals_pct), 
                         base_values=exp_val_pct, 
-                        data=np.array(X_paciente_1d), 
+                        data=np.array(human_data), # <--- CORRECCIÓN CLAVE: Inyectamos los datos reales aquí
                         feature_names=nombres_limpios_traducidos
                     )
                     
@@ -706,32 +736,18 @@ with tab_diagnostico:
                     indices_activos = []
                     variables_continuas = ['Days', 'Pain', 'Severity', 'Delta', 'Consultations', 'Complexity']
     
-                    for i, (val_proc, nombre_traducido) in enumerate(zip(X_paciente_1d, nombres_limpios_traducidos)):
-                        nombre_crudo = nombres_crudos[i]
-                        nombre_base = nombre_crudo.split('__')[-1]
-                        for sufijo in ['_1.0', '_1', '_True', '_true', '_0.0', '_0', '_False', '_false']:
-                            if nombre_base.endswith(sufijo):
-                                nombre_base = nombre_base[:-len(sufijo)]
-                                break
-                        
-                        val_real = val_proc 
-                        if nombre_base in df_paciente.columns:
-                            val_real = df_paciente[nombre_base].iloc[0]
-                        else:
-                            columnas_categoricas = ['CIE10_MACRO', 'CIE10_SUBMACRO', 'rango_edad']
-                            for col_cat in columnas_categoricas:
-                                if nombre_base.startswith(col_cat + '_'):
-                                    valor_categoria_columna = nombre_base.replace(col_cat + '_', '')
-                                    valor_real_paciente = str(df_paciente[col_cat].iloc[0])
-                                    val_real = 1.0 if valor_categoria_columna.strip().upper() == valor_real_paciente.strip().upper() else 0.0 
-                                    break
-                        
+                    # Usamos directamente human_data, que ya decodificamos
+                    for i, (val_real, nombre_traducido) in enumerate(zip(human_data, nombres_limpios_traducidos)):
                         es_continua = any(kw in nombre_traducido for kw in variables_continuas)
                         es_inactivo = False
+                        
                         if not es_continua:
                             val_str = str(val_real).strip().upper()
                             if val_str in ['0', '0.0', 'FALSE', 'NONE', 'N/A', 'NAN', '']: es_inactivo = True
+                            
+                        # Filtro de peso SHAP marginal
                         if abs(shap_vals_pct[i]) < 0.01: es_inactivo = True
+                        
                         if not es_inactivo: indices_activos.append(i)
     
                     if not indices_activos:
