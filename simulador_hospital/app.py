@@ -235,7 +235,7 @@ st.title("🏥 Clinical Safe Discharge Simulator (15 Days)")
 @st.cache_resource
 def cargar_entorno():
     directorio_actual = os.path.dirname(os.path.abspath(__file__))
-    ruta_modelo = os.path.join(directorio_actual, 'modelo_reingreso_nlp_41vars_v3rf.pkl')
+    ruta_modelo = os.path.join(directorio_actual, 'modelo_reingreso_nlp_41vars_v2.pkl')
     ruta_datos = os.path.join(directorio_actual, 'train_sample_quimera.csv')
     
     paquete = joblib.load(ruta_modelo)
