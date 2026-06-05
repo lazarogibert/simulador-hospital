@@ -226,7 +226,7 @@ def mapear_cie10_macro(cod):
 # 1. PAGE CONFIGURATION
 # ==========================================
 st.set_page_config(page_title="Safe Discharge Simulator", layout="wide")
-st.title("🏥 Clinical Safe Discharge Simulator (15 Days)")
+st.markdown("<h2 style='font-size: 32px; font-weight: 600; margin-bottom: 20px;'>🏥 Clinical Safe Discharge Simulator (15 Days)</h2>", unsafe_allow_html=True)
 #st.markdown("Decision support tool based on narrative phenotypes and prescriptive explainability.")
 
 # ==========================================
