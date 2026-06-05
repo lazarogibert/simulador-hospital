@@ -304,7 +304,7 @@ complejidad_input = st.sidebar.number_input("Complexity Level (IN_COMPLEJIDAD):"
 interconsultas_input = st.sidebar.number_input("Interconsultations:", min_value=0, value=0)
 visitas_guardia_input = st.sidebar.number_input("ER Visits (Previous 6 months):", min_value=0, value=0)
 
-es_pluripatologico = st.sidebar.checkbox("Is the patient Pluripathological?", value=False)
+es_pluripatologico = st.sidebar.checkbox("Has Multimorbidity (Pluripathological)?", value=False)
 ingreso_ambulancia = st.sidebar.checkbox("Arrived by Ambulance (EST_ingreso_ambulancia)?", value=False)
 internacion_programada = st.sidebar.checkbox("Scheduled Admission (IN_ORDENIN)?", value=False)
 
@@ -705,7 +705,7 @@ with tab_diagnostico:
                 nombres_crudos = prep.get_feature_names_out()
                 
                 shap_ui_dict = {
-                    'dias_internados': 'Hospitalization Days', 'pluripatologico': 'Pluripathological',
+                    'dias_internados': 'Hospitalization Days', 'pluripatologico': 'Multimorbidity',
                     'ING_dolor_eva': 'Initial Pain', 'ING_gravedad_percibida': 'Initial Severity',
                     'EVO_dolor_eva': 'Current Pain', 'EVO_gravedad_percibida': 'Current Severity',
                     'DELTA_dolor_eva': 'Pain Delta', 'DELTA_gravedad_percibida': 'Severity Delta',
@@ -1531,23 +1531,28 @@ with tab_evidencia:
         'CIE10_MACRO': 'Primary Diagnosis (ICD-10)', 'LLM_tabaquismo_activo': 'Active Smoking', 'LLM_alcoholismo': 'Alcoholism',
         'LLM_drogas_ilicitas': 'Illicit Drug Use', 'LLM_fragilidad_geriatrica': 'Geriatric Frailty',
         'LLM_polifarmacia': 'Polypharmacy', 'LLM_desnutricion_severa': 'Severe Malnutrition', 'LLM_oxigenodependiente': 'Oxygen Dependent',
-        'LLM_historial_caidas': 'History of Falls', 'LLM_abandono_medicacion': 'Medication Non-adherence',
+        'LLM_historial_caidas': 'History of Falls', 'LLM_abandono_medicacion': 'Medication Abandonment', # Unificado
         'LLM_AF_diabetes': 'FHx: Diabetes', 'LLM_AF_hipertension': 'FHx: Hypertension', 'LLM_AF_cardiovascular_otro': 'FHx: Other Cardiovascular',
         'LLM_AF_oncologico': 'FHx: Oncology', 'LLM_AF_metabolico_otro': 'FHx: Other Metabolic', 'LLM_AF_neurologico': 'FHx: Neurology',
         'LLM_AF_psiquiatrico': 'FHx: Psychiatry', 'LLM_AF_respiratorio': 'FHx: Respiratory', 'LLM_AF_renal': 'FHx: Renal',
         'LLM_AF_autoinmune': 'FHx: Autoimmune', 'ING_dolor_eva': 'Admission: Pain (VAS)', 'ING_gravedad_percibida': 'Admission: Perceived Severity',
-        'ING_alteracion_mental': 'Admission: Altered Mental Status', 'ING_dependencia_funcional': 'Admission: Functional Dependence',
-        'ING_portador_dispositivos': 'Admission: Medical Devices', 'ING_consultas_reiteradas': 'Admission: Repeated Consultations',
+        'ING_alteracion_mental': 'Admission: Mental Alteration', # Unificado
+        'ING_dependencia_funcional': 'Admission: Functional Dependency',
+        'ING_portador_dispositivos': 'Admission: Device Bearer', # Unificado
+        'ING_consultas_reiteradas': 'Admission: Repeated Consultations',
         'ING_riesgo_hemorragico': 'Admission: Hemorrhagic Risk', 'ING_infeccion_activa': 'Admission: Active Infection',
         'EVO_dolor_eva': 'Evolution: Pain (VAS)', 'EVO_gravedad_percibida': 'Evolution: Perceived Severity', 
-        'EVO_alteracion_mental': 'Evolution: Altered Mental Status', 'EVO_dependencia_funcional': 'Evolution: Functional Dependence', 
-        'EVO_portador_dispositivos': 'Evolution: Medical Devices', 'EVO_complicacion_internacion': 'Evolution: Hospital Complication', 
-        'EVO_fuga_o_alta_irregular': 'Evolution: Irregular Discharge (AMA)', 'EVO_cuidados_paliativos': 'Evolution: Palliative Care', 
+        'EVO_alteracion_mental': 'Evolution: Mental Alteration', # Unificado
+        'EVO_dependencia_funcional': 'Evolution: Functional Dependency', 
+        'EVO_portador_dispositivos': 'Evolution: Device Bearer', # Unificado
+        'EVO_complicacion_internacion': 'Evolution: Hospital Complication', 
+        'EVO_fuga_o_alta_irregular': 'Evolution: Irregular Discharge / Escape', # Unificado
+        'EVO_cuidados_paliativos': 'Evolution: Palliative Care', 
         'EVO_ulceras_presion': 'Evolution: Pressure Ulcers', 'EVO_aislamiento_infeccioso': 'Evolution: Infectious Isolation', 
         'EVO_cambio_terapeutico_mayor': 'Evolution: Major Therapeutic Change', 'EVO_intervencion_quirurgica': 'Evolution: Surgical Intervention', 
         'EVO_soporte_transfusional': 'Evolution: Transfusion Support', 'DELTA_dolor_eva': 'Δ Pain (VAS)',
-        'DELTA_gravedad_percibida': 'Δ Perceived Severity', 'DELTA_alteracion_mental': 'Δ Altered Mental Status',
-        'DELTA_dependencia_funcional': 'Δ Functional Dependence', 'DELTA_portador_dispositivos': 'Δ Medical Devices',
+        'DELTA_gravedad_percibida': 'Δ Perceived Severity', 'DELTA_alteracion_mental': 'Δ Mental Alteration',
+        'DELTA_dependencia_funcional': 'Δ Functional Dependency', 'DELTA_portador_dispositivos': 'Δ Device Bearer',
         'sexo': 'Sex', 'Area': 'Admission Area', 'IN_COMPLEJIDAD': 'Complexity Level', 
         'cantidad_interconsultas': 'Interconsultations', 'visitas_guardia_6meses_previos': 'ER Visits (6m)',
         'EST_ingreso_ambulancia': 'Ambulance Arrival', 'IN_ORDENIN': 'Scheduled Admission', 
@@ -1557,7 +1562,7 @@ with tab_evidencia:
     def format_clinical_value(key_es, value):
         val_str = str(value).strip().upper()
         if key_es == 'rango_edad':
-            traducciones_edad = {'ADULTO DE MEDIANA EDAD': 'Middle-Aged Adult', 'ADULTO MAYOR': 'Senior Adult', 'ADULTO JOVEN': 'Young Adult', 'ANCIANO': 'Elderly', 'MENOR DE EDAD': 'Minor'}
+            traducciones_edad = {'ADULTO DE MEDIANA EDAD': 'Middle-Aged Adult', 'ADULTO MAYOR': 'Older Adult', 'ADULTO JOVEN': 'Young Adult', 'ANCIANO': 'Elderly', 'MENOR DE EDAD': 'Minor'}
             return traducciones_edad.get(val_str, value)
             
         if key_es == 'sexo':
