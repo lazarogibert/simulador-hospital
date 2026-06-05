@@ -511,8 +511,17 @@ with c_evo:
 # 4. MATHEMATICAL ASSEMBLY ENGINE
 # ==========================================
 paciente_data = {}
+
+# 1. Definir categóricas estrictas EXACTAMENTE como en el entrenamiento
+variables_categoricas_train = [
+    'rango_edad', 'PA_NIVEL', 'PA_SITLABO', 'Area', 
+    'TR_Prioridad', 'IN_COMPLEJIDAD', 'sexo', 
+    'CIE10_MACRO', 'CIE10_SUBMACRO', 'HIST_condicion_ultimo_egreso'
+]
+
+# Inicialización segura (vital para no mandar 0.0 a columnas categóricas ausentes)
 for col in columnas_modelo:
-    if col in ['rango_edad', 'CIE10_MACRO', 'CIE10_SUBMACRO']:
+    if col in variables_categoricas_train:
         paciente_data[col] = "DESCONOCIDO"
     else:
         paciente_data[col] = 0.0
@@ -556,16 +565,24 @@ calcular_delta_seguro('DELTA_gravedad_percibida', 'EVO_gravedad_percibida', 'ING
 calcular_delta_seguro('DELTA_alteracion_mental', 'EVO_alteracion_mental', 'ING_alteracion_mental')
 calcular_delta_seguro('DELTA_dependencia_funcional', 'EVO_dependencia_funcional', 'ING_dependencia_funcional')
 calcular_delta_seguro('DELTA_portador_dispositivos', 'EVO_portador_dispositivos', 'ING_portador_dispositivos')
-# ---> INSERTA ESTE BLOQUE EXACTAMENTE AQUÍ <---
+
+# Inserción de variables administrativas
 if 'sexo' in paciente_data: paciente_data['sexo'] = sexo_input
 if 'Area' in paciente_data: paciente_data['Area'] = area_input
-if 'IN_COMPLEJIDAD' in paciente_data: paciente_data['IN_COMPLEJIDAD'] = float(complejidad_input)
+if 'IN_COMPLEJIDAD' in paciente_data: paciente_data['IN_COMPLEJIDAD'] = str(int(complejidad_input)) # Forzado a texto "1"
 if 'cantidad_interconsultas' in paciente_data: paciente_data['cantidad_interconsultas'] = float(interconsultas_input)
 if 'visitas_guardia_6meses_previos' in paciente_data: paciente_data['visitas_guardia_6meses_previos'] = float(visitas_guardia_input)
 if 'EST_ingreso_ambulancia' in paciente_data: paciente_data['EST_ingreso_ambulancia'] = 1.0 if ingreso_ambulancia else 0.0
 if 'IN_ORDENIN' in paciente_data: paciente_data['IN_ORDENIN'] = 1.0 if internacion_programada else 0.0
-df_paciente = pd.DataFrame([paciente_data])[columnas_modelo]
 
+# --- EL BLINDAJE FINAL: REPLICAR PREPROCESO DE ENTRENAMIENTO ---
+# Forzamos TODO a mayúsculas justo antes de crear el DataFrame
+for col in variables_categoricas_train:
+    if col in paciente_data:
+        paciente_data[col] = str(paciente_data[col]).strip().upper()
+# ---------------------------------------------------------------
+
+df_paciente = pd.DataFrame([paciente_data])[columnas_modelo]
 tab_diagnostico, tab_estrategia, tab_evidencia = st.tabs([
     "📊 1. Current Risk & Audit", 
     "🧭 2. Stabilization & Simulation", 
