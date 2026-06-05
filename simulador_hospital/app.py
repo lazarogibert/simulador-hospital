@@ -1557,7 +1557,7 @@ with tab_evidencia:
     def format_clinical_value(key_es, value):
         val_str = str(value).strip().upper()
         if key_es == 'rango_edad':
-            traducciones_edad = {'ADULTO DE MEDIANA EDAD': 'Middle-Aged Adult', 'ADULTO MAYOR': 'Senior Adult', 'ADULTO JOVEN': 'Young Adult', 'ANCIANO': 'Elderly'}
+            traducciones_edad = {'ADULTO DE MEDIANA EDAD': 'Middle-Aged Adult', 'ADULTO MAYOR': 'Senior Adult', 'ADULTO JOVEN': 'Young Adult', 'ANCIANO': 'Elderly', 'MENOR DE EDAD': 'Minor'}
             return traducciones_edad.get(val_str, value)
             
         if key_es == 'sexo':
@@ -1878,9 +1878,9 @@ with tab_evidencia:
                     
                     fig_umap = go.Figure()
                     
-                    # --- NUEVO: Marcadores universales para Outcome ---
-                    # 1 = Reinternado (X), 0 = Alta Segura (Círculo)
-                    simbolos_outcome = np.where(y_hist == 1, 'x', 'circle')
+                    # --- FIX VISUAL: Diamantes vs Círculos + Bordes para evitar manchas ---
+                    simbolos_outcome = np.where(y_hist == 1, 'diamond', 'circle')
+                    borde_marcador = dict(width=0.6, color='rgba(255,255,255,0.6)')
                     
                     if modo_color == "Readmitted vs Safe Discharge":
                         mask_safe = y_hist == 0
@@ -1890,13 +1890,13 @@ with tab_evidencia:
                             x=umap_embeddings[mask_safe, 0], y=umap_embeddings[mask_safe, 1],
                             mode='markers', name='Safe Discharge',
                             text=hover_texts[mask_safe], hoverinfo='text',
-                            marker=dict(color='#00C851', size=6, opacity=0.5, symbol=simbolos_outcome[mask_safe])
+                            marker=dict(color='#00C851', size=7, opacity=0.6, symbol=simbolos_outcome[mask_safe], line=borde_marcador)
                         ))
                         fig_umap.add_trace(go.Scatter(
                             x=umap_embeddings[mask_readmit, 0], y=umap_embeddings[mask_readmit, 1],
                             mode='markers', name='Readmitted',
                             text=hover_texts[mask_readmit], hoverinfo='text',
-                            marker=dict(color='#FF4444', size=6, opacity=0.6, symbol=simbolos_outcome[mask_readmit])
+                            marker=dict(color='#FF4444', size=8, opacity=0.75, symbol=simbolos_outcome[mask_readmit], line=borde_marcador)
                         ))
                         
                     elif modo_color == "Diagnosis Search (One-vs-Rest)":
@@ -1912,16 +1912,15 @@ with tab_evidencia:
                             x=umap_embeddings[mask_inactive, 0], y=umap_embeddings[mask_inactive, 1],
                             mode='markers', name='Other Diagnoses',
                             text=hover_texts[mask_inactive], hoverinfo='text',
-                            marker=dict(color='#E0E0E0', size=5, opacity=0.4, symbol=simbolos_outcome[mask_inactive])
+                            marker=dict(color='#E0E0E0', size=6, opacity=0.4, symbol=simbolos_outcome[mask_inactive], line=borde_marcador)
                         ))
                         fig_umap.add_trace(go.Scatter(
                             x=umap_embeddings[mask_active, 0], y=umap_embeddings[mask_active, 1],
                             mode='markers', name=diag_seleccionado,
                             text=hover_texts[mask_active], hoverinfo='text',
-                            marker=dict(color='#FF8C00', size=7, opacity=0.8, line=dict(color='white', width=0.5), symbol=simbolos_outcome[mask_active])
+                            marker=dict(color='#FF8C00', size=8, opacity=0.9, symbol=simbolos_outcome[mask_active], line=dict(color='white', width=1))
                         ))
                     
-                    # --- NUEVO FILTRO: AREA DE INGRESO (One-vs-Rest) ---
                     elif modo_color == "Area Search (One-vs-Rest)":
                         areas_crudas = get_col_data('Area')
                         areas_traducidas = np.array([format_clinical_value('Area', a) for a in areas_crudas])
@@ -1936,13 +1935,13 @@ with tab_evidencia:
                             x=umap_embeddings[mask_inactive, 0], y=umap_embeddings[mask_inactive, 1],
                             mode='markers', name='Other Areas',
                             text=hover_texts[mask_inactive], hoverinfo='text',
-                            marker=dict(color='#E0E0E0', size=5, opacity=0.4, symbol=simbolos_outcome[mask_inactive])
+                            marker=dict(color='#E0E0E0', size=6, opacity=0.4, symbol=simbolos_outcome[mask_inactive], line=borde_marcador)
                         ))
                         fig_umap.add_trace(go.Scatter(
                             x=umap_embeddings[mask_active, 0], y=umap_embeddings[mask_active, 1],
                             mode='markers', name=area_seleccionada,
                             text=hover_texts[mask_active], hoverinfo='text',
-                            marker=dict(color='#9467BD', size=7, opacity=0.8, line=dict(color='white', width=0.5), symbol=simbolos_outcome[mask_active])
+                            marker=dict(color='#9467BD', size=8, opacity=0.9, symbol=simbolos_outcome[mask_active], line=dict(color='white', width=1))
                         ))
                         
                     elif modo_color == "Age Distribution":
@@ -1959,7 +1958,7 @@ with tab_evidencia:
                                 x=umap_embeddings[mask_age, 0], y=umap_embeddings[mask_age, 1],
                                 mode='markers', name=age_group,
                                 text=hover_texts[mask_age], hoverinfo='text',
-                                marker=dict(color=c, size=6, opacity=0.6, symbol=simbolos_outcome[mask_age])
+                                marker=dict(color=c, size=7, opacity=0.75, symbol=simbolos_outcome[mask_age], line=borde_marcador)
                             ))
                             
                     elif modo_color == "Multimorbidity Status":
@@ -1976,13 +1975,13 @@ with tab_evidencia:
                             x=umap_embeddings[mask_no, 0], y=umap_embeddings[mask_no, 1],
                             mode='markers', name='No Multimorbidity',
                             text=hover_texts[mask_no], hoverinfo='text',
-                            marker=dict(color='#AAB7B8', size=6, opacity=0.6, symbol=simbolos_outcome[mask_no])
+                            marker=dict(color='#AAB7B8', size=7, opacity=0.6, symbol=simbolos_outcome[mask_no], line=borde_marcador)
                         ))
                         fig_umap.add_trace(go.Scatter(
                             x=umap_embeddings[mask_yes, 0], y=umap_embeddings[mask_yes, 1],
                             mode='markers', name='Multimorbidity (Pluripathological)',
                             text=hover_texts[mask_yes], hoverinfo='text',
-                            marker=dict(color='#D2691E', size=6, opacity=0.7, symbol=simbolos_outcome[mask_yes])
+                            marker=dict(color='#D2691E', size=7, opacity=0.8, symbol=simbolos_outcome[mask_yes], line=borde_marcador)
                         ))
 
                     # Proyección Estrella Paciente Actual
@@ -2015,8 +2014,8 @@ with tab_evidencia:
                         st.markdown("""
                         - 🌌 **Global View:** Shows the entire hospital population clustered by multidimensional clinical phenotype.
                         - 🎨 **Dynamic Filters:** Use the radio buttons to explore how Age, Area, or specific Diagnoses shape the risk topology.
-                        - 🎯 **Outcome Symbols (Always Active):** - 🟢/⚪ **Circles:** Safe Discharges.
-                            - ❌ **Crosses:** Readmitted Patients.
+                        - 🎯 **Outcome Symbols (Always Active):** - ⚪ **Circles:** Safe Discharges.
+                            - 🔶 **Diamonds:** Readmitted Patients.
                         - 🖱️ **Deep Hover:** Hover over any node to inspect its specific underlying medical truth.
                         """)
                 
