@@ -793,11 +793,17 @@ with tab_diagnostico:
                     explainer = shap.LinearExplainer(clf, X_proc_dense) if hasattr(clf, 'coef_') else shap.Explainer(clf, X_proc_dense)
                     shap_vals = explainer(X_proc_dense).values
                 
-                if isinstance(shap_vals, list): shap_vals = shap_vals[1]
-                if len(shap_vals.shape) > 2: shap_vals = shap_vals[:, :, 1]
+                # --- FIX: MANEJO ROBUSTO DE ESTRUCTURAS SHAP ---
+                if isinstance(shap_vals, list): 
+                    shap_vals = shap_vals[1] if len(shap_vals) > 1 else shap_vals[0]
+                
+                if len(shap_vals.shape) > 2: 
+                    shap_vals = shap_vals[:, :, 1]
                 
                 exp_val = explainer.expected_value
-                exp_val = exp_val[1] if isinstance(exp_val, (list, np.ndarray)) and len(exp_val) > 1 else exp_val[0] if isinstance(exp_val, (list, np.ndarray)) else exp_val
+                if isinstance(exp_val, (list, np.ndarray)):
+                    exp_val = exp_val[1] if len(exp_val) > 1 else exp_val[0]
+                # -----------------------------------------------
                 
                 shap_vals_pct = shap_vals[0] * 100
                 exp_val_pct = exp_val * 100
