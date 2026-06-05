@@ -1886,11 +1886,13 @@ with tab_evidencia:
                     # --- FIX VISUAL: Diamantes vs Círculos + Bordes para evitar manchas ---
                     simbolos_outcome = np.where(y_hist == 1, 'diamond', 'circle')
                     borde_marcador = dict(width=0.6, color='rgba(255,255,255,0.6)')
+                    leyenda_formas = "(⚪ Safe | 🔶 Readmit)" # <--- NUEVO: Guía visual para las leyendas
                     
                     if modo_color == "Readmitted vs Safe Discharge":
                         mask_safe = y_hist == 0
                         mask_readmit = y_hist == 1
                         
+                        # Aquí no hace falta la guía porque ya están separados por color y forma
                         fig_umap.add_trace(go.Scatter(
                             x=umap_embeddings[mask_safe, 0], y=umap_embeddings[mask_safe, 1],
                             mode='markers', name='Safe Discharge',
@@ -1915,13 +1917,13 @@ with tab_evidencia:
                         
                         fig_umap.add_trace(go.Scatter(
                             x=umap_embeddings[mask_inactive, 0], y=umap_embeddings[mask_inactive, 1],
-                            mode='markers', name='Other Diagnoses',
+                            mode='markers', name=f'Other Diagnoses {leyenda_formas}',
                             text=hover_texts[mask_inactive], hoverinfo='text',
                             marker=dict(color='#E0E0E0', size=6, opacity=0.4, symbol=simbolos_outcome[mask_inactive], line=borde_marcador)
                         ))
                         fig_umap.add_trace(go.Scatter(
                             x=umap_embeddings[mask_active, 0], y=umap_embeddings[mask_active, 1],
-                            mode='markers', name=diag_seleccionado,
+                            mode='markers', name=f'{diag_seleccionado} {leyenda_formas}',
                             text=hover_texts[mask_active], hoverinfo='text',
                             marker=dict(color='#FF8C00', size=8, opacity=0.9, symbol=simbolos_outcome[mask_active], line=dict(color='white', width=1))
                         ))
@@ -1938,13 +1940,13 @@ with tab_evidencia:
                         
                         fig_umap.add_trace(go.Scatter(
                             x=umap_embeddings[mask_inactive, 0], y=umap_embeddings[mask_inactive, 1],
-                            mode='markers', name='Other Areas',
+                            mode='markers', name=f'Other Areas {leyenda_formas}',
                             text=hover_texts[mask_inactive], hoverinfo='text',
                             marker=dict(color='#E0E0E0', size=6, opacity=0.4, symbol=simbolos_outcome[mask_inactive], line=borde_marcador)
                         ))
                         fig_umap.add_trace(go.Scatter(
                             x=umap_embeddings[mask_active, 0], y=umap_embeddings[mask_active, 1],
-                            mode='markers', name=area_seleccionada,
+                            mode='markers', name=f'{area_seleccionada} {leyenda_formas}',
                             text=hover_texts[mask_active], hoverinfo='text',
                             marker=dict(color='#9467BD', size=8, opacity=0.9, symbol=simbolos_outcome[mask_active], line=dict(color='white', width=1))
                         ))
@@ -1961,7 +1963,7 @@ with tab_evidencia:
                             
                             fig_umap.add_trace(go.Scatter(
                                 x=umap_embeddings[mask_age, 0], y=umap_embeddings[mask_age, 1],
-                                mode='markers', name=age_group,
+                                mode='markers', name=f'{age_group} {leyenda_formas}',
                                 text=hover_texts[mask_age], hoverinfo='text',
                                 marker=dict(color=c, size=7, opacity=0.75, symbol=simbolos_outcome[mask_age], line=borde_marcador)
                             ))
@@ -1978,13 +1980,13 @@ with tab_evidencia:
                         
                         fig_umap.add_trace(go.Scatter(
                             x=umap_embeddings[mask_no, 0], y=umap_embeddings[mask_no, 1],
-                            mode='markers', name='No Multimorbidity',
+                            mode='markers', name=f'No Multimorbidity {leyenda_formas}',
                             text=hover_texts[mask_no], hoverinfo='text',
                             marker=dict(color='#AAB7B8', size=7, opacity=0.6, symbol=simbolos_outcome[mask_no], line=borde_marcador)
                         ))
                         fig_umap.add_trace(go.Scatter(
                             x=umap_embeddings[mask_yes, 0], y=umap_embeddings[mask_yes, 1],
-                            mode='markers', name='Multimorbidity (Pluripathological)',
+                            mode='markers', name=f'Multimorbidity {leyenda_formas}',
                             text=hover_texts[mask_yes], hoverinfo='text',
                             marker=dict(color='#D2691E', size=7, opacity=0.8, symbol=simbolos_outcome[mask_yes], line=borde_marcador)
                         ))
