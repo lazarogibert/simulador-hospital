@@ -276,7 +276,7 @@ if 'nlp_quotes' not in st.session_state: st.session_state.nlp_quotes = {}
 # --- BLOQUE 1: INPUT MANUAL OBLIGATORIO ---
 st.sidebar.subheader("1. Core Parameters (Manual Entry)")
 cie10_input = st.sidebar.text_input("Reason for admission (ICD-10 Code):", value="I10", help="Example: I10, E11, J44")
-dias_internados = st.sidebar.number_input("Number of days hospitalized:", min_value=1, max_value=150, value=5)
+dias_internados = st.sidebar.number_input("Number of days hospitalized:", min_value=0, max_value=150, value=5)
 rango_edad_ui = st.sidebar.selectbox("Patient Age Range:", list(opciones_edad_dict.keys()))
 rango_edad = opciones_edad_dict[rango_edad_ui].upper()
 
@@ -979,7 +979,7 @@ with tab_estrategia:
             # FIX STICKY STATE: Clave dinámica basada en el valor base
             dias_sim = st.slider(
                 label="Hospitalization Stay (Days):", 
-                min_value=1, max_value=max_permitido, value=dias_base, step=1,
+                min_value=0, max_value=max_permitido, value=dias_base, step=1,
                 key=f"sim_dias_base_{dias_base}",
                 help="Drag left to simulate premature discharge or right to project extended stay impacts."
             )
