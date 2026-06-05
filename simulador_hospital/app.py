@@ -1872,13 +1872,13 @@ with tab_evidencia:
                 with sub_tab_umap:
                     modo_color = st.radio(
                         "🎨 Select UMAP Coloring Mode:",
-                        ["Default (Outcome)", "Diagnosis Search (One-vs-Rest)", "Age Distribution", "Multimorbidity Status"],
+                        ["Readmitted vs Safe Discharge", "Diagnosis Search (One-vs-Rest)", "Age Distribution", "Multimorbidity Status"],
                         horizontal=True
                     )
                     
                     fig_umap = go.Figure()
                     
-                    if modo_color == "Default (Outcome)":
+                    if modo_color == "Readmitted vs Safe Discharge":
                         mask_safe = y_hist == 0
                         mask_readmit = y_hist == 1
                         
