@@ -281,12 +281,25 @@ rango_edad_ui = st.sidebar.selectbox("Patient Age Range:", list(opciones_edad_di
 rango_edad = opciones_edad_dict[rango_edad_ui].upper()
 
 # --- NUEVAS VARIABLES OPERATIVAS ---
-sexo_input = st.sidebar.selectbox("Sex:", ["MASCULINO", "FEMENINO"])
-area_input = st.sidebar.selectbox("Admission Area:", [
-    "Clinica_Medica", "Cirugia", "Corta_Estancia", "Cuida_Minimos", 
-    "Emerg_Guardias", "Hosp_domiciliaria", "Hospital_de_dia", 
-    "Pediatria", "Terapia_Intensiva", "Terapia_Intensiva_Ped"
-])
+sexo_map = {"Male": "MASCULINO", "Female": "FEMENINO"}
+sexo_ui = st.sidebar.selectbox("Sex:", list(sexo_map.keys()))
+sexo_input = sexo_map[sexo_ui]
+
+area_map = {
+    "Internal Medicine": "Clinica_Medica",
+    "Surgery": "Cirugia",
+    "Short Stay": "Corta_Estancia",
+    "Minimum Care": "Cuida_Minimos",
+    "ER (Emergency Room)": "Emerg_Guardias",
+    "Home Hospitalization": "Hosp_domiciliaria",
+    "Day Hospital": "Hospital_de_dia",
+    "Pediatrics": "Pediatria",
+    "ICU (Intensive Care)": "Terapia_Intensiva",
+    "Pediatric ICU": "Terapia_Intensiva_Ped"
+}
+area_ui = st.sidebar.selectbox("Admission Area:", list(area_map.keys()))
+area_input = area_map[area_ui]
+
 complejidad_input = st.sidebar.number_input("Complexity Level (IN_COMPLEJIDAD):", min_value=1, step=1, value=1, help="Administrative classification level")
 interconsultas_input = st.sidebar.number_input("Interconsultations:", min_value=0, value=0)
 visitas_guardia_input = st.sidebar.number_input("ER Visits (Previous 6 months):", min_value=0, value=0)
