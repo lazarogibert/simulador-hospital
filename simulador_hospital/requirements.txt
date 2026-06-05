@@ -12,3 +12,6 @@ xgboost
 networkx
 google-generativeai
 json-repair
+plotly
+lime
+umap-learn

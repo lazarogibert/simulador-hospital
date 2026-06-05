@@ -1,5 +1,6 @@
 
 import streamlit as st
+import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
 from translations import FARMACOS_TRANSLATION_DICT
@@ -16,7 +17,9 @@ import networkx as nx
 from sklearn.neighbors import NearestNeighbors
 from sklearn.metrics import pairwise_distances
 from sklearn.inspection import PartialDependenceDisplay
-
+import lime
+import lime.lime_tabular
+import umap
 warnings.filterwarnings("ignore")
 
 # ==========================================
@@ -224,7 +227,7 @@ def mapear_cie10_macro(cod):
 # ==========================================
 st.set_page_config(page_title="Safe Discharge Simulator", layout="wide")
 st.title("🏥 Clinical Safe Discharge Simulator (15 Days)")
-st.markdown("Decision support tool based on narrative phenotypes and prescriptive explainability.")
+#st.markdown("Decision support tool based on narrative phenotypes and prescriptive explainability.")
 
 # ==========================================
 # 2. MODEL AND DATA LOADING (CACHE)
@@ -232,7 +235,7 @@ st.markdown("Decision support tool based on narrative phenotypes and prescriptiv
 @st.cache_resource
 def cargar_entorno():
     directorio_actual = os.path.dirname(os.path.abspath(__file__))
-    ruta_modelo = os.path.join(directorio_actual, 'modelo_reingreso_nlp_41vars_v3rf.pkl')
+    ruta_modelo = os.path.join(directorio_actual, 'modelo_reingreso_nlp_41vars_v2.pkl')
     ruta_datos = os.path.join(directorio_actual, 'train_sample_quimera.csv')
     
     paquete = joblib.load(ruta_modelo)
@@ -257,9 +260,10 @@ st.sidebar.header("🩺 Phenotype Loading")
 
 opciones_edad_dict = {"Minor": "Menor de edad", "Young Adult": "Adulto Joven", "Middle-aged Adult": "Adulto de mediana edad", "Older Adult": "Adulto mayor", "Elderly": "Anciano"}
 af_dict = {'Autoimmune': 'autoinmune', 'Other Cardiovascular': 'cardiovascular_otro', 'Diabetes': 'diabetes', 'Hypertension': 'hipertension', 'Other Metabolic': 'metabolico_otro', 'Neurological': 'neurologico', 'Oncological': 'oncologico', 'Psychiatric': 'psiquiatrico', 'Renal': 'renal', 'Respiratory': 'respiratorio'}
-cro_dict = {'Medication Abandonment': 'abandono_medicacion', 'Alcoholism': 'alcoholismo', 'Severe Malnutrition': 'desnutricion_severa', 'Illicit Drugs': 'drogas_ilicitas', 'Geriatric Frailty': 'fragilidad_geriatrica', 'History of Falls': 'historial_caidas', 'Oxygen Dependent': 'oxigenodependiente', 'Polypharmacy': 'polifarmacia', 'Active Smoking': 'tabaquismo_activo'}
-ing_dict = {'Mental Alteration': 'alteracion_mental', 'Repeated Consultations': 'consultas_reiteradas', 'Functional Dependency': 'dependencia_funcional', 'Device Bearer': 'portador_dispositivos', 'Hemorrhagic Risk': 'riesgo_hemorragico'}
-evo_dict = {'Infectious Isolation': 'aislamiento_infeccioso', 'Mental Alteration': 'alteracion_mental', 'Hospitalization Complication': 'complicacion_internacion', 'Palliative Care': 'cuidados_paliativos', 'Functional Dependency': 'dependencia_funcional', 'Irregular Discharge / Escape': 'fuga_o_alta_irregular', 'Device Bearer': 'portador_dispositivos', 'Pressure Ulcers': 'ulceras_presion'}
+
+cro_dict = {'Active Smoking': 'tabaquismo_activo', 'Polypharmacy': 'polifarmacia', 'Oxygen Dependent': 'oxigenodependiente', 'History of Falls': 'historial_caidas', 'Medication Abandonment': 'abandono_medicacion'}
+ing_dict = {'Mental Alteration': 'alteracion_mental', 'Repeated Consultations': 'consultas_reiteradas', 'Functional Dependency': 'dependencia_funcional', 'Device Bearer': 'portador_dispositivos', 'Hemorrhagic Risk': 'riesgo_hemorragico', 'Active Infection': 'infeccion_activa'}
+evo_dict = {'Infectious Isolation': 'aislamiento_infeccioso', 'Mental Alteration': 'alteracion_mental', 'Hospitalization Complication': 'complicacion_internacion', 'Palliative Care': 'cuidados_paliativos', 'Functional Dependency': 'dependencia_funcional', 'Irregular Discharge / Escape': 'fuga_o_alta_irregular', 'Device Bearer': 'portador_dispositivos', 'Pressure Ulcers': 'ulceras_presion', 'Major Therapeutic Change': 'cambio_terapeutico_mayor', 'Surgical Intervention': 'intervencion_quirurgica', 'Transfusion Support': 'soporte_transfusional'}
 
 # Inicialización de estado
 for key in ["ui_af_sel", "ui_cro_sel", "ui_ing_sel", "ui_evo_sel"]:
@@ -275,14 +279,27 @@ cie10_input = st.sidebar.text_input("Reason for admission (ICD-10 Code):", value
 dias_internados = st.sidebar.number_input("Number of days hospitalized:", min_value=1, max_value=150, value=5)
 rango_edad_ui = st.sidebar.selectbox("Patient Age Range:", list(opciones_edad_dict.keys()))
 rango_edad = opciones_edad_dict[rango_edad_ui].upper()
+
+# --- NUEVAS VARIABLES OPERATIVAS ---
+sexo_input = st.sidebar.selectbox("Sex:", ["MASCULINO", "FEMENINO"])
+area_input = st.sidebar.selectbox("Admission Area:", [
+    "Clinica_Medica", "Cirugia", "Corta_Estancia", "Cuida_Minimos", 
+    "Emerg_Guardias", "Hosp_domiciliaria", "Hospital_de_dia", 
+    "Pediatria", "Terapia_Intensiva", "Terapia_Intensiva_Ped"
+])
+complejidad_input = st.sidebar.number_input("Complexity Level (IN_COMPLEJIDAD):", min_value=1, step=1, value=1, help="Administrative classification level")
+interconsultas_input = st.sidebar.number_input("Interconsultations:", min_value=0, value=0)
+visitas_guardia_input = st.sidebar.number_input("ER Visits (Previous 6 months):", min_value=0, value=0)
+
 es_pluripatologico = st.sidebar.checkbox("Is the patient Pluripathological?", value=False)
+ingreso_ambulancia = st.sidebar.checkbox("Arrived by Ambulance (EST_ingreso_ambulancia)?", value=False)
+internacion_programada = st.sidebar.checkbox("Scheduled Admission (IN_ORDENIN)?", value=False)
 
 st.sidebar.markdown("---")
 
 # --- BLOQUE 2: MOTOR NLP (AUTOMATIZACIÓN) ---
 st.sidebar.subheader("2. Narrative Phenotype (NLP)")
 
-# 🌟 FIX DE SEGURIDAD: Leer API Key de st.secrets de forma segura
 api_key_default = ""
 try:
     if "GEMINI_API_KEY" in st.secrets:
@@ -290,7 +307,7 @@ try:
     elif "GOOGLE_API_KEY" in st.secrets:
         api_key_default = st.secrets["GOOGLE_API_KEY"]
 except Exception:
-    pass # Si st.secrets no está configurado, pasamos silenciosamente al ingreso manual
+    pass 
 
 api_key = st.sidebar.text_input(
     "Gemini API Key (Live Triage):", 
@@ -310,23 +327,66 @@ if st.sidebar.button("🧠 Run NLP Extraction", use_container_width=True):
     else:
         with st.spinner("Forensic extraction in progress..."):
             try:
-                # El resto de tu código NLP se mantiene exactamente igual a partir de aquí
                 genai.configure(api_key=api_key)
                 modelo_nlp = genai.GenerativeModel(
                     'models/gemini-2.5-flash', 
                     generation_config=genai.GenerationConfig(response_mime_type="application/json", temperature=0.0)
                 )
 
-                
-                prompt_sistema = """Eres un auditor médico forense estricto. Extrae variables de riesgo.
-REGLAS:
-1. CERO INFERENCIA: Si no se menciona, valor es false/null, cita "".
-2. NEGACIONES: "niega", "sin" = false.
-3. SEPARACIÓN TEMPORAL: ING_ (Estado al Ingreso), EVO_ (Curso de Internación).
-4. CITA EXACTA: Máximo 15 palabras.
+                prompt_sistema = """
+Eres un auditor médico forense estricto. Tu tarea es extraer variables de riesgo clínico de la historia clínica mediante un análisis determinista y algorítmico.
 
-Devuelve JSON. Claves: LLM_tabaquismo_activo, LLM_alcoholismo, LLM_drogas_ilicitas, LLM_fragilidad_geriatrica, LLM_polifarmacia, LLM_desnutricion_severa, LLM_oxigenodependiente, LLM_historial_caidas, LLM_abandono_medicacion, LLM_AF_diabetes, LLM_AF_hipertension, LLM_AF_cardiovascular_otro, LLM_AF_oncologico, LLM_AF_metabolico_otro, LLM_AF_neurologico, LLM_AF_psiquiatrico, LLM_AF_respiratorio, LLM_AF_renal, LLM_AF_autoinmune, ING_dolor_eva (0-10), ING_gravedad_percibida (1-10), ING_alteracion_mental, ING_dependencia_funcional, ING_portador_dispositivos, ING_consultas_reiteradas, ING_riesgo_hemorragico, EVO_dolor_eva (0-10), EVO_gravedad_percibida (1-10), EVO_alteracion_mental, EVO_dependencia_funcional, EVO_portador_dispositivos, EVO_complicacion_internacion, EVO_fuga_o_alta_irregular, EVO_cuidados_paliativos, EVO_ulceras_presion, EVO_aislamiento_infeccioso.
-FORMATO: {"LLM_tabaquismo_activo": {"valor": true, "cita": "fuma 10 cigarrillos al día"}, ...}"""
+REGLAS DE ORO (INQUEBRANTABLES):
+1. CERO INVENCIÓN (EXTRACCIÓN SEMÁNTICA): No inventes diagnósticos. DEBES marcar una variable como 'true' SOLO si el texto describe explícitamente los términos, signos, síntomas o equivalentes clínicos definidos en nuestro Diccionario.
+2. NEGACIONES ABSOLUTAS: Si un síntoma/condición está negado ("niega", "sin", "no presenta"), equivale a que no lo tiene. Valor = false, cita = "". EXCEPCIÓN: Si se niega el dolor ("sin dolor"), el valor de dolor_eva DEBE ser 0, no null.
+3. SEPARACIÓN TEMPORAL (POR CONTEXTO, NO POR TÍTULO): 
+   - Las variables "ING_" se evalúan buscando la descripción del estado del paciente *al momento de llegar al hospital*, sin importar bajo qué título esté escrito.
+   - Las variables "EVO_" se evalúan buscando eventos o estados que ocurrieron *durante los días de internación*.
+4. ATRIBUCIÓN FAMILIAR: "LLM_AF_" aplica SOLO a familia consanguínea (padres, hermanos, abuelos). No cónyuges.
+5. TRAZABILIDAD FORENSE (COPY-PASTE): La 'cita' DEBE ser una extracción LITERAL (verbatim) del texto original (máximo 15 palabras). PROHIBIDO parafrasear o resumir. Si el valor es true, la cita no puede estar vacía.
+6. CÁLCULO DE POLIFARMACIA: Estás autorizado a contar. Si en el plan o indicaciones se listan 5 o más fármacos diferentes administrados simultáneamente, marca LLM_polifarmacia como true.
+
+DICCIONARIO DE VARIABLES Y CRITERIOS CLÍNICOS EXACTOS:
+
+-- A. Estáticas (Evaluar en todo el texto histórico y actual):
+- LLM_tabaquismo_activo: Fuma actualmente (excluye ex-fumadores sin recaída).
+- LLM_polifarmacia: Toma 5+ fármacos simultáneos o el texto dice "polifarmacia".
+- LLM_oxigenodependiente: Uso crónico domiciliario de O2, cánula nasal permanente o VNI.
+- LLM_historial_caidas: Traumatismos o caídas ocurridas PREVIAMENTE al ingreso actual.
+- LLM_abandono_medicacion: El paciente/familia dejó de tomar la medicación por decisión propia, mala adherencia o razones socioeconómicas. (NO aplica si la suspensión fue indicación médica).
+
+-- B. Antecedentes Familiares (Solo Consanguíneos):
+LLM_AF_diabetes, LLM_AF_hipertension, LLM_AF_cardiovascular_otro (IAM, ACV), LLM_AF_oncologico, LLM_AF_metabolico_otro, LLM_AF_neurologico, LLM_AF_psiquiatrico, LLM_AF_respiratorio, LLM_AF_renal, LLM_AF_autoinmune.
+
+-- C. Dinámicas (Prefijo ING_ para Ingreso, EVO_ para Evolución):
+- dolor_eva (entero 0-10): Extrae el valor numérico SOLO si se asocia explícitamente a la intensidad del dolor (ej. "EVA 7", "dolor 8/10"). ¡CUIDADO: No confundas fechas (ej. 7/10 como 7 de octubre) ni puntajes de Glasgow con el dolor! Si usa palabras, mapea: "sin dolor"=0, "leve"=2, "moderado"=5, "intenso"=8, "insoportable"=10. Si NO se menciona el dolor, usa el primitivo null estricto (sin comillas).
+- gravedad_percibida (entero 1-10): Mapea el contexto clínico: 1-3 (Ambulatorio/Leve), 4-6 (Sala general estable), 7-8 (Cuidados Intermedios/Descompensado), 9-10 (UTI/Shock/Reanimación/Asistencia Respiratoria). Si no hay datos suficientes, usa null.
+- alteracion_mental (bool): Mención de delirium, excitación, desorientación, confusión, obnubilación, letargo, sopor, coma, somnolencia excesiva o Glasgow < 15.
+- dependencia_funcional (bool): Requiere asistencia para actividades básicas, paciente postrado, hemiplejía, cuadriplejía, paresia severa, o ACV secuelar motor.
+- portador_dispositivos (bool): Sonda, colostomía, PICC/vía central, traqueostomía, catéteres, drenajes.
+
+-- D. Exclusivas de Ingreso (Solo estado al momento de la admisión):
+- ING_consultas_reiteradas (bool): Ya había consultado en días previos por este mismo episodio.
+- ING_riesgo_hemorragico (bool): Sangrado activo, melena, hematemesis, epistaxis severa, plaquetopenia/trombocitopenia, coagulopatía o bajo anticoagulación activa.
+- ING_infeccion_activa (bool): Mención de fiebre al ingreso, sospecha de sepsis, uso empírico de antibióticos desde la guardia o foco infeccioso claro (neumonía, ITU, celulitis).
+
+-- E. Exclusivas de Evolución (Solo eventos del curso de la internación):
+- EVO_complicacion_internacion (bool): Infección intrahospitalaria, nueva caída, flebitis, intercurrencia nueva, shock, sepsis, descompensación hemodinámica, o necesidad de pase a UTI.
+- EVO_fuga_o_alta_irregular (bool): Retiro voluntario, alta exigida, fuga.
+- EVO_cuidados_paliativos (bool): Adecuación de esfuerzo terapéutico, LET, terminalidad, cuidados de fin de vida.
+- EVO_ulceras_presion (bool): Escaras, úlceras por decúbito.
+- EVO_aislamiento_infeccioso (bool): Aislamiento de contacto o respiratorio.
+- EVO_cambio_terapeutico_mayor (bool): Inicio de insulina, anticoagulación, inotrópicos, o anticonvulsivantes durante la internación.
+- EVO_intervencion_quirurgica (bool): Mención de paso por quirófano, cirugía, o procedimiento invasivo mayor (endoscopía, cateterismo).
+- EVO_soporte_transfusional (bool): Requirió transfusión de hemoderivados durante su estadía.
+
+FORMATO DE SALIDA OBLIGATORIO:
+Devuelve un JSON válido donde CADA CLAVE es un objeto con 'valor' y 'cita'. Claves esperadas:
+LLM_tabaquismo_activo, LLM_polifarmacia, LLM_oxigenodependiente, LLM_historial_caidas, LLM_abandono_medicacion, LLM_AF_diabetes, LLM_AF_hipertension, LLM_AF_cardiovascular_otro, LLM_AF_oncologico, LLM_AF_metabolico_otro, LLM_AF_neurologico, LLM_AF_psiquiatrico, LLM_AF_respiratorio, LLM_AF_renal, LLM_AF_autoinmune, ING_dolor_eva (0-10), ING_gravedad_percibida (1-10), ING_alteracion_mental, ING_dependencia_funcional, ING_portador_dispositivos, ING_consultas_reiteradas, ING_riesgo_hemorragico, ING_infeccion_activa, EVO_dolor_eva (0-10), EVO_gravedad_percibida (1-10), EVO_alteracion_mental, EVO_dependencia_funcional, EVO_portador_dispositivos, EVO_complicacion_internacion, EVO_fuga_o_alta_irregular, EVO_cuidados_paliativos, EVO_ulceras_presion, EVO_aislamiento_infeccioso, EVO_cambio_terapeutico_mayor, EVO_intervencion_quirurgica, EVO_soporte_transfusional.
+
+Ejemplo: {"LLM_tabaquismo_activo": {"valor": true, "cita": "fuma 10 cigarrillos al día"}, ...}
+A continuación la historia clínica para auditar:
+"""
                 
                 bloque_clinico = f"\n\n--- ESTADO AL INGRESO ---\n{ing_text}\n\n--- CURSO DE INTERNACIÓN ---\n{evo_text}"
                 respuesta = modelo_nlp.generate_content(prompt_sistema + bloque_clinico)
@@ -373,9 +433,39 @@ FORMATO: {"LLM_tabaquismo_activo": {"valor": true, "cita": "fuma 10 cigarrillos 
 
 if st.session_state.nlp_processed and st.session_state.nlp_quotes:
     with st.sidebar.expander("📝 View Extracted Evidence", expanded=True):
+        
+        inv_af = {v: k for k, v in af_dict.items()}
+        inv_cro = {v: k for k, v in cro_dict.items()}
+        inv_ing = {v: k for k, v in ing_dict.items()}
+        inv_evo = {v: k for k, v in evo_dict.items()}
+        
         for var, quote in st.session_state.nlp_quotes.items():
-            var_clean = var.replace('_', ' ').title()
-            st.markdown(f"**{var_clean}:**\n> *\"{quote}\"*")
+            var_clean = var.replace("LLM_AF_", "").replace("LLM_", "").replace("ING_", "").replace("EVO_", "")
+            
+            if var.startswith("LLM_AF_"):
+                nombre_base = inv_af.get(var_clean, var_clean.replace('_', ' ').title())
+                var_traducida = f"Family History: {nombre_base}"
+                
+            elif var.startswith("LLM_"):
+                nombre_base = inv_cro.get(var_clean, var_clean.replace('_', ' ').title())
+                var_traducida = f"History: {nombre_base}"
+                
+            elif var.startswith("ING_"):
+                if 'dolor' in var_clean: nombre_base = "Pain (VAS)"
+                elif 'gravedad' in var_clean: nombre_base = "Perceived Severity"
+                else: nombre_base = inv_ing.get(var_clean, var_clean.replace('_', ' ').title())
+                var_traducida = f"Admission: {nombre_base}"
+                
+            elif var.startswith("EVO_"):
+                if 'dolor' in var_clean: nombre_base = "Pain (VAS)"
+                elif 'gravedad' in var_clean: nombre_base = "Perceived Severity"
+                else: nombre_base = inv_evo.get(var_clean, var_clean.replace('_', ' ').title())
+                var_traducida = f"Evolution: {nombre_base}"
+                
+            else:
+                var_traducida = var_clean.replace('_', ' ').title()
+            
+            st.markdown(f"**{var_traducida}:**\n> *\"{quote}\"*")
 
 st.sidebar.markdown("---")
 
@@ -453,713 +543,1151 @@ calcular_delta_seguro('DELTA_gravedad_percibida', 'EVO_gravedad_percibida', 'ING
 calcular_delta_seguro('DELTA_alteracion_mental', 'EVO_alteracion_mental', 'ING_alteracion_mental')
 calcular_delta_seguro('DELTA_dependencia_funcional', 'EVO_dependencia_funcional', 'ING_dependencia_funcional')
 calcular_delta_seguro('DELTA_portador_dispositivos', 'EVO_portador_dispositivos', 'ING_portador_dispositivos')
-
+# ---> INSERTA ESTE BLOQUE EXACTAMENTE AQUÍ <---
+if 'sexo' in paciente_data: paciente_data['sexo'] = sexo_input
+if 'Area' in paciente_data: paciente_data['Area'] = area_input
+if 'IN_COMPLEJIDAD' in paciente_data: paciente_data['IN_COMPLEJIDAD'] = float(complejidad_input)
+if 'cantidad_interconsultas' in paciente_data: paciente_data['cantidad_interconsultas'] = float(interconsultas_input)
+if 'visitas_guardia_6meses_previos' in paciente_data: paciente_data['visitas_guardia_6meses_previos'] = float(visitas_guardia_input)
+if 'EST_ingreso_ambulancia' in paciente_data: paciente_data['EST_ingreso_ambulancia'] = 1.0 if ingreso_ambulancia else 0.0
+if 'IN_ORDENIN' in paciente_data: paciente_data['IN_ORDENIN'] = 1.0 if internacion_programada else 0.0
 df_paciente = pd.DataFrame([paciente_data])[columnas_modelo]
 
-# ==========================================
-# 5. INFERENCE & MAIN DASHBOARD (COCKPIT LAYOUT)
-# ==========================================
-riesgo = pipeline.predict_proba(df_paciente)[0][1]
+tab_diagnostico, tab_estrategia, tab_evidencia = st.tabs([
+    "📊 1. Current Risk & Audit", 
+    "🧭 2. Stabilization & Simulation", 
+    "🧬 3. Historical Evidence"
+])
 
-col_izq, col_der = st.columns([1, 2.2])
-
-with col_izq:
-    st.subheader("Readmission Risk")
-    st.metric(label="15-Day Probability", value=f"{riesgo*100:.1f}%")
+with tab_diagnostico:
+    # ==========================================
+    # 5. INFERENCE & MAIN DASHBOARD (COCKPIT LAYOUT)
+    # ==========================================
+    riesgo = pipeline.predict_proba(df_paciente)[0][1]
     
-    if riesgo > umbral:
-        st.error(f"⚠️ **CLINICAL ALERT**\n\nThe patient exceeds the strict safety threshold ({umbral*100:.1f}%).")
-    else:
-        st.success(f"✅ **SAFE DISCHARGE**\n\nRisk controlled within the permitted threshold.")
-
-    cie10_ui_dict = {
-        "Tuberculosis": "Tuberculosis", "Lepra": "Leprosy", "Sífilis": "Syphilis", 
-        "Otras infecciosas (A)": "Other infectious (A)", "Hepatitis viral": "Viral hepatitis", 
-        "Enfermedad por VIH": "HIV disease", "Enfermedad de Chagas": "Chagas disease", 
-        "Toxoplasmosis": "Toxoplasmosis", "Equinococosis / Hidatidosis": "Echinococcosis / Hydatidosis", 
-        "Secuelas de enfermedades infecciosas": "Sequelae of infectious diseases", "Otras infecciosas (B)": "Other infectious (B)",
-        "Cáncer de labio / boca / faringe": "Lip / mouth / pharynx cancer", "Cáncer digestivo": "Digestive cancer", 
-        "Cáncer respiratorio / intratorácico": "Respiratory / intrathoracic cancer", "Cáncer de hueso / cartílago": "Bone / cartilage cancer", 
-        "Melanoma / Cáncer de piel": "Melanoma / Skin cancer", "Cáncer de mama": "Breast cancer", 
-        "Cáncer genital femenino": "Female genital cancer", "Cáncer genital masculino": "Male genital cancer", 
-        "Cáncer de vías urinarias": "Urinary tract cancer", "Cáncer de sistema nervioso central": "Central nervous system cancer", 
-        "Cáncer linfoide / hematopoyético": "Lymphoid / hematopoietic cancer", "Otros tumores malignos": "Other malignant tumors", 
-        "Tumores in situ o benignos": "In situ or benign tumors", "Anemias nutricionales": "Nutritional anemias", 
-        "Anemias hemolíticas": "Hemolytic anemias", "Aplasias y otras anemias": "Aplasias and other anemias", 
-        "Defectos de coagulación / púrpura": "Coagulation defects / purpura", "Trastornos de inmunodeficiencia": "Immunodeficiency disorders", 
-        "Otros trastornos de la sangre": "Other blood disorders",
-        "Tiroides": "Thyroid", "Diabetes": "Diabetes", "Glucosa / hipoglucemia": "Glucose / hypoglycemia", 
-        "Otros endocrinos y metabólicos": "Other endocrine and metabolic", "Obesidad y trastornos de hiperalimentación": "Obesity and hyperalimentation disorders", 
-        "Dislipidemia": "Dyslipidemia", "Fibrosis quística": "Cystic fibrosis", "Trastornos metabólicos": "Metabolic disorders", 
-        "Otros metabólicos / nutricionales": "Other metabolic / nutritional",
-        "Trastornos mentales orgánicos (Demencias)": "Organic mental disorders (Dementias)", "Trastornos por uso de sustancias": "Substance use disorders", 
-        "Esquizofrenia y trastornos psicóticos": "Schizophrenia and psychotic disorders", "Trastornos del humor (Afectivos)": "Mood (Affective) disorders", 
-        "Trastornos neuróticos y de ansiedad": "Neurotic and anxiety disorders", "Trastornos de la conducta alimentaria / sueño": "Eating / sleep disorders", 
-        "Trastornos de la personalidad": "Personality disorders", "Discapacidad intelectual": "Intellectual disability", 
-        "Trastornos del desarrollo psicobiológico (Autismo)": "Psychobiological development disorders (Autism)", "Otros trastornos mentales": "Other mental disorders",
-        "Atrofias sistémicas del SNC": "Systemic atrophies of CNS", "Trastornos extrapiramidales y del movimiento (Parkinson)": "Extrapyramidal and movement disorders (Parkinson's)", 
-        "Enfermedades degenerativas (Alzheimer)": "Degenerative diseases (Alzheimer's)", "Enfermedades desmielinizantes (Esclerosis Múltiple)": "Demyelinating diseases (Multiple Sclerosis)", 
-        "Trastornos episódicos y paroxísticos (Epilepsia, Migraña)": "Episodic and paroxysmal disorders (Epilepsy, Migraine)", "Trastornos de nervios y plexos": "Nerve and plexus disorders", 
-        "Polineuropatías": "Polyneuropathies", "Enfermedades de la unión neuromuscular (Miastenia)": "Diseases of the neuromuscular junction (Myasthenia)", 
-        "Parálisis cerebral y síndromes paralíticos": "Cerebral palsy and paralytic syndromes", "Otros trastornos neurológicos": "Other neurological disorders",
-        "Ojo": "Eye", "Oído": "Ear", "Otros órganos de los sentidos": "Other sense organs",
-        "Hipertensión": "Hypertension", "Cardiopatía isquémica": "Ischemic heart disease", "Enfermedad cardiopulmonar": "Cardiopulmonary disease", 
-        "Otras enfermedades del corazón (Insuficiencia Cardíaca)": "Other heart diseases (Heart Failure)", "Cerebrovascular": "Cerebrovascular", 
-        "Enfermedades de arterias y capilares": "Diseases of arteries and capillaries", "Enfermedades de venas y vasos linfáticos": "Diseases of veins and lymphatic vessels", 
-        "Otros circulatorios": "Other circulatory",
-        "Vías respiratorias altas": "Upper respiratory tract", "Infecciones agudas / neumonía / influenza": "Acute infections / pneumonia / influenza", 
-        "Infecciones respiratorias bajas": "Lower respiratory infections", "Enfermedades de vías respiratorias superiores": "Diseases of upper respiratory tract", 
-        "Asma / EPOC / bronquitis": "Asthma / COPD / bronchitis", "Enfermedades del pulmón por agentes externos (Neumoconiosis)": "Lung diseases due to external agents (Pneumoconiosis)", 
-        "Enfermedades pulmonares intersticiales": "Interstitial lung diseases", "Otros respiratorios": "Other respiratory",
-        "Boca / dientes / faringe": "Mouth / teeth / pharynx", "Esófago / estómago / duodeno": "Esophagus / stomach / duodenum", 
-        "Apendicitis": "Appendicitis", "Hernias": "Hernias", "Enfermedad de Crohn y colitis": "Crohn's disease and colitis", 
-        "Otras enfermedades de los intestinos": "Other diseases of the intestines", "Hígado": "Liver", 
-        "Vesícula / vías biliares / páncreas": "Gallbladder / biliary tract / pancreas", "Otros digestivos": "Other digestive",
-        "Dermatitis y eczema": "Dermatitis and eczema", "Trastornos papuloescamosos (Psoriasis)": "Papulosquamous disorders (Psoriasis)", 
-        "Urticaria y eritema": "Urticaria and erythema", "Trastornos de las faneras / Otros trastornos de piel": "Disorders of skin appendages / Other skin disorders", 
-        "Otras enfermedades de la piel": "Other skin diseases",
-        "Artropatías": "Arthropathies", "Tejido conectivo (Lupus, etc.)": "Connective tissue (Lupus, etc.)", "Dorsopatías": "Dorsopathies", 
-        "Tejidos blandos": "Soft tissues", "Osteopatías y condropatías (Osteoporosis)": "Osteopathies and chondropathies (Osteoporosis)", 
-        "Otros osteomusculares": "Other musculoskeletal",
-        "Riñón (Insuficiencia Renal Crónica)": "Kidney (Chronic Renal Failure)", "Vías urinarias bajas": "Lower urinary tract", 
-        "Genital masculino (Hiperplasia Prostática)": "Male genital (Prostatic Hyperplasia)", "Mama": "Breast", 
-        "Genital femenino (Endometriosis, etc.)": "Female genital (Endometriosis, etc.)", "Otros genitourinarios": "Other genitourinary",
-        "Malformaciones del sistema nervioso (Espina bífida)": "Malformations of the nervous system (Spina bifida)", "Malformaciones cardíacas congénitas": "Congenital heart malformations", 
-        "Anomalías cromosómicas (Síndrome de Down)": "Chromosomal abnormalities (Down Syndrome)", "Otras malformaciones congénitas": "Other congenital malformations",
-        "Enfermedad respiratoria crónica perinatal": "Chronic perinatal respiratory disease", 
-        "Secuelas crónicas de traumatismos": "Chronic sequelae of injuries",
-        "Síndrome Post-COVID (Long COVID)": "Post-COVID Syndrome (Long COVID)", "Otras condiciones especiales (U)": "Other special conditions (U)",
-        "Historia personal de tumores / enfermedades": "Personal history of tumors / diseases", "Ausencia adquirida de miembros / órganos": "Acquired absence of limbs / organs", 
-        "Aberturas artificiales (Ostomías)": "Artificial openings (Ostomies)", "Estado de órgano trasplantado": "Transplanted organ status", 
-        "Presencia de implantes cardíacos / vasculares": "Presence of cardiac / vascular implants", "Dependencia de máquinas (diálisis, oxígeno)": "Machine dependence (dialysis, oxygen)", 
-        "Otros factores de salud": "Other health factors",
-        "DESCONOCIDO": "UNKNOWN"
-    }
-
-    if pd.isna(categoria_cie10):
-        categoria_cie10_ingles = "N/A"
-    else:
-        categoria_cie10_ingles = cie10_ui_dict.get(categoria_cie10, categoria_cie10)
+    # --- FILA SUPERIOR: MÉTRICAS Y ALERTAS A LO ANCHO ---
+    col_kpi1, col_kpi2, col_kpi3 = st.columns([1, 1.2, 1.5])
     
-    st.info(f"**Mapped Diagnosis:** {categoria_cie10_ingles} (Code: {codigo_normalizado})")
-
-
-with col_der:
+    with col_kpi1:
+        st.subheader("Readmission Risk")
+        st.metric(label="15-Day Probability", value=f"{riesgo*100:.1f}%")
+        
+    with col_kpi2:
+        st.write("") # Pequeño espaciador para alinear con la métrica
+        if riesgo > umbral:
+            st.error(f"⚠️ **CLINICAL ALERT**\n\nExceeds safety threshold ({umbral*100:.1f}%)")
+        else:
+            st.success(f"✅ **SAFE DISCHARGE**\n\nWithin permitted threshold")
+            
+    with col_kpi3:
+        st.write("") # Pequeño espaciador
+        cie10_ui_dict = {
+            "Tuberculosis": "Tuberculosis", "Lepra": "Leprosy", "Sífilis": "Syphilis", 
+            "Otras infecciosas (A)": "Other infectious (A)", "Hepatitis viral": "Viral hepatitis", 
+            "Enfermedad por VIH": "HIV disease", "Enfermedad de Chagas": "Chagas disease", 
+            "Toxoplasmosis": "Toxoplasmosis", "Equinococosis / Hidatidosis": "Echinococcosis / Hydatidosis", 
+            "Secuelas de enfermedades infecciosas": "Sequelae of infectious diseases", "Otras infecciosas (B)": "Other infectious (B)",
+            "Cáncer de labio / boca / faringe": "Lip / mouth / pharynx cancer", "Cáncer digestivo": "Digestive cancer", 
+            "Cáncer respiratorio / intratorácico": "Respiratory / intrathoracic cancer", "Cáncer de hueso / cartílago": "Bone / cartilage cancer", 
+            "Melanoma / Cáncer de piel": "Melanoma / Skin cancer", "Cáncer de mama": "Breast cancer", 
+            "Cáncer genital femenino": "Female genital cancer", "Cáncer genital masculino": "Male genital cancer", 
+            "Cáncer de vías urinarias": "Urinary tract cancer", "Cáncer de sistema nervioso central": "Central nervous system cancer", 
+            "Cáncer linfoide / hematopoyético": "Lymphoid / hematopoietic cancer", "Otros tumores malignos": "Other malignant tumors", 
+            "Tumores in situ o benignos": "In situ or benign tumors", "Anemias nutricionales": "Nutritional anemias", 
+            "Anemias hemolíticas": "Hemolytic anemias", "Aplasias y otras anemias": "Aplasias and other anemias", 
+            "Defectos de coagulación / púrpura": "Coagulation defects / purpura", "Trastornos de inmunodeficiencia": "Immunodeficiency disorders", 
+            "Otros trastornos de la sangre": "Other blood disorders",
+            "Tiroides": "Thyroid", "Diabetes": "Diabetes", "Glucosa / hipoglucemia": "Glucose / hypoglycemia", 
+            "Otros endocrinos y metabólicos": "Other endocrine and metabolic", "Obesidad y trastornos de hiperalimentación": "Obesity and hyperalimentation disorders", 
+            "Dislipidemia": "Dyslipidemia", "Fibrosis quística": "Cystic fibrosis", "Trastornos metabólicos": "Metabolic disorders", 
+            "Otros metabólicos / nutricionales": "Other metabolic / nutritional",
+            "Trastornos mentales orgánicos (Demencias)": "Organic mental disorders (Dementias)", "Trastornos por uso de sustancias": "Substance use disorders", 
+            "Esquizofrenia y trastornos psicóticos": "Schizophrenia and psychotic disorders", "Trastornos del humor (Afectivos)": "Mood (Affective) disorders", 
+            "Trastornos neuróticos y de ansiedad": "Neurotic and anxiety disorders", "Trastornos de la conducta alimentaria / sueño": "Eating / sleep disorders", 
+            "Trastornos de la personalidad": "Personality disorders", "Discapacidad intelectual": "Intellectual disability", 
+            "Trastornos del desarrollo psicobiológico (Autismo)": "Psychobiological development disorders (Autism)", "Otros trastornos mentales": "Other mental disorders",
+            "Atrofias sistémicas del SNC": "Systemic atrophies of CNS", "Trastornos extrapiramidales y del movimiento (Parkinson)": "Extrapyramidal and movement disorders (Parkinson's)", 
+            "Enfermedades degenerativas (Alzheimer)": "Degenerative diseases (Alzheimer's)", "Enfermedades desmielinizantes (Esclerosis Múltiple)": "Demyelinating diseases (Multiple Sclerosis)", 
+            "Trastornos episódicos y paroxísticos (Epilepsia, Migraña)": "Episodic and paroxysmal disorders (Epilepsy, Migraine)", "Trastornos de nervios y plexos": "Nerve and plexus disorders", 
+            "Polineuropatías": "Polyneuropathies", "Enfermedades de la unión neuromuscular (Miastenia)": "Diseases of the neuromuscular junction (Myasthenia)", 
+            "Parálisis cerebral y síndromes paralíticos": "Cerebral palsy and paralytic syndromes", "Otros trastornos neurológicos": "Other neurological disorders",
+            "Ojo": "Eye", "Oído": "Ear", "Otros órganos de los sentidos": "Other sense organs",
+            "Hipertensión": "Hypertension", "Cardiopatía isquémica": "Ischemic heart disease", "Enfermedad cardiopulmonar": "Cardiopulmonary disease", 
+            "Otras enfermedades del corazón (Insuficiencia Cardíaca)": "Other heart diseases (Heart Failure)", "Cerebrovascular": "Cerebrovascular", 
+            "Enfermedades de arterias y capilares": "Diseases of arteries and capillaries", "Enfermedades de venas y vasos linfáticos": "Diseases of veins and lymphatic vessels", 
+            "Otros circulatorios": "Other circulatory",
+            "Vías respiratorias altas": "Upper respiratory tract", "Infecciones agudas / neumonía / influenza": "Acute infections / pneumonia / influenza", 
+            "Infecciones respiratorias bajas": "Lower respiratory infections", "Enfermedades de vías respiratorias superiores": "Diseases of upper respiratory tract", 
+            "Asma / EPOC / bronquitis": "Asthma / COPD / bronchitis", "Enfermedades del pulmón por agentes externos (Neumoconiosis)": "Lung diseases due to external agents (Pneumoconiosis)", 
+            "Enfermedades pulmonares intersticiales": "Interstitial lung diseases", "Otros respiratorios": "Other respiratory",
+            "Boca / dientes / faringe": "Mouth / teeth / pharynx", "Esófago / estómago / duodeno": "Esophagus / stomach / duodenum", 
+            "Apendicitis": "Appendicitis", "Hernias": "Hernias", "Enfermedad de Crohn y colitis": "Crohn's disease and colitis", 
+            "Otras enfermedades de los intestinos": "Other diseases of the intestines", "Hígado": "Liver", 
+            "Vesícula / vías biliares / páncreas": "Gallbladder / biliary tract / pancreas", "Otros digestivos": "Other digestive",
+            "Dermatitis y eczema": "Dermatitis and eczema", "Trastornos papuloescamosos (Psoriasis)": "Papulosquamous disorders (Psoriasis)", 
+            "Urticaria y eritema": "Urticaria and erythema", "Trastornos de las faneras / Otros trastornos de piel": "Disorders of skin appendages / Other skin disorders", 
+            "Otras enfermedades de la piel": "Other skin diseases",
+            "Artropatías": "Arthropathies", "Tejido conectivo (Lupus, etc.)": "Connective tissue (Lupus, etc.)", "Dorsopatías": "Dorsopathies", 
+            "Tejidos blandos": "Soft tissues", "Osteopatías y condropatías (Osteoporosis)": "Osteopathies and chondropathies (Osteoporosis)", 
+            "Otros osteomusculares": "Other musculoskeletal",
+            "Riñón (Insuficiencia Renal Crónica)": "Kidney (Chronic Renal Failure)", "Vías urinarias bajas": "Lower urinary tract", 
+            "Genital masculino (Hiperplasia Prostática)": "Male genital (Prostatic Hyperplasia)", "Mama": "Breast", 
+            "Genital femenino (Endometriosis, etc.)": "Female genital (Endometriosis, etc.)", "Otros genitourinarios": "Other genitourinary",
+            "Malformaciones del sistema nervioso (Espina bífida)": "Malformations of the nervous system (Spina bifida)", "Malformaciones cardíacas congénitas": "Congenital heart malformations", 
+            "Anomalías cromosómicas (Síndrome de Down)": "Chromosomal abnormalities (Down Syndrome)", "Otras malformaciones congénitas": "Other congenital malformations",
+            "Enfermedad respiratoria crónica perinatal": "Chronic perinatal respiratory disease", 
+            "Secuelas crónicas de traumatismos": "Chronic sequelae of injuries",
+            "Síndrome Post-COVID (Long COVID)": "Post-COVID Syndrome (Long COVID)", "Otras condiciones especiales (U)": "Other special conditions (U)",
+            "Historia personal de tumores / enfermedades": "Personal history of tumors / diseases", "Ausencia adquirida de miembros / órganos": "Acquired absence of limbs / organs", 
+            "Aberturas artificiales (Ostomías)": "Artificial openings (Ostomies)", "Estado de órgano trasplantado": "Transplanted organ status", 
+            "Presencia de implantes cardíacos / vasculares": "Presence of cardiac / vascular implants", "Dependencia de máquinas (diálisis, oxígeno)": "Machine dependence (dialysis, oxygen)", 
+            "Otros factores de salud": "Other health factors",
+            "DESCONOCIDO": "UNKNOWN"
+        }
+        
+        if pd.isna(categoria_cie10):
+            categoria_cie10_ingles = "N/A"
+        else:
+            categoria_cie10_ingles = cie10_ui_dict.get(categoria_cie10, categoria_cie10)
+        
+        st.info(f"**Mapped Diagnosis:**\n\n{categoria_cie10_ingles}\n\n(Code: {codigo_normalizado})")
+    
+    st.markdown("---")
     st.subheader("Decision Audit & Clinical Context")
     
-    st.markdown("#### 🔍 Prescriptive Explanability (SHAP)")
-    try:
-        clf = pipeline.named_steps['clasificador']
-        prep = pipeline.named_steps['preprocesador']
-        
-        X_proc = prep.transform(df_paciente)
-        X_proc_dense = X_proc.toarray() if hasattr(X_proc, 'toarray') else np.array(X_proc)
-        X_paciente_1d = X_proc_dense[0] 
-        
-        nombres_crudos = prep.get_feature_names_out()
-        
-        shap_ui_dict = {
-            'dias_internados': 'Hospitalization Days', 'pluripatologico': 'Pluripathological',
-            'ING_dolor_eva': 'Initial Pain', 'ING_gravedad_percibida': 'Initial Severity',
-            'EVO_dolor_eva': 'Current Pain', 'EVO_gravedad_percibida': 'Current Severity',
-            'DELTA_dolor_eva': 'Pain Delta', 'DELTA_gravedad_percibida': 'Severity Delta',
-            'DELTA_alteracion_mental': 'Mental Alt. Delta', 'DELTA_dependencia_funcional': 'Func. Dep. Delta',
-            'DELTA_portador_dispositivos': 'Device Bearer Delta', 'ING_alteracion_mental': 'Initial Mental Alt.',
-            'ING_consultas_reiteradas': 'Initial Repeated Consults', 'ING_dependencia_funcional': 'Initial Func. Dep.',
-            'ING_portador_dispositivos': 'Initial Device Bearer', 'ING_riesgo_hemorragico': 'Initial Hemorrhagic Risk',
-            'EVO_aislamiento_infeccioso': 'Current Infect. Isolation', 'EVO_alteracion_mental': 'Current Mental Alt.',
-            'EVO_complicacion_internacion': 'Current Hosp. Complication', 'EVO_cuidados_paliativos': 'Current Palliat. Care',
-            'EVO_dependencia_funcional': 'Current Func. Dep.', 'EVO_fuga_o_alta_irregular': 'Current Irreg. Discharge',
-            'EVO_portador_dispositivos': 'Current Device Bearer', 'EVO_ulceras_presion': 'Current Pressure Ulcers',
-            'LLM_AF_autoinmune': 'Fam. Hist: Autoimmune', 'LLM_AF_cardiovascular_otro': 'Fam. Hist: Other CV',
-            'LLM_AF_diabetes': 'Fam. Hist: Diabetes', 'LLM_AF_hipertension': 'Fam. Hist: Hypertension',
-            'LLM_AF_metabolico_otro': 'Fam. Hist: Other Metabolic', 'LLM_AF_neurologico': 'Fam. Hist: Neurological',
-            'LLM_AF_oncologico': 'Fam. Hist: Oncological', 'LLM_AF_psiquiatrico': 'Fam. Hist: Psychiatric',
-            'LLM_AF_renal': 'Fam. Hist: Renal', 'LLM_AF_respiratorio': 'Fam. Hist: Respiratory',
-            'LLM_abandono_medicacion': 'Chronic: Med. Abandonment', 'LLM_alcoholismo': 'Chronic: Alcoholism',
-            'LLM_desnutricion_severa': 'Chronic: Severe Malnutrition', 'LLM_drogas_ilicitas': 'Chronic: Illicit Drugs',
-            'LLM_fragilidad_geriatrica': 'Chronic: Geriatric Frailty', 'LLM_historial_caidas': 'Chronic: History of Falls',
-            'LLM_oxigenodependiente': 'Chronic: Oxygen Dependent', 'LLM_polifarmacia': 'Chronic: Polypharmacy',
-            'LLM_tabaquismo_activo': 'Chronic: Active Smoking'
-        }
-
-        nombres_limpios_traducidos = []
-        for nombre_crudo in nombres_crudos:
-            traducido = nombre_crudo.split('__')[-1]
-            match_cie10 = False
-            for enf_es, enf_en in cie10_ui_dict.items():
-                if enf_es in nombre_crudo:
-                    traducido = f"Diagnosis: {enf_en}"
-                    match_cie10 = True
-                    break
-            if not match_cie10:
-                match_edad = False
-                for en_edad, es_edad in opciones_edad_dict.items():
-                    if es_edad.upper().replace(' ', '_') in nombre_crudo.upper().replace(' ', '_'):
-                        traducido = f"Age: {en_edad}"
-                        match_edad = True
-                        break
-                if not match_edad:
-                    for var_es, var_en in shap_ui_dict.items():
-                        if var_es in nombre_crudo:
-                            traducido = var_en
+    # --- FILA INFERIOR: GRÁFICOS LADO A LADO ---
+    col_shap, col_trayectoria = st.columns(2)
+    
+    with col_shap:
+        # --- BLOQUE 1: EXPLICABILIDAD (SHAP) ---
+        with st.container():
+            st.markdown("#### 🔍 1. Prescriptive Explanability (SHAP)")
+            filtrar_activos = st.checkbox("🎯 Show only the impact of present conditions (Hide protective factors due to absence)", value=False)
+            
+            try:
+                clf = pipeline.named_steps['clasificador']
+                prep = pipeline.named_steps['preprocesador']
+                
+                X_proc = prep.transform(df_paciente)
+                X_proc_dense = X_proc.toarray() if hasattr(X_proc, 'toarray') else np.array(X_proc)
+                X_paciente_1d = X_proc_dense[0] 
+                
+                nombres_crudos = prep.get_feature_names_out()
+                
+                shap_ui_dict = {
+                    'dias_internados': 'Hospitalization Days', 'pluripatologico': 'Pluripathological',
+                    'ING_dolor_eva': 'Initial Pain', 'ING_gravedad_percibida': 'Initial Severity',
+                    'EVO_dolor_eva': 'Current Pain', 'EVO_gravedad_percibida': 'Current Severity',
+                    'DELTA_dolor_eva': 'Pain Delta', 'DELTA_gravedad_percibida': 'Severity Delta',
+                    'DELTA_alteracion_mental': 'Mental Alt. Delta', 'DELTA_dependencia_funcional': 'Func. Dep. Delta',
+                    'DELTA_portador_dispositivos': 'Device Bearer Delta', 'ING_alteracion_mental': 'Initial Mental Alt.',
+                    'ING_consultas_reiteradas': 'Initial Repeated Consults', 'ING_dependencia_funcional': 'Initial Func. Dep.',
+                    'ING_portador_dispositivos': 'Initial Device Bearer', 'ING_riesgo_hemorragico': 'Initial Hemorrhagic Risk',
+                    'ING_infeccion_activa': 'Initial Active Infection', # <-- NUEVA
+                    'EVO_aislamiento_infeccioso': 'Current Infect. Isolation', 'EVO_alteracion_mental': 'Current Mental Alt.',
+                    'EVO_complicacion_internacion': 'Current Hosp. Complication', 'EVO_cuidados_paliativos': 'Current Palliat. Care',
+                    'EVO_dependencia_funcional': 'Current Func. Dep.', 'EVO_fuga_o_alta_irregular': 'Current Irreg. Discharge',
+                    'EVO_portador_dispositivos': 'Current Device Bearer', 'EVO_ulceras_presion': 'Current Pressure Ulcers',
+                    'EVO_cambio_terapeutico_mayor': 'Current Major Ther. Change', # <-- NUEVA
+                    'EVO_intervencion_quirurgica': 'Current Surgical Interv.', # <-- NUEVA
+                    'EVO_soporte_transfusional': 'Current Transfusion Support', # <-- NUEVA
+                    'LLM_AF_autoinmune': 'Fam. Hist: Autoimmune', 'LLM_AF_cardiovascular_otro': 'Fam. Hist: Other CV',
+                    'LLM_AF_diabetes': 'Fam. Hist: Diabetes', 'LLM_AF_hipertension': 'Fam. Hist: Hypertension',
+                    'LLM_AF_metabolico_otro': 'Fam. Hist: Other Metabolic', 'LLM_AF_neurologico': 'Fam. Hist: Neurological',
+                    'LLM_AF_oncologico': 'Fam. Hist: Oncological', 'LLM_AF_psiquiatrico': 'Fam. Hist: Psychiatric',
+                    'LLM_AF_renal': 'Fam. Hist: Renal', 'LLM_AF_respiratorio': 'Fam. Hist: Respiratory',
+                    'LLM_abandono_medicacion': 'Chronic: Med. Abandonment', 'LLM_alcoholismo': 'Chronic: Alcoholism',
+                    'LLM_desnutricion_severa': 'Chronic: Severe Malnutrition', 'LLM_drogas_ilicitas': 'Chronic: Illicit Drugs',
+                    'LLM_fragilidad_geriatrica': 'Chronic: Geriatric Frailty', 'LLM_historial_caidas': 'Chronic: History of Falls',
+                    'LLM_oxigenodependiente': 'Chronic: Oxygen Dependent', 'LLM_polifarmacia': 'Chronic: Polypharmacy',
+                    'LLM_tabaquismo_activo': 'Chronic: Active Smoking',
+                    'sexo': 'Sex',
+                    'Area': 'Admission Area',
+                    'IN_COMPLEJIDAD': 'Complexity Level',
+                    'cantidad_interconsultas': 'Interconsultations',
+                    'visitas_guardia_6meses_previos': 'ER Visits (6m)',
+                    'EST_ingreso_ambulancia': 'Ambulance Arrival',
+                    'IN_ORDENIN': 'Scheduled Admission'
+                }
+                
+                nombres_limpios_traducidos = []
+                human_data = [] # <--- NUEVO: Matriz de valores reales para la UI
+                cie10_upper = {k.upper(): v for k, v in cie10_ui_dict.items()}
+                
+                # --- NUEVA LÓGICA: DECODIFICACIÓN CRUDA SIMULTÁNEA ---
+                for nombre_crudo in nombres_crudos:
+                    # 1. Traducción del nombre
+                    traducido = nombre_crudo.split('__')[-1]
+                    nombre_base = traducido # Guardamos la raíz para buscar el valor real
+                    
+                    for sufijo in ['_1.0', '_1', '_True', '_true', '_0.0', '_0', '_False', '_false']:
+                        if traducido.endswith(sufijo):
+                            traducido = traducido[:-len(sufijo)]
+                            nombre_base = nombre_base[:-len(sufijo)]
                             break
-            nombres_limpios_traducidos.append(traducido)
-
-        try:
-            explainer = shap.TreeExplainer(clf)
-            shap_vals = explainer.shap_values(X_proc_dense, check_additivity=False)
-        except Exception:
-            explainer = shap.LinearExplainer(clf, X_proc_dense) if hasattr(clf, 'coef_') else shap.Explainer(clf, X_proc_dense)
-            shap_vals = explainer(X_proc_dense).values
-        
-        if isinstance(shap_vals, list): shap_vals = shap_vals[1]
-        if len(shap_vals.shape) > 2: shap_vals = shap_vals[:, :, 1]
-        
-        exp_val = explainer.expected_value
-        exp_val = exp_val[1] if isinstance(exp_val, (list, np.ndarray)) and len(exp_val) > 1 else exp_val[0] if isinstance(exp_val, (list, np.ndarray)) else exp_val
-        
-        shap_vals_pct = shap_vals[0] * 100
-        exp_val_pct = exp_val * 100
-
-        indices_activos = []
-        indices_basura = []
-        variables_continuas = ['Days', 'Pain', 'Severity', 'Delta']
-
-        for i, (val, nombre) in enumerate(zip(X_paciente_1d, nombres_limpios_traducidos)):
-            es_continua = any(kw in nombre for kw in variables_continuas)
-            if val != 0 or es_continua:
-                indices_activos.append(i)
-            else:
-                indices_basura.append(i)
-
-        peso_basura_total = np.sum(shap_vals_pct[indices_basura])
-        nuevo_exp_val_pct = exp_val_pct + peso_basura_total
-
-        shap_vals_limpio = shap_vals_pct[indices_activos]
-        X_paciente_limpio = X_paciente_1d[indices_activos]
-        nombres_limpios = [nombres_limpios_traducidos[i] for i in indices_activos]
-        crudos_limpios = [nombres_crudos[i] for i in indices_activos]
-
-        fig_shap, ax_shap = plt.subplots(figsize=(8, 3.5))
-        explicacion_filtrada = shap.Explanation(
-            values=shap_vals_limpio, 
-            base_values=nuevo_exp_val_pct, 
-            data=X_paciente_limpio, 
-            feature_names=nombres_limpios
-        )
-        shap.waterfall_plot(explicacion_filtrada, show=False, max_display=6) 
-        st.pyplot(fig_shap)
-        plt.close(fig_shap)
-
-    except Exception as e:
-        st.error("SHAP computation failed.")
-        st.warning(str(e))
-
-    st.markdown("---")
-
-    col_traj, col_scat = st.columns(2)
-    
-    with col_traj:
-        st.markdown("#### 📉 Dynamic Trajectory")
-        try:
-            df_row = df_paciente.iloc[[0]].copy()
-            pares_clinicos = {
-                'Pain (VAS)': ('ING_dolor_eva', 'EVO_dolor_eva'),
-                'Severity': ('ING_gravedad_percibida', 'EVO_gravedad_percibida'),
-                'Mental Alt.': ('ING_alteracion_mental', 'EVO_alteracion_mental'),
-                'Func. Dep.': ('ING_dependencia_funcional', 'EVO_dependencia_funcional'),
-                'Devices': ('ING_portador_dispositivos', 'EVO_portador_dispositivos')
-            }
-            datos = []
-            for label, (col_ing, col_evo) in pares_clinicos.items():
-                val_ing = float(df_row[col_ing].values[0]) if col_ing in df_row.columns else 0.0
-                val_evo = float(df_row[col_evo].values[0]) if col_evo in df_row.columns else 0.0
-                datos.append({'label': label, 'ing': val_ing, 'evo': val_evo})
-
-            fig_slope, ax_slope = plt.subplots(figsize=(5, 5))
-            ax_slope.set_xlim(-0.5, 1.5)
-            ax_slope.set_xticks([0, 1])
-            ax_slope.set_xticklabels(['Admission', 'Current'], fontsize=10, fontweight='bold')
-            
-            def separar_superposiciones(valores, margen=0.45):
-                ordenados = sorted(enumerate(valores), key=lambda x: x[1])
-                res = {}
-                if not ordenados: return res
-                res[ordenados[0][0]] = ordenados[0][1]
-                last_y = ordenados[0][1]
-                for idx, y in ordenados[1:]:
-                    nuevo_y = last_y + margen if y < last_y + margen else y
-                    res[idx] = nuevo_y
-                    last_y = nuevo_y
-                desplazamiento = (sum(res.values()) - sum(valores)) / len(valores) if valores else 0
-                return {k: v - desplazamiento for k, v in res.items()}
-
-            y_ing_coords = [d['ing'] for d in datos]
-            y_evo_coords = [d['evo'] for d in datos]
-            textos_ing_y = separar_superposiciones(y_ing_coords)
-            textos_evo_y = separar_superposiciones(y_evo_coords)
-            min_y, max_y = 0, 0
-
-            for i, d in enumerate(datos):
-                val_ing, val_evo, label = d['ing'], d['evo'], d['label']
-                min_y, max_y = min(min_y, val_ing, val_evo), max(max_y, val_ing, val_evo)
-                color_linea = '#00C851' if val_evo <= val_ing else '#FF4444'
-                
-                ax_slope.plot([0, 1], [val_ing, val_evo], color=color_linea, linewidth=2.5, marker='o', markersize=6, zorder=3)
-                
-                ax_slope.text(-0.06, textos_ing_y[i], f"{label} ({val_ing:.1f})", ha='right', va='center', fontsize=8, fontweight='bold', color='#444444')
-                ax_slope.text(1.06, textos_evo_y[i], f"({val_evo:.1f}) {label}", ha='left', va='center', fontsize=8, fontweight='bold', color=color_linea)
-
-            ax_slope.set_ylim(min_y - 1.5, max_y + 1.5)
-            ax_slope.spines[['top', 'bottom', 'left', 'right']].set_visible(False)
-            ax_slope.get_yaxis().set_visible(False)
-            ax_slope.axvline(x=0, color='#E5E5E5', linestyle='--', linewidth=1.2, zorder=1)
-            ax_slope.axvline(x=1, color='#E5E5E5', linestyle='--', linewidth=1.2, zorder=1)
-
-            fig_slope.tight_layout()
-            st.pyplot(fig_slope)
-            plt.close(fig_slope)
-        except Exception as e:
-            st.error("Trajectory unavailable.")
-
-    with col_scat:
-        st.markdown("#### 🗺️ Context: Risk vs. Stay")
-        try:
-            fig_scat, ax_scat = plt.subplots(figsize=(5, 5))
-            
-            try:
-                riesgos_hist = pipeline.predict_proba(df_train_sample)[:, 1]
-                x_hist = pd.to_numeric(df_train_sample['dias_internados'], errors='coerce').fillna(0) if 'dias_internados' in df_train_sample.columns else np.zeros(len(df_train_sample))
-                ax_scat.scatter(x_hist, riesgos_hist, color='gray', alpha=0.4, s=20, label='Cohort')
-            except Exception:
-                x_hist_sim = np.random.normal(10, 5, 200).clip(1, 40)
-                y_hist_sim = np.random.beta(2, 5, 200)
-                ax_scat.scatter(x_hist_sim, y_hist_sim, color='gray', alpha=0.2, s=20, label='Cohort')
-
-            dias_actual = float(df_row['dias_internados'].values[0]) if 'dias_internados' in df_row.columns else 0
-            ax_scat.scatter(dias_actual, riesgo, color='#008BFB', marker='*', s=300, edgecolor='black', label='PATIENT', zorder=5)
-            ax_scat.axhline(y=umbral, color='red', linestyle='--', alpha=0.6, label='Safety Threshold')
-
-            ax_scat.set_xlabel("Days of Hospitalization")
-            ax_scat.set_ylabel("Readmission Probability")
-            ax_scat.set_ylim(-0.05, 1.05)
-            ax_scat.legend(loc='upper right', fontsize=8)
-            ax_scat.spines[['top', 'right']].set_visible(False)
-            
-            st.pyplot(fig_scat)
-            plt.close(fig_scat) 
-        except Exception as e:
-            st.error("Context map unavailable.")
-
-    st.markdown("---")
-
-    st.markdown("#### 📝 Clinical Evidence (Traceability)")
-    try:
-        impactos = []
-        for crudo, traducido, peso, valor in zip(crudos_limpios, nombres_limpios, shap_vals_limpio, X_paciente_limpio):
-            if peso > 0.1: 
-                impactos.append({
-                    "crudo": crudo.split('__')[-1],
-                    "traducido": traducido,
-                    "peso": peso,
-                    "valor": valor
-                })
-        
-        impactos = sorted(impactos, key=lambda x: x["peso"], reverse=True)
-        
-        if not impactos:
-            st.info("No primary risk drivers required forensic justification in this patient.")
-        else:
-            for item in impactos:
-                nombre_base = item['crudo']
-                for sufijo in ['_1.0', '_1', '_True', '_true', '_0.0', '_0', '_False', '_false']:
-                    if nombre_base.endswith(sufijo):
-                        nombre_base = nombre_base[:-len(sufijo)]
-                        break
-                
-                st.markdown(f"**🔴 {item['traducido']}** *(+{item['peso']:.1f}%)*")
-                
-                if nombre_base.startswith("DELTA_"):
-                    st.caption("🧮 Mathematical trajectory parameter.")
-                elif not (nombre_base.startswith("LLM_") or nombre_base.startswith("ING_") or nombre_base.startswith("EVO_")):
-                    st.caption("📊 Core demographic / structural variable.")
-                elif item['valor'] == 0:
-                    st.caption("📋 Risk derived from the absence of this condition.")
-                else:
-                    cita = st.session_state.nlp_quotes.get(nombre_base, "")
-                    if cita:
-                        st.markdown(f"> *\"{cita}\"*")
-                    else:
-                        st.caption("✍️ Clinician's manual entry (No automated quote).")
-                        
-    except Exception as e:
-        pass 
-
-# ==========================================
-# 6. THERAPEUTIC NAVIGATOR (DiCE - HIGH SECURITY & METRICALLY SOUND)
-# ==========================================
-st.markdown("---")
-st.subheader("Therapeutic Navigator (Prescriptive AI)")
-
-class ModeloSincronizado:
-    def __init__(self, pipeline_original, columnas_modelo):
-        self.pipeline = pipeline_original
-        self.columnas_modelo = columnas_modelo
-        
-    def predict_proba(self, X):
-        if isinstance(X, np.ndarray):
-            X_sync = pd.DataFrame(X, columns=self.columnas_modelo)
-        else:
-            X_sync = X.copy()
-        
-        def sync_delta(df, col_delta, col_evo, col_ing):
-            if col_delta in df.columns and col_evo in df.columns and col_ing in df.columns:
-                df[col_delta] = df[col_evo] - df[col_ing]
-                
-        sync_delta(X_sync, 'DELTA_dolor_eva', 'EVO_dolor_eva', 'ING_dolor_eva')
-        sync_delta(X_sync, 'DELTA_gravedad_percibida', 'EVO_gravedad_percibida', 'ING_gravedad_percibida')
-        sync_delta(X_sync, 'DELTA_alteracion_mental', 'EVO_alteracion_mental', 'ING_alteracion_mental')
-        sync_delta(X_sync, 'DELTA_dependencia_funcional', 'EVO_dependencia_funcional', 'ING_dependencia_funcional')
-        sync_delta(X_sync, 'DELTA_portador_dispositivos', 'EVO_portador_dispositivos', 'ING_portador_dispositivos')
-        
-        return self.pipeline.predict_proba(X_sync)
-
-if riesgo <= umbral:
-    st.info("The patient is in optimal condition for discharge. No stabilization targets required.")
-else:
-    st.warning("High risk detected. Click the button to calculate clinical stabilization targets required to cross the safety threshold.")
-    
-    if st.button("Calculate Stabilization Targets for Discharge", type="primary", key="btn_calc_targets"):
-        with st.spinner("Calculating multiple clinically viable stabilization routes..."):
-            try:
-                BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-                ruta_ext = os.path.join(BASE_DIR, 'matriz_extended_display_llm.npy')
-                ruta_cols = os.path.join(BASE_DIR, 'columnas_display_llm.npy')
-                
-                if not os.path.exists(ruta_ext) or not os.path.exists(ruta_cols):
-                    raise FileNotFoundError("Historical data matrices are missing from the server volume.")
-                
-                matriz_extended = np.load(ruta_ext, allow_pickle=True)
-                nombres_columnas = np.load(ruta_cols, allow_pickle=True)
-                
-                df_background_raw = pd.DataFrame(matriz_extended, columns=nombres_columnas)
-                columnas_modelo = df_paciente.columns.tolist()
-                
-                df_dice_train = df_background_raw[columnas_modelo].copy()
-                df_dice_train['target'] = df_background_raw['target'].astype(int)
-                
-                for col in columnas_modelo:
-                    if df_paciente[col].dtype == object:
-                        df_dice_train[col] = df_background_raw[col].astype(str).str.strip().str.upper()
-                    else:
-                        df_dice_train[col] = pd.to_numeric(df_background_raw[col], errors='coerce')
-                
-                df_dice_train = df_dice_train.sample(n=min(1000, len(df_dice_train)), random_state=42)
-                
-                df_paciente_para_dice = df_paciente.copy()
-                df_paciente_para_dice['target'] = 1 
-                df_dice_train = pd.concat([df_dice_train, df_paciente_para_dice], ignore_index=True)
-                
-                features_continuas = df_paciente.select_dtypes(include=[np.number]).columns.tolist()
-                
-                d = dice_ml.Data(
-                    dataframe=df_dice_train, 
-                    continuous_features=features_continuas, 
-                    outcome_name='target'
-                )
-                
-                modelo_sincronizado = ModeloSincronizado(pipeline, columnas_modelo)
-                m = dice_ml.Model(model=modelo_sincronizado, backend="sklearn")
-                exp = dice_ml.Dice(d, m, method="random")
-                
-                variables_accionables = [col for col in columnas_modelo if col.startswith('EVO_')]
-                rangos_permitidos = {}
-                vars_a_variar = []
-                
-                for col in variables_accionables:
-                    val_actual = df_paciente[col].iloc[0]
-                    if 'cuidados_paliativos' in col or 'fuga' in col: 
-                        continue
                     
-                    if 'gravedad' in col:
-                        if val_actual > 1.0:
-                            rangos_permitidos[col] = [1.0, float(val_actual)]
-                            vars_a_variar.append(col)
-                    elif 'dolor' in col:
-                        if val_actual > 0.0:
-                            rangos_permitidos[col] = [0.0, float(val_actual)]
-                            vars_a_variar.append(col)
+                    if "CIE10_MACRO" in nombre_crudo:
+                        cat_es = traducido.replace("CIE10_MACRO_", "")
+                        cat_en = cie10_upper.get(cat_es.upper(), cat_es.replace('_', ' ').title())
+                        traducido = f"Diagnosis: {cat_en}"
+                    elif "rango_edad" in nombre_crudo:
+                        cat_es = traducido.replace("rango_edad_", "")
+                        match_en = "Unknown Age"
+                        for en_k, es_v in opciones_edad_dict.items():
+                            if es_v.upper().replace(' ', '_') == cat_es.upper() or es_v.upper() == cat_es.upper():
+                                match_en = en_k
+                                break
+                        traducido = f"Age: {match_en}"
                     else:
-                        if val_actual == 1.0:
-                            rangos_permitidos[col] = [0, 1]
-                            vars_a_variar.append(col)
+                        match_encontrado = False
+                        for var_es, var_en in shap_ui_dict.items():
+                            if var_es in nombre_crudo:
+                                traducido = var_en
+                                match_encontrado = True
+                                break
+                        if not match_encontrado:
+                            traducido = traducido.replace("_", " ").title()
+                            
+                    nombres_limpios_traducidos.append(traducido)
+                    
+                    # 2. Extracción del Valor Real para SHAP UI
+                    if nombre_base in df_paciente.columns:
+                        val = df_paciente[nombre_base].iloc[0]
+                        try:
+                            val = float(val)
+                            if val.is_integer(): val = int(val)
+                        except:
+                            pass
+                        human_data.append(val)
+                    else:
+                        # Recuperación de categorías One-Hot (Ej. Rango etario o Diagnóstico)
+                        val_real = 0
+                        columnas_categoricas = ['CIE10_MACRO', 'CIE10_SUBMACRO', 'rango_edad', 'PA_NIVEL', 'PA_SITLABO', 'Area', 'TR_Prioridad', 'IN_COMPLEJIDAD', 'sexo']
+                        for col_cat in columnas_categoricas:
+                            if nombre_base.startswith(col_cat + '_'):
+                                valor_categoria_columna = nombre_base.replace(col_cat + '_', '')
+                                if col_cat in df_paciente.columns:
+                                    valor_real_paciente = str(df_paciente[col_cat].iloc[0])
+                                    if valor_categoria_columna.strip().upper() == valor_real_paciente.strip().upper():
+                                        val_real = 1
+                                break
+                        human_data.append(val_real)
                 
-                if not vars_a_variar:
-                    st.error("There are no modifiable clinical targets in the patient's current evolution that can improve their condition.")
-                else:
-                    dice_exp = exp.generate_counterfactuals(
-                        df_paciente, total_CFs=5, desired_class="opposite", 
-                        features_to_vary=vars_a_variar, permitted_range=rangos_permitidos, random_seed=42
+                try:
+                    explainer = shap.TreeExplainer(clf)
+                    shap_vals = explainer.shap_values(X_proc_dense, check_additivity=False)
+                except Exception:
+                    explainer = shap.LinearExplainer(clf, X_proc_dense) if hasattr(clf, 'coef_') else shap.Explainer(clf, X_proc_dense)
+                    shap_vals = explainer(X_proc_dense).values
+                
+                if isinstance(shap_vals, list): shap_vals = shap_vals[1]
+                if len(shap_vals.shape) > 2: shap_vals = shap_vals[:, :, 1]
+                
+                exp_val = explainer.expected_value
+                exp_val = exp_val[1] if isinstance(exp_val, (list, np.ndarray)) and len(exp_val) > 1 else exp_val[0] if isinstance(exp_val, (list, np.ndarray)) else exp_val
+                
+                shap_vals_pct = shap_vals[0] * 100
+                exp_val_pct = exp_val * 100
+    
+                if not filtrar_activos:
+                    explicacion_completa = shap.Explanation(
+                        values=np.array(shap_vals_pct), 
+                        base_values=exp_val_pct, 
+                        data=np.array(human_data), # <--- CORRECCIÓN CLAVE: Inyectamos los datos reales aquí
+                        feature_names=nombres_limpios_traducidos
                     )
                     
-                    cf_df = dice_exp.cf_examples_list[0].final_cfs_df
-                    if cf_df is not None and not cf_df.empty:
-                        st.success(f"✅ **{len(cf_df)} CLINICAL STABILIZATION TARGETS FOUND:**")
-                        st.markdown("The medical staff can select the most feasible goal according to the ward capabilities:")
+                    fig_shap, ax_shap = plt.subplots(figsize=(12, 4.5)) 
+                    shap.waterfall_plot(explicacion_completa, show=False, max_display=10) 
+                    plt.tight_layout()
+                    st.pyplot(fig_shap)
+                    plt.close(fig_shap)
+                    
+                else:
+                    indices_activos = []
+                    variables_continuas = ['Days', 'Pain', 'Severity', 'Delta', 'Consultations', 'Complexity']
+    
+                    # Usamos directamente human_data, que ya decodificamos
+                    for i, (val_real, nombre_traducido) in enumerate(zip(human_data, nombres_limpios_traducidos)):
+                        es_continua = any(kw in nombre_traducido for kw in variables_continuas)
+                        es_inactivo = False
                         
-                        evo_output_dict = {
-                            'EVO_dolor_eva': 'Current Pain', 'EVO_gravedad_percibida': 'Current Severity',
-                            'EVO_aislamiento_infeccioso': 'Infectious Isolation', 'EVO_alteracion_mental': 'Mental Alteration',
-                            'EVO_complicacion_internacion': 'Hospitalization Complication', 'EVO_cuidados_paliativos': 'Palliative Care',
-                            'EVO_dependencia_funcional': 'Functional Dependency', 'EVO_fuga_o_alta_irregular': 'Irregular Discharge / Escape',
-                            'EVO_portador_dispositivos': 'Device Bearer', 'EVO_ulceras_presion': 'Pressure Ulcers'
-                        }
+                        if not es_continua:
+                            val_str = str(val_real).strip().upper()
+                            if val_str in ['0', '0.0', 'FALSE', 'NONE', 'N/A', 'NAN', '']: es_inactivo = True
+                            
+                        # Filtro de peso SHAP marginal
+                        if abs(shap_vals_pct[i]) < 0.01: es_inactivo = True
                         
-                        for r_idx in range(len(cf_df)):
-                            with st.expander(f"➔ 🛤️ Alternative Target Route {r_idx + 1}"):
-                                cambios_detectados = 0
-                                for col in vars_a_variar:
-                                    val_orig = df_paciente.iloc[0][col]
-                                    val_cf = cf_df.iloc[r_idx][col]
-                                    
-                                    if col not in ['EVO_dolor_eva', 'EVO_gravedad_percibida']:
-                                        val_cf = 1 if val_cf >= 0.5 else 0
-                                    else:
-                                        val_cf = round(val_cf)
-                                    
-                                    if val_orig != val_cf:
-                                        cambios_detectados += 1
-                                        col_en = evo_output_dict.get(col, col)
-                                        
-                                        if 'dolor' in col or 'gravedad' in col:
-                                            st.write(f"- 🎯 **{col_en}**: Target reduction ➔ **[{val_cf:.0f}]** (Currently: {val_orig:.0f})")
-                                        else:
-                                            status_en = "Resolved/Absent" if val_cf == 0 else "Present"
-                                            st.write(f"- 🎯 **{col_en}**: Target status ➔ **[{status_en}]**")
-                                            
-                                if cambios_detectados == 0:
-                                    st.write("This alternative suggests maintaining current parameters based on marginal risk stability.")
+                        if not es_inactivo: indices_activos.append(i)
+    
+                    if not indices_activos:
+                        st.info("No significant active clinical factors to isolate.")
                     else:
-                        st.error("No mathematically viable target routes were found.")
+                        activos_vals = [shap_vals_pct[i] for i in indices_activos]
+                        activos_nombres = [nombres_limpios_traducidos[i] for i in indices_activos]
                         
+                        datos_ordenados = sorted(zip(activos_vals, activos_nombres), key=lambda x: abs(x[0]))
+                        y_vals = [x[0] for x in datos_ordenados]
+                        y_names = [x[1] for x in datos_ordenados]
+                        
+                        # Eliminamos los textos numéricos (text y textposition) para evitar confusión matemática
+                        fig_bar = go.Figure(go.Bar(
+                            x=y_vals, y=y_names, orientation='h',
+                            marker_color=['#FF4444' if v > 0 else '#00C851' for v in y_vals],
+                            hoverinfo='none' # Desactivamos el tooltip para no mostrar números confusos
+                        ))
+                        
+                        fig_bar.update_layout(
+                            title="Isolation of Present Clinical Factors",
+                            xaxis_title="Relative Impact Weight", 
+                            plot_bgcolor='rgba(0,0,0,0)', 
+                            paper_bgcolor='rgba(0,0,0,0)',
+                            height=max(350, len(y_names) * 45),
+                            margin=dict(l=10, r=40, t=40, b=10),
+                            xaxis=dict(showgrid=True, gridcolor='rgba(128,128,128,0.2)', zeroline=True, zerolinecolor='rgba(128,128,128,0.6)', showticklabels=False),
+                            yaxis=dict(showgrid=False)
+                        )
+                        
+                        st.plotly_chart(fig_bar, use_container_width=True)
+                        # -----------------------------------------------------------
+    
             except Exception as e:
-                st.error("Counterfactual engine is currently unavailable.")
-                st.warning(f"Technical Context: {str(e)}")
+                st.error("SHAP computation failed.")
+                st.warning(str(e))
 
-# ==========================================
-# 7. GLOBAL INTERPRETABILITY (PDP GRID)
-# ==========================================
-st.markdown("---")
-st.subheader("Global Interpretability (Partial Dependence Plots)")
-st.markdown("Analysis of the model's behavior across all evolution metrics simultaneously against the cohort distribution.")
-
-binary_deltas = [
-    'DELTA_alteracion_mental', 'DELTA_dependencia_funcional', 'DELTA_portador_dispositivos'
-]
-
-delta_ui_dict = {
-    'DELTA_dolor_eva': 'Pain Delta', 'DELTA_gravedad_percibida': 'Severity Delta',
-    'DELTA_alteracion_mental': 'Mental Alteration Delta', 'DELTA_dependencia_funcional': 'Functional Dependency Delta',
-    'DELTA_portador_dispositivos': 'Device Bearer Delta'
-}
-
-if 'mostrar_pdp' not in st.session_state:
-    st.session_state.mostrar_pdp = False
-
-col_btn, _ = st.columns([1, 3])
-with col_btn:
-    if st.button("Generate Cohort PDPs", type="secondary", key="btn_gen_pdp"):
-        st.session_state.mostrar_pdp = True
-
-if st.session_state.mostrar_pdp:
-    plt.close('all') 
+    with col_trayectoria:
+        # --- BLOQUE 2: TRAYECTORIA DINÁMICA (PLOTLY) ---
+        with st.container():
+            st.markdown("#### 📉 2. Dynamic Trajectory")
+            try:
+                df_row = df_paciente.iloc[[0]].copy()
+                pares_clinicos = {
+                    'Pain (VAS)': ('ING_dolor_eva', 'EVO_dolor_eva'),
+                    'Severity': ('ING_gravedad_percibida', 'EVO_gravedad_percibida'),
+                    'Mental Alt.': ('ING_alteracion_mental', 'EVO_alteracion_mental'),
+                    'Func. Dep.': ('ING_dependencia_funcional', 'EVO_dependencia_funcional'),
+                    'Devices': ('ING_portador_dispositivos', 'EVO_portador_dispositivos')
+                }
+                
+                fig_slope = go.Figure()
+                
+                y_ing_coords = []
+                y_evo_coords = []
+                
+                for label, (col_ing, col_evo) in pares_clinicos.items():
+                    val_ing = float(df_row[col_ing].values[0]) if col_ing in df_row.columns else 0.0
+                    val_evo = float(df_row[col_evo].values[0]) if col_evo in df_row.columns else 0.0
+                    
+                    y_ing_coords.append(val_ing)
+                    y_evo_coords.append(val_evo)
+                    
+                    color_linea = '#00C851' if val_evo <= val_ing else '#FF4444'
+                    
+                    fig_slope.add_trace(go.Scatter(
+                        x=['Admission', 'Current'], y=[val_ing, val_evo],
+                        mode='lines+markers',
+                        line=dict(color=color_linea, width=4),
+                        marker=dict(size=12, color=color_linea, line=dict(color='white', width=1)),
+                        name=label,
+                        hoverinfo='text',
+                        hovertext=f"<b>{label}</b><br>Admission: {val_ing:.1f}<br>Current: {val_evo:.1f}"
+                    ))
     
-    try:
-        with st.spinner("Reconstructing cohort alignment and generating visualization grid..."):
-            BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-            ruta_ext = os.path.join(BASE_DIR, 'matriz_extended_display_llm.npy')
-            ruta_cols = os.path.join(BASE_DIR, 'columnas_display_llm.npy')
-            
-            if not os.path.exists(ruta_ext) or not os.path.exists(ruta_cols):
-                raise FileNotFoundError("Dataset required for global interpretation is missing.")
-            
-            matriz_extended = np.load(ruta_ext, allow_pickle=True)
-            nombres_columnas = np.load(ruta_cols, allow_pickle=True)
-            
-            df_background_raw = pd.DataFrame(matriz_extended, columns=nombres_columnas)
-            columnas_modelo = df_paciente.columns.tolist()
-            
-            df_pdp_train = pd.DataFrame(index=range(len(df_background_raw)))
-            
-            for col in columnas_modelo:
-                if df_paciente[col].dtype == object:
-                    df_pdp_train[col] = df_background_raw[col].apply(
-                        lambda x: np.nan if pd.isna(x) or str(x).strip().upper() in ['NAN', 'NONE', 'NULL', ''] 
-                        else str(x).strip().upper()
+                def separar_superposiciones(valores, margen=0.45):
+                    ordenados = sorted(enumerate(valores), key=lambda x: x[1])
+                    res = {}
+                    if not ordenados: return res
+                    res[ordenados[0][0]] = ordenados[0][1]
+                    last_y = ordenados[0][1]
+                    for idx, y in ordenados[1:]:
+                        nuevo_y = last_y + margen if y < last_y + margen else y
+                        res[idx] = nuevo_y
+                        last_y = nuevo_y
+                    desplazamiento = (sum(res.values()) - sum(valores)) / len(valores) if valores else 0
+                    return {k: v - desplazamiento for k, v in res.items()}
+    
+                textos_ing_y = separar_superposiciones(y_ing_coords)
+                textos_evo_y = separar_superposiciones(y_evo_coords)
+    
+                for i, (label, _) in enumerate(pares_clinicos.items()):
+                    val_ing = y_ing_coords[i]
+                    val_evo = y_evo_coords[i]
+                    color_linea = '#00C851' if val_evo <= val_ing else '#FF4444'
+                    
+                    fig_slope.add_annotation(
+                        x='Admission', y=textos_ing_y[i], text=f"{label} ({val_ing:.1f})",
+                        showarrow=False, xanchor='right', xshift=-15,
+                        font=dict(size=12) 
                     )
-                else:
-                    df_pdp_train[col] = pd.to_numeric(df_background_raw[col], errors='coerce')
+                    
+                    fig_slope.add_annotation(
+                        x='Current', y=textos_evo_y[i], text=f"({val_evo:.1f}) {label}",
+                        showarrow=False, xanchor='left', xshift=15,
+                        font=dict(size=12, color=color_linea) 
+                    )
+    
+                # --- FIX: LÍNEAS VERTICALES DE GUÍA (SOPORTE DARK/LIGHT MODE) ---
+                fig_slope.add_vline(x='Admission', line_width=1.5, line_dash="dash", line_color="rgba(128,128,128,0.4)")
+                fig_slope.add_vline(x='Current', line_width=1.5, line_dash="dash", line_color="rgba(128,128,128,0.4)")
+                # ----------------------------------------------------------------
+    
+                fig_slope.update_layout(
+                    plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+                    showlegend=False,
+                    height=350, margin=dict(l=100, r=100, t=30, b=20),
+                    xaxis=dict(showgrid=False, zeroline=False, showline=False, tickfont=dict(size=14, weight='bold')),
+                    yaxis=dict(showgrid=False, zeroline=False, showline=False, showticklabels=False)
+                )
+    
+                st.plotly_chart(fig_slope, use_container_width=True)
+                
+            except Exception as e:
+                st.error("Trajectory unavailable.")
+                st.warning(str(e))
+
+
+with tab_estrategia:
+    col_simulador, col_rutas = st.columns([1, 1.2]) # Divide la pantalla a la mitad
+    
+    with col_simulador:
+        # ==========================================
+        # 7. INTERACTIVE CLINICAL SANDBOX (CONTROLES)
+        # ==========================================
+        st.markdown("---")
+        st.markdown("#### 🧪 Clinical Hypothesis Simulator (SandBox)")
+        
+        # --- HYPOTHESIS CONTROL PANEL ---
+        with st.expander("🛠️ Configure Stabilization Scenario", expanded=True):
+            # Fila 1: Control de Tiempo Dinámico
+            dias_base = int(float(df_paciente['dias_internados'].iloc[0] if 'dias_internados' in df_paciente.columns else 1.0))
+            max_permitido = max(dias_base + 20, 30) 
             
-            features_to_plot = list(delta_ui_dict.keys())
-            
-            disp = PartialDependenceDisplay.from_estimator(
-                pipeline, df_pdp_train, features=features_to_plot,
-                n_cols=3, kind='average', subsample=150, random_state=42
+            # FIX STICKY STATE: Clave dinámica basada en el valor base
+            dias_sim = st.slider(
+                label="Hospitalization Stay (Days):", 
+                min_value=1, max_value=max_permitido, value=dias_base, step=1,
+                key=f"sim_dias_base_{dias_base}",
+                help="Drag left to simulate premature discharge or right to project extended stay impacts."
             )
             
-            fig = disp.figure_
-            fig.set_size_inches(15, 9)
-            axes_flat = disp.axes_.flatten()
+            st.markdown("---")
             
-            for idx, var in enumerate(features_to_plot):
-                ax_real = axes_flat[idx]
-                valor_paciente = float(df_paciente[var].iloc[0])
+            # Fila 2: CONTROLES CONTINUOS (Dolor y Severidad forzados a Enteros)
+            st.markdown("**Continuous Evolution Metrics** - *Simulate symptom progression*")
+            col_dolor, col_severidad = st.columns(2)
+            
+            with col_dolor:
+                dolor_crudo = df_paciente['EVO_dolor_eva'].iloc[0] if 'EVO_dolor_eva' in df_paciente.columns else 0.0
+                dolor_base = int(float(dolor_crudo))
                 
-                ax_real.axvline(x=valor_paciente, color='#FF0000', linestyle='--', linewidth=2.5, 
-                                label=f'Patient: {valor_paciente:.1f}', zorder=10)
+                # FIX STICKY STATE: Clave dinámica
+                dolor_sim = st.slider(
+                    label="Current Pain Level (VAS 0-10):", 
+                    min_value=0, max_value=10, value=dolor_base, step=1,
+                    key=f"sim_dolor_base_{dolor_base}"
+                )
                 
-                if var in binary_deltas:
-                    ax_real.set_xlim(-1.1, 1.1)
-                    ax_real.set_xticks([-1, 0, 1])
+            with col_severidad:
+                sev_crudo = df_paciente['EVO_gravedad_percibida'].iloc[0] if 'EVO_gravedad_percibida' in df_paciente.columns else 0.0
+                sev_base = int(float(sev_crudo))
+                
+                # FIX STICKY STATE: Clave dinámica
+                severidad_sim = st.slider(
+                    label="Current Perceived Severity (0-10):", 
+                    min_value=0, max_value=10, value=sev_base, step=1,
+                    key=f"sim_sev_base_{sev_base}"
+                )
+            
+            st.markdown("---")
+            
+            # Fila 3: Controles de Complicaciones (Toggles con validación robusta)
+            st.markdown("**Evolution Status (EVO)** - *Toggle acquired complications or resolved states*")
+            sim_evo_map = {
+                'Mental Alteration': 'EVO_alteracion_mental',
+                'Functional Dependency': 'EVO_dependencia_funcional',
+                'Medical Devices': 'EVO_portador_dispositivos',
+                'Infectious Isolation': 'EVO_aislamiento_infeccioso',
+                'Hosp. Complication': 'EVO_complicacion_internacion',
+                'Pressure Ulcers': 'EVO_ulceras_presion',
+                'Palliative Care': 'EVO_cuidados_paliativos',
+                'Irregular Discharge': 'EVO_fuga_o_alta_irregular'
+            }
+            
+            cols_evo = st.columns(4)
+            status_evo_sim = {}
+            
+            for i, (label, col) in enumerate(sim_evo_map.items()):
+                with cols_evo[i % 4]:
+                    val_raw = df_paciente[col].iloc[0] if col in df_paciente.columns else 0
+                    val_str = str(val_raw).strip().upper()
+                    val_init = True if val_str in ['1', '1.0', 'TRUE', 'YES'] else False
+                    
+                    # FIX STICKY STATE: El toggle ahora detecta si el estado base del paciente cambió
+                    status_evo_sim[col] = st.toggle(label, value=val_init, key=f"sim_{col}_base_{val_init}")
+
+    with col_rutas:
+        
+        # ==========================================
+        # 6. THERAPEUTIC NAVIGATOR (DiCE - DUAL COORDINATED XAI)
+        # ==========================================
+        st.markdown("---")
+        st.markdown("#### Clinical Stabilization Routes")
+        
+        class ModeloSincronizado:
+            def __init__(self, pipeline_original, columnas_modelo, umbral_real):
+                self.pipeline = pipeline_original
+                self.columnas_modelo = columnas_modelo
+                self.umbral = umbral_real
+                
+            def predict_proba(self, X):
+                if isinstance(X, np.ndarray):
+                    X_sync = pd.DataFrame(X, columns=self.columnas_modelo)
                 else:
-                    curr_min, curr_max = ax_real.get_xlim()
-                    ax_real.set_xlim(min(curr_min, valor_paciente - 1), max(curr_max, valor_paciente + 1))
+                    X_sync = X.copy()
                 
-                ax_real.set_title(f"{delta_ui_dict[var]} vs Risk", fontsize=11, fontweight='bold')
-                ax_real.set_xlabel(delta_ui_dict[var], fontsize=9)
-                ax_real.set_ylabel("Partial Dependence (Risk)", fontsize=9)
-                ax_real.grid(True, linestyle='--', alpha=0.5, zorder=0)
-                ax_real.legend(loc='best', frameon=True, fontsize=8)
-            
-            for ax_sobrante in axes_flat[len(features_to_plot):]:
-                if ax_sobrante is not None:
-                    ax_sobrante.axis('off')
+                def sync_delta(df, col_delta, col_evo, col_ing):
+                    if col_delta in df.columns and col_evo in df.columns and col_ing in df.columns:
+                        df[col_delta] = df[col_evo] - df[col_ing]
+                        
+                sync_delta(X_sync, 'DELTA_dolor_eva', 'EVO_dolor_eva', 'ING_dolor_eva')
+                sync_delta(X_sync, 'DELTA_gravedad_percibida', 'EVO_gravedad_percibida', 'ING_gravedad_percibida')
+                sync_delta(X_sync, 'DELTA_alteracion_mental', 'EVO_alteracion_mental', 'ING_alteracion_mental')
+                sync_delta(X_sync, 'DELTA_dependencia_funcional', 'EVO_dependencia_funcional', 'ING_dependencia_funcional')
+                sync_delta(X_sync, 'DELTA_portador_dispositivos', 'EVO_portador_dispositivos', 'ING_portador_dispositivos')
                 
-            fig.tight_layout()
-            st.pyplot(fig)
-            plt.close(fig) 
+                # 1. Obtener la probabilidad real del modelo
+                probas_originales = self.pipeline.predict_proba(X_sync)
+                
+                # 2. Calibración Geométrica para forzar el rigor en DiCE
+                probas_calibradas = np.zeros_like(probas_originales)
+                p1 = probas_originales[:, 1]
+                
+                mask_low = p1 <= self.umbral
+                mask_high = p1 > self.umbral
+                
+                p1_calib = np.zeros_like(p1)
+                # Escalar los riesgos por debajo del umbral real al rango [0.0, 0.5]
+                if np.any(mask_low):
+                    p1_calib[mask_low] = p1[mask_low] * (0.5 / self.umbral)
+                # Escalar los riesgos por encima del umbral real al rango (0.5, 1.0]
+                if np.any(mask_high):
+                    p1_calib[mask_high] = 0.5 + ((p1[mask_high] - self.umbral) * (0.5 / (1.0 - self.umbral)))
+                    
+                probas_calibradas[:, 1] = p1_calib
+                probas_calibradas[:, 0] = 1.0 - p1_calib
+                
+                return probas_calibradas
+        
+        if riesgo <= umbral:
+            st.info("The patient is in optimal condition for discharge. No stabilization targets required.")
+        else:
+            # --- EJECUCIÓN AUTOMÁTICA (SIN BOTÓN) ---
+            with st.spinner("Calculating multiple clinically viable stabilization routes..."):
+                try:
+                    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+                    ruta_ext = os.path.join(BASE_DIR, 'matriz_extended_display_llm.npy')
+                    ruta_cols = os.path.join(BASE_DIR, 'columnas_display_llm.npy')
+                    
+                    if not os.path.exists(ruta_ext) or not os.path.exists(ruta_cols):
+                        raise FileNotFoundError("Historical data matrices are missing from the server volume.")
+                    
+                    matriz_extended = np.load(ruta_ext, allow_pickle=True)
+                    nombres_columnas = np.load(ruta_cols, allow_pickle=True)
+                    
+                    df_background_raw = pd.DataFrame(matriz_extended, columns=nombres_columnas)
+                    columnas_modelo = df_paciente.columns.tolist()
+                    
+                    df_dice_train = df_background_raw[columnas_modelo].copy()
+                    df_dice_train['target'] = df_background_raw['target'].astype(int)
+                    
+                    for col in columnas_modelo:
+                        if df_paciente[col].dtype == object:
+                            df_dice_train[col] = df_background_raw[col].astype(str).str.strip().str.upper()
+                        else:
+                            df_dice_train[col] = pd.to_numeric(df_background_raw[col], errors='coerce')
+                    
+                    df_dice_train = df_dice_train.sample(n=min(1000, len(df_dice_train)), random_state=42)
+                    
+                    df_paciente_para_dice = df_paciente.copy()
+                    df_paciente_para_dice['target'] = 1 
+                    df_dice_train = pd.concat([df_dice_train, df_paciente_para_dice], ignore_index=True)
+                    
+                    features_continuas = df_paciente.select_dtypes(include=[np.number]).columns.tolist()
+                    
+                    d = dice_ml.Data(
+                        dataframe=df_dice_train, 
+                        continuous_features=features_continuas, 
+                        outcome_name='target'
+                    )
+                    
+                    modelo_sincronizado = ModeloSincronizado(pipeline, columnas_modelo, umbral)
+                    m = dice_ml.Model(model=modelo_sincronizado, backend="sklearn")
+                    exp = dice_ml.Dice(d, m, method="random")
+                    
+                    variables_accionables = [col for col in columnas_modelo if col.startswith('EVO_')]
+                    rangos_permitidos = {}
+                    vars_a_variar = []
+                    
+                    for col in variables_accionables:
+                        val_actual = df_paciente[col].iloc[0]
+                        if 'cuidados_paliativos' in col or 'fuga' in col: 
+                            continue
+                        
+                        if 'gravedad' in col:
+                            if val_actual > 1.0:
+                                rangos_permitidos[col] = [1.0, float(val_actual)]
+                                vars_a_variar.append(col)
+                        elif 'dolor' in col:
+                            if val_actual > 0.0:
+                                rangos_permitidos[col] = [0.0, float(val_actual)]
+                                vars_a_variar.append(col)
+                        else:
+                            if val_actual == 1.0:
+                                rangos_permitidos[col] = [0, 1]
+                                vars_a_variar.append(col)
+        
+                    # Permitimos a DiCE variar los días de internación
+                    if 'dias_internados' in df_paciente.columns:
+                        val_dias = float(df_paciente['dias_internados'].iloc[0])
+                        rangos_permitidos['dias_internados'] = [val_dias, val_dias + 7.0]
+                        vars_a_variar.append('dias_internados')
+                    
+                    if not vars_a_variar:
+                        st.error("There are no modifiable clinical targets in the patient's current evolution that can improve their condition.")
+                    else:
+                        cf_df = None
+                        modo_mitigacion = False
+                        
+                        # --- FASE 1: BÚSQUEDA ESTRICTA (Alta Segura) ---
+                        try:
+                            dice_exp = exp.generate_counterfactuals(
+                                df_paciente, total_CFs=5, desired_class="opposite", 
+                                features_to_vary=vars_a_variar, permitted_range=rangos_permitidos, random_seed=42
+                            )
+                            if dice_exp.cf_examples_list[0].final_cfs_df is not None:
+                                cf_df = dice_exp.cf_examples_list[0].final_cfs_df
+                        except Exception:
+                            pass
+                            
+                        # --- FASE 2: BÚSQUEDA PERMISIVA (Mitigación de Daños) ---
+                        if cf_df is None or cf_df.empty:
+                            modo_mitigacion = True
+                            # Usamos 0.5 como umbral para permitir estabilización matemática intermedia
+                            modelo_sincronizado_mit = ModeloSincronizado(pipeline, columnas_modelo, 0.5)
+                            m_mit = dice_ml.Model(model=modelo_sincronizado_mit, backend="sklearn")
+                            exp_mit = dice_ml.Dice(d, m_mit, method="random")
+                            
+                            try:
+                                dice_exp_mit = exp_mit.generate_counterfactuals(
+                                    df_paciente, total_CFs=5, desired_class="opposite", 
+                                    features_to_vary=vars_a_variar, permitted_range=rangos_permitidos, random_seed=42
+                                )
+                                if dice_exp_mit.cf_examples_list[0].final_cfs_df is not None:
+                                    cf_df = dice_exp_mit.cf_examples_list[0].final_cfs_df
+                            except Exception:
+                                pass
+                        
+                        if cf_df is not None and not cf_df.empty:
+                            
+                            # Filtro de redondeo
+                            for col in vars_a_variar:
+                                if col not in ['EVO_dolor_eva', 'EVO_gravedad_percibida', 'dias_internados']:
+                                    cf_df[col] = (cf_df[col] >= 0.5).astype(int)
+                                else:
+                                    cf_df[col] = cf_df[col].round()
+                                    
+                            cf_df = cf_df.drop_duplicates(subset=vars_a_variar).reset_index(drop=True)
+                                    
+                            # --- NUEVO: FILTRADO DE DOMINANCIA CLÍNICA (Eliminar rutas redundantes) ---
+                            rutas_unicas = []
+                            firmas_vistas = {}
+                            
+                            for idx_row, row in cf_df.iterrows():
+                                firma_cualitativa = []
+                                esfuerzo_clinico = 0
+                                
+                                for col in vars_a_variar:
+                                    val_orig = df_paciente.iloc[0][col]
+                                    val_cf = row[col]
+                                    if val_orig != val_cf:
+                                        firma_cualitativa.append(col)
+                                        # Calculamos el esfuerzo: cuánto tuvo que bajar el dolor/gravedad
+                                        if 'dolor' in col or 'gravedad' in col:
+                                            esfuerzo_clinico += abs(val_orig - val_cf)
+                                            
+                                firma_str = str(sorted(firma_cualitativa))
+                                
+                                if firma_str not in firmas_vistas:
+                                    firmas_vistas[firma_str] = (idx_row, esfuerzo_clinico)
+                                    rutas_unicas.append(idx_row)
+                                else:
+                                    # Si ya vimos esta combinación, nos quedamos con la que exija MENOS esfuerzo (cota máxima)
+                                    idx_previo, esfuerzo_previo = firmas_vistas[firma_str]
+                                    if esfuerzo_clinico < esfuerzo_previo:
+                                        firmas_vistas[firma_str] = (idx_row, esfuerzo_clinico)
+                                        rutas_unicas.remove(idx_previo)
+                                        rutas_unicas.append(idx_row)
+                                        
+                            # Filtramos el dataframe para dejar solo las rutas óptimas
+                            cf_df = cf_df.loc[rutas_unicas].reset_index(drop=True)
+                            # -------------------------------------------------------------------------
+                                    
+                            # Sincronización causal del dataframe simulado final
+                            cf_df['DELTA_dolor_eva'] = cf_df['EVO_dolor_eva'] - df_paciente.iloc[0]['ING_dolor_eva']
+                            cf_df['DELTA_gravedad_percibida'] = cf_df['EVO_gravedad_percibida'] - df_paciente.iloc[0]['ING_gravedad_percibida']
+                            cf_df['DELTA_alteracion_mental'] = cf_df['EVO_alteracion_mental'] - df_paciente.iloc[0]['ING_alteracion_mental']
+                            cf_df['DELTA_dependencia_funcional'] = cf_df['EVO_dependencia_funcional'] - df_paciente.iloc[0]['ING_dependencia_funcional']
+                            cf_df['DELTA_portador_dispositivos'] = cf_df['EVO_portador_dispositivos'] - df_paciente.iloc[0]['ING_portador_dispositivos']
+        
+                            # --- SEÑALIZACIÓN VISUAL DINÁMICA ---
+                            if modo_mitigacion:
+                                st.warning(f"⚠️ **{len(cf_df)} HARM REDUCTION ROUTES FOUND:**\nSafe discharge threshold (< {umbral*100:.1f}%) is not mathematically viable in one step. Showing intermediate targets to mitigate critical risk.")
+                            else:
+                                st.success(f"✅ **{len(cf_df)} UNIQUE CLINICAL STABILIZATION TARGETS FOUND:**")
+                            
+                            evo_output_dict = {
+                                'EVO_dolor_eva': 'Current Pain', 'EVO_gravedad_percibida': 'Current Severity',
+                                'EVO_aislamiento_infeccioso': 'Infectious Isolation', 'EVO_alteracion_mental': 'Mental Alteration',
+                                'EVO_complicacion_internacion': 'Hospitalization Complication', 'EVO_cuidados_paliativos': 'Palliative Care',
+                                'EVO_dependencia_funcional': 'Functional Dependency', 'EVO_fuga_o_alta_irregular': 'Irregular Discharge / Escape',
+                                'EVO_portador_dispositivos': 'Device Bearer', 'EVO_ulceras_presion': 'Pressure Ulcers',
+                                'dias_internados': 'Additional Hospitalization Days'
+                            }
+                            
+                            with st.container(height=500):
+                                for r_idx in range(len(cf_df)):
+                                    with st.expander(f"➔ 🛤️ Alternative Target Route {r_idx + 1}", expanded=(r_idx == 0)):
+                                        cambios_detectados = 0
+                                        st.markdown("##### 🎯 Stabilization Actions:")
+                                        
+                                        for col in vars_a_variar:
+                                            val_orig = df_paciente.iloc[0][col]
+                                            val_cf = cf_df.iloc[r_idx][col] 
+                                            
+                                            if val_orig != val_cf:
+                                                cambios_detectados += 1
+                                                col_en = evo_output_dict.get(col, col)
+                                                
+                                                if 'dolor' in col or 'gravedad' in col:
+                                                    st.write(f"- 💊 **{col_en}**: Target reduction ➔ **[{val_cf:.0f}]** (Currently: {val_orig:.0f})")
+                                                elif col == 'dias_internados':
+                                                    dias_extra = val_cf - val_orig
+                                                    st.write(f"- ⏳ **{col_en}**: Extend stay by ➔ **[+{dias_extra:.0f} days]** (Total target: {val_cf:.0f})")
+                                                else:
+                                                    status_en = "Resolved/Absent" if val_cf == 0 else "Present"
+                                                    st.write(f"- 🛡️ **{col_en}**: Target status ➔ **[{status_en}]**")
+                                                    
+                                        if cambios_detectados == 0:
+                                            st.write("This alternative suggests maintaining current parameters based on marginal risk stability.")
+                                        else:
+                                            # --- MULTIDIMENSIONAL RADAR CHART ---
+                                            radar_map = {
+                                                'Δ Pain': ('EVO_dolor_eva', 'ING_dolor_eva'),
+                                                'Δ Severity': ('EVO_gravedad_percibida', 'ING_gravedad_percibida'),
+                                                'Δ Mental Alt.': ('EVO_alteracion_mental', 'ING_alteracion_mental'),
+                                                'Δ Func. Dep.': ('EVO_dependencia_funcional', 'ING_dependencia_funcional'),
+                                                'Δ Devices': ('EVO_portador_dispositivos', 'ING_portador_dispositivos')
+                                            }
+                                            
+                                            categorias_radar = list(radar_map.keys())
+                                            valores_actuales_radar = []
+                                            valores_meta_radar = []
+                                            
+                                            for cat, (col_evo, col_ing) in radar_map.items():
+                                                v_ing = df_paciente.iloc[0].get(col_ing, 0)
+                                                v_evo_act = df_paciente.iloc[0].get(col_evo, 0)
+                                                valores_actuales_radar.append(v_evo_act - v_ing)
+                                                
+                                                v_evo_meta = cf_df.iloc[r_idx].get(col_evo, v_evo_act)
+                                                valores_meta_radar.append(v_evo_meta - v_ing)
+                                                
+                                            cat_cerradas = categorias_radar + [categorias_radar[0]]
+                                            val_act_cerrados = valores_actuales_radar + [valores_actuales_radar[0]]
+                                            val_meta_cerrados = valores_meta_radar + [valores_meta_radar[0]]
+                                            
+                                            fig_radar = go.Figure()
+                                            
+                                            fig_radar.add_trace(go.Scatterpolar(
+                                                r=val_act_cerrados, theta=cat_cerradas,
+                                                fill='toself', fillcolor='rgba(214, 39, 40, 0.25)', 
+                                                line=dict(color='#D62728', width=2.5), name='Current State'
+                                            ))
+                                            
+                                            # --- COLOR DINÁMICO PARA EL OBJETIVO (MITIGACIÓN vs ALTA SEGURA) ---
+                                            color_target = '#FF8C00' if modo_mitigacion else '#2CA02C'
+                                            fill_target = 'rgba(255, 140, 0, 0.25)' if modo_mitigacion else 'rgba(44, 160, 44, 0.25)'
+                                            
+                                            fig_radar.add_trace(go.Scatterpolar(
+                                                r=val_meta_cerrados, theta=cat_cerradas,
+                                                fill='toself', fillcolor=fill_target, 
+                                                line=dict(color=color_target, width=2.5), name='DiCE Target'
+                                            ))
+                                            
+                                            fig_radar.update_layout(
+                                                polar=dict(
+                                                    radialaxis=dict(visible=True, range=[-2, 8]),
+                                                    bgcolor='rgba(0,0,0,0)' 
+                                                ),
+                                                paper_bgcolor='rgba(0,0,0,0)', 
+                                                plot_bgcolor='rgba(0,0,0,0)',
+                                                margin=dict(l=40, r=40, t=40, b=40), 
+                                                height=450,
+                                                legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="center", x=0.5)
+                                            )
+                                            
+                                            st.plotly_chart(fig_radar, use_container_width=True, key=f"dice_radar_ruta_cf_{r_idx}")
+                                            
+                        else:
+                            st.error("No mathematically viable target routes were found for discharge or mitigation.")
+                            
+                except Exception as e:
+                    st.error("Counterfactual engine is currently unavailable.")
+                    st.warning(f"Technical Context: {str(e)}")
+
+    # ==========================================
+    # --- MOTOR DE CÁLCULO DINÁMICO (LIME - ANCHO COMPLETO) ---
+    # ==========================================
+    st.markdown("---")
+    try:
+        with st.spinner("Analyzing combinatorial impacts of simulated trajectory..."):
+            # 1. Crear el clon simulado del paciente (Pasado Inmutable)
+            df_sim = df_paciente.copy()
             
+            # Inyectar las simulaciones de variables temporales y continuas
+            df_sim['dias_internados'] = float(dias_sim)
+            df_sim['EVO_dolor_eva'] = float(dolor_sim)
+            df_sim['EVO_gravedad_percibida'] = float(severidad_sim)
+            
+            # Inyectar las simulaciones de variables categóricas (Toggles)
+            for col, val in status_evo_sim.items(): 
+                df_sim[col] = 1.0 if val else 0.0
+            
+            # 2. SINCRONIZACIÓN CAUSAL EXPANDIDA DE DELTAS
+            pares_delta = {
+                'DELTA_alteracion_mental': ('EVO_alteracion_mental', 'ING_alteracion_mental'),
+                'DELTA_dependencia_funcional': ('EVO_dependencia_funcional', 'ING_dependencia_funcional'),
+                'DELTA_portador_dispositivos': ('EVO_portador_dispositivos', 'ING_portador_dispositivos'),
+                'DELTA_dolor_eva': ('EVO_dolor_eva', 'ING_dolor_eva'),
+                'DELTA_gravedad_percibida': ('EVO_gravedad_percibida', 'ING_gravedad_percibida')
+            }
+            for col_delta, (col_evo, col_ing) in pares_delta.items():
+                if col_evo in df_sim.columns and col_ing in df_sim.columns:
+                    df_sim[col_delta] = df_sim[col_evo] - df_sim[col_ing]
+
+            # --- CÁLCULO DEL RIESGO SIMULADO ---
+            riesgo_base = pipeline.predict_proba(df_paciente)[0][1]
+            riesgo_simulado = pipeline.predict_proba(df_sim)[0][1]
+            variacion_riesgo = (riesgo_simulado - riesgo_base) * 100
+
+            # 3. Preprocesamiento Seguro
+            prep = pipeline.named_steps['preprocesador']
+            clf = pipeline.named_steps['clasificador']
+            
+            X_p_proc = prep.transform(df_sim)
+            X_p_dense = X_p_proc.toarray()[0] if hasattr(X_p_proc, 'toarray') else np.array(X_p_proc)[0]
+            
+            X_t_proc = prep.transform(df_train_sample)
+            X_t_dense = X_t_proc.toarray() if hasattr(X_t_proc, 'toarray') else np.array(X_t_proc)
+            
+            # 4. Mapeo de Nombres para la UI de LIME
+            nombres_crudos = prep.get_feature_names_out()
+            
+            ui_dict = {
+                'DELTA_dolor_eva': 'Δ Pain', 'DELTA_gravedad_percibida': 'Δ Severity',
+                'DELTA_alteracion_mental': 'Δ Mental Alt.', 'DELTA_dependencia_funcional': 'Δ Func. Dep.',
+                'DELTA_portador_dispositivos': 'Δ Medical Devices',
+                'EVO_dolor_eva': 'Current Pain', 'EVO_gravedad_percibida': 'Current Severity',
+                'EVO_aislamiento_infeccioso': 'Current Infect. Isolation',
+                'EVO_complicacion_internacion': 'Current Hosp. Complication',
+                'EVO_cuidados_paliativos': 'Current Palliat. Care',
+                'EVO_fuga_o_alta_irregular': 'Current Irreg. Discharge',
+                'EVO_ulceras_presion': 'Current Pressure Ulcers',
+                'EVO_alteracion_mental': 'Current Mental Alt.',
+                'EVO_dependencia_funcional': 'Current Func. Dep.',
+                'EVO_portador_dispositivos': 'Current Device Bearer'
+            }
+            
+            nombres_lime = [ui_dict.get(n.split('__')[-1].split('_1')[0], n.split('__')[-1]) for n in nombres_crudos]
+
+            # 5. Inicialización de LIME
+            explainer = lime.lime_tabular.LimeTabularExplainer(
+                training_data=X_t_dense,
+                feature_names=nombres_lime, 
+                mode='classification', 
+                random_state=42
+            )
+
+            exp = explainer.explain_instance(
+                data_row=X_p_dense, 
+                predict_fn=clf.predict_proba, 
+                num_features=len(nombres_lime) 
+            )
+            
+            # 6. Filtrado Ampliado
+            lime_list = [item for item in exp.as_list() if 'Δ' in item[0] or 'Current' in item[0]]
+            
+            if not lime_list:
+                 st.info("No significant clinical interaction impacts found for this specific configuration.")
+            else:
+                lime_list = [x for x in lime_list if abs(x[1]) > 0.001]
+                lime_list = sorted(lime_list, key=lambda x: abs(x[1]))
+                
+                fig_l = go.Figure(go.Bar(
+                    x=[x[1]*100 for x in lime_list], 
+                    y=[x[0] for x in lime_list],
+                    orientation='h', 
+                    marker_color=['#D62728' if x[1]>0 else '#2CA02C' for x in lime_list],
+                    text=[f"+{x[1]*100:.1f}%" if x[1]>0 else f"{x[1]*100:.1f}%" for x in lime_list],
+                    textposition='outside', 
+                    textfont=dict(size=12)
+                ))
+                
+                fig_l.update_layout(
+                    title=f"Scenario Impact Analysis (Simulated Trajectory)",
+                    xaxis_title="Impact on Probability (%)",
+                    plot_bgcolor='rgba(0,0,0,0)', 
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    margin=dict(l=10, r=40, t=40, b=10),
+                    height=max(350, len(lime_list) * 38), 
+                    xaxis=dict(
+                        showgrid=True, gridcolor='rgba(128,128,128,0.2)', 
+                        zeroline=True, zerolinecolor='rgba(128,128,128,0.6)'
+                    )
+                )
+                
+                col_l1, col_l2 = st.columns([1, 3])
+                
+                with col_l2: 
+                    st.plotly_chart(fig_l, use_container_width=True)
+                    
+                with col_l1:
+                    st.markdown("### 📊 Simulated Risk")
+                    st.metric(
+                        label="Hypothetical 15-Day Prob.", 
+                        value=f"{riesgo_simulado*100:.1f}%", 
+                        delta=f"{variacion_riesgo:+.1f}% vs Current",
+                        delta_color="inverse"
+                    )
+                    st.markdown("---")
+
     except Exception as e:
-        st.error("Global interpretability grid could not be generated.")
-        st.warning(f"Technical Detail: {str(e)}")
+        st.error("Simulation engine failed to initialize.")
+        st.warning(str(e))
 
-# ==========================================
-# 8. CLINICAL SIMILARITY NETWORK (ARCHEGO ADVANCED UI)
-# ==========================================
-TRANSLATION_DICT = {
-    'dias_internados': 'Length of Stay (Days)', 'rango_edad': 'Age Range', 'pluripatologico': 'Multimorbidity',
-    'CIE10_MACRO': 'Primary Diagnosis (ICD-10)', 'LLM_tabaquismo_activo': 'Active Smoking', 'LLM_alcoholismo': 'Alcoholism',
-    'LLM_drogas_ilicitas': 'Illicit Drug Use', 'LLM_fragilidad_geriatrica': 'Geriatric Frailty',
-    'LLM_polifarmacia': 'Polypharmacy', 'LLM_desnutricion_severa': 'Severe Malnutrition', 'LLM_oxigenodependiente': 'Oxygen Dependent',
-    'LLM_historial_caidas': 'History of Falls', 'LLM_abandono_medicacion': 'Medication Non-adherence',
-    'LLM_AF_diabetes': 'FHx: Diabetes', 'LLM_AF_hipertension': 'FHx: Hypertension', 'LLM_AF_cardiovascular_otro': 'FHx: Other Cardiovascular',
-    'LLM_AF_oncologico': 'FHx: Oncology', 'LLM_AF_metabolico_otro': 'FHx: Other Metabolic', 'LLM_AF_neurologico': 'FHx: Neurology',
-    'LLM_AF_psiquiatrico': 'FHx: Psychiatry', 'LLM_AF_respiratorio': 'FHx: Respiratory', 'LLM_AF_renal': 'FHx: Renal',
-    'LLM_AF_autoinmune': 'FHx: Autoimmune', 'ING_dolor_eva': 'Admission: Pain (VAS)', 'ING_gravedad_percibida': 'Admission: Perceived Severity',
-    'ING_alteracion_mental': 'Admission: Altered Mental Status', 'ING_dependencia_funcional': 'Admission: Functional Dependence',
-    'ING_portador_dispositivos': 'Admission: Medical Devices', 'ING_consultas_reiteradas': 'Admission: Repeated Consultations',
-    'ING_riesgo_hemorragico': 'Admission: Hemorrhagic Risk', 'EVO_dolor_eva': 'Evolution: Pain (VAS)',
-    'EVO_gravedad_percibida': 'Evolution: Perceived Severity', 'EVO_alteracion_mental': 'Evolution: Altered Mental Status',
-    'EVO_dependencia_funcional': 'Evolution: Functional Dependence', 'EVO_portador_dispositivos': 'Evolution: Medical Devices',
-    'EVO_complicacion_internacion': 'Evolution: Hospital Complication', 'EVO_fuga_o_alta_irregular': 'Evolution: Irregular Discharge (AMA)',
-    'EVO_cuidados_paliativos': 'Evolution: Palliative Care', 'EVO_ulceras_presion': 'Evolution: Pressure Ulcers',
-    'EVO_aislamiento_infeccioso': 'Evolution: Infectious Isolation', 'DELTA_dolor_eva': 'Δ Pain (VAS)',
-    'DELTA_gravedad_percibida': 'Δ Perceived Severity', 'DELTA_alteracion_mental': 'Δ Altered Mental Status',
-    'DELTA_dependencia_funcional': 'Δ Functional Dependence', 'DELTA_portador_dispositivos': 'Δ Medical Devices'
-}
 
-def format_clinical_value(key_es, value):
-    val_str = str(value).strip().upper()
-    if key_es == 'rango_edad':
-        traducciones_edad = {'ADULTO DE MEDIANA EDAD': 'Middle-Aged Adult', 'ADULTO MAYOR': 'Senior Adult', 'ADULTO JOVEN': 'Young Adult', 'ANCIANO': 'Elderly'}
-        return traducciones_edad.get(val_str, value)
-    if key_es == 'CIE10_MACRO':
-        traducciones_cie = {'CARDIOPATÍA ISQUÉMICA': 'Ischemic Heart Disease', 'HIPERTENSIÓN': 'Hypertension', 'DIABETES': 'Diabetes', 'ENFERMEDAD CARDIOPULMONAR': 'Cardiopulmonary Disease'}
-        return traducciones_cie.get(val_str, value)
+
+with tab_evidencia:
+    # ==========================================
+    # 8. CLINICAL SIMILARITY NETWORK (ARCHEGO ADVANCED UI)
+    # ==========================================
+    TRANSLATION_DICT = {
+        'dias_internados': 'Length of Stay (Days)', 'rango_edad': 'Age Range', 'pluripatologico': 'Multimorbidity',
+        'CIE10_MACRO': 'Primary Diagnosis (ICD-10)', 'LLM_tabaquismo_activo': 'Active Smoking', 'LLM_alcoholismo': 'Alcoholism',
+        'LLM_drogas_ilicitas': 'Illicit Drug Use', 'LLM_fragilidad_geriatrica': 'Geriatric Frailty',
+        'LLM_polifarmacia': 'Polypharmacy', 'LLM_desnutricion_severa': 'Severe Malnutrition', 'LLM_oxigenodependiente': 'Oxygen Dependent',
+        'LLM_historial_caidas': 'History of Falls', 'LLM_abandono_medicacion': 'Medication Non-adherence',
+        'LLM_AF_diabetes': 'FHx: Diabetes', 'LLM_AF_hipertension': 'FHx: Hypertension', 'LLM_AF_cardiovascular_otro': 'FHx: Other Cardiovascular',
+        'LLM_AF_oncologico': 'FHx: Oncology', 'LLM_AF_metabolico_otro': 'FHx: Other Metabolic', 'LLM_AF_neurologico': 'FHx: Neurology',
+        'LLM_AF_psiquiatrico': 'FHx: Psychiatry', 'LLM_AF_respiratorio': 'FHx: Respiratory', 'LLM_AF_renal': 'FHx: Renal',
+        'LLM_AF_autoinmune': 'FHx: Autoimmune', 'ING_dolor_eva': 'Admission: Pain (VAS)', 'ING_gravedad_percibida': 'Admission: Perceived Severity',
+        'ING_alteracion_mental': 'Admission: Altered Mental Status', 'ING_dependencia_funcional': 'Admission: Functional Dependence',
+        'ING_portador_dispositivos': 'Admission: Medical Devices', 'ING_consultas_reiteradas': 'Admission: Repeated Consultations',
+        'ING_riesgo_hemorragico': 'Admission: Hemorrhagic Risk', 'ING_infeccion_activa': 'Admission: Active Infection',
+        'EVO_dolor_eva': 'Evolution: Pain (VAS)', 'EVO_gravedad_percibida': 'Evolution: Perceived Severity', 
+        'EVO_alteracion_mental': 'Evolution: Altered Mental Status', 'EVO_dependencia_funcional': 'Evolution: Functional Dependence', 
+        'EVO_portador_dispositivos': 'Evolution: Medical Devices', 'EVO_complicacion_internacion': 'Evolution: Hospital Complication', 
+        'EVO_fuga_o_alta_irregular': 'Evolution: Irregular Discharge (AMA)', 'EVO_cuidados_paliativos': 'Evolution: Palliative Care', 
+        'EVO_ulceras_presion': 'Evolution: Pressure Ulcers', 'EVO_aislamiento_infeccioso': 'Evolution: Infectious Isolation', 
+        'EVO_cambio_terapeutico_mayor': 'Evolution: Major Therapeutic Change', 'EVO_intervencion_quirurgica': 'Evolution: Surgical Intervention', 
+        'EVO_soporte_transfusional': 'Evolution: Transfusion Support', 'DELTA_dolor_eva': 'Δ Pain (VAS)',
+        'DELTA_gravedad_percibida': 'Δ Perceived Severity', 'DELTA_alteracion_mental': 'Δ Altered Mental Status',
+        'DELTA_dependencia_funcional': 'Δ Functional Dependence', 'DELTA_portador_dispositivos': 'Δ Medical Devices',
+        'sexo': 'Sex', 'Area': 'Admission Area', 'IN_COMPLEJIDAD': 'Complexity Level', 
+        'cantidad_interconsultas': 'Interconsultations', 'visitas_guardia_6meses_previos': 'ER Visits (6m)',
+        'EST_ingreso_ambulancia': 'Ambulance Arrival', 'IN_ORDENIN': 'Scheduled Admission', 
+        'HIST_condicion_ultimo_egreso': 'Previous Discharge Condition'
+    }
     
-    bool_suffixes = ('_mental', '_funcional', '_dispositivos', '_reiteradas', '_hemorragico', '_internacion', '_irregular', '_paliativos', '_presion', '_infeccioso')
-    if key_es.startswith('LLM_') or key_es == 'pluripatologico' or (key_es.endswith(bool_suffixes) and not key_es.startswith('DELTA_')):
+    def format_clinical_value(key_es, value):
+        val_str = str(value).strip().upper()
+        if key_es == 'rango_edad':
+            traducciones_edad = {'ADULTO DE MEDIANA EDAD': 'Middle-Aged Adult', 'ADULTO MAYOR': 'Senior Adult', 'ADULTO JOVEN': 'Young Adult', 'ANCIANO': 'Elderly'}
+            return traducciones_edad.get(val_str, value)
+            
+        if key_es == 'sexo':
+            return {'MASCULINO': 'Male', 'FEMENINO': 'Female'}.get(val_str, value)
+            
+        if key_es == 'Area':
+            traduccion_area = {
+                'CIRUGIA': 'Surgery', 'CLINICA_MEDICA': 'Internal Medicine', 'CLINICA MEDICA': 'Internal Medicine',
+                'TERAPIA_INTENSIVA': 'ICU', 'TERAPIA INTENSIVA': 'ICU', 'UNIDAD CORONARIA': 'CCU',
+                'EMERG_GUARDIAS': 'ER', 'GUARDIA': 'ER', 'TRAUMATOLOGIA': 'Traumatology',
+                'PEDIATRIA': 'Pediatrics', 'CORTA_ESTANCIA': 'Short Stay', 'CUIDA_MINIMOS': 'Minimum Care',
+                'HOSP_DOMICILIARIA': 'Home Hospitalization', 'HOSPITAL_DE_DIA': 'Day Hospital',
+                'TERAPIA_INTENSIVA_PED': 'Pediatric ICU'
+            }
+            return traduccion_area.get(val_str, value)
+            
+        if key_es == 'IN_COMPLEJIDAD':
+            traduccion_comp = {'ALTA': 'High', 'MEDIA': 'Medium', 'BAJA': 'Low'}
+            return traduccion_comp.get(val_str, value) if not val_str.isdigit() else str(int(float(value)))
+            
+        if key_es == 'CIE10_MACRO':
+            cie10_ui_dict = {
+                "Tuberculosis": "Tuberculosis", "Lepra": "Leprosy", "Sífilis": "Syphilis", 
+                "Otras infecciosas (A)": "Other infectious (A)", "Hepatitis viral": "Viral hepatitis", 
+                "Enfermedad por VIH": "HIV disease", "Enfermedad de Chagas": "Chagas disease", 
+                "Toxoplasmosis": "Toxoplasmosis", "Equinococosis / Hidatidosis": "Echinococcosis / Hydatidosis", 
+                "Secuelas de enfermedades infecciosas": "Sequelae of infectious diseases", "Otras infecciosas (B)": "Other infectious (B)",
+                "Cáncer de labio / boca / faringe": "Lip / mouth / pharynx cancer", "Cáncer digestivo": "Digestive cancer", 
+                "Cáncer respiratorio / intratorácico": "Respiratory / intrathoracic cancer", "Cáncer de hueso / cartílago": "Bone / cartilage cancer", 
+                "Melanoma / Cáncer de piel": "Melanoma / Skin cancer", "Cáncer de mama": "Breast cancer", 
+                "Cáncer genital femenino": "Female genital cancer", "Cáncer genital masculino": "Male genital cancer", 
+                "Cáncer de vías urinarias": "Urinary tract cancer", "Cáncer de sistema nervioso central": "Central nervous system cancer", 
+                "Cáncer linfoide / hematopoyético": "Lymphoid / hematopoietic cancer", "Otros tumores malignos": "Other malignant tumors", 
+                "Tumores in situ o benignos": "In situ or benign tumors", "Anemias nutricionales": "Nutritional anemias", 
+                "Anemias hemolíticas": "Hemolytic anemias", "Aplasias y otras anemias": "Aplasias and other anemias", 
+                "Defectos de coagulación / púrpura": "Coagulation defects / purpura", "Trastornos de inmunodeficiencia": "Immunodeficiency disorders", 
+                "Otros trastornos de la sangre": "Other blood disorders",
+                "Tiroides": "Thyroid", "Diabetes": "Diabetes", "Glucosa / hipoglucemia": "Glucose / hypoglycemia", 
+                "Otros endocrinos y metabólicos": "Other endocrine and metabolic", "Obesidad y trastornos de hiperalimentación": "Obesity and hyperalimentation disorders", 
+                "Dislipidemia": "Dyslipidemia", "Fibrosis quística": "Cystic fibrosis", "Trastornos metabólicos": "Metabolic disorders", 
+                "Otros metabólicos / nutricionales": "Other metabolic / nutritional",
+                "Trastornos mentales orgánicos (Demencias)": "Organic mental disorders (Dementias)", "Trastornos por uso de sustancias": "Substance use disorders", 
+                "Esquizofrenia y trastornos psicóticos": "Schizophrenia and psychotic disorders", "Trastornos del humor (Afectivos)": "Mood (Affective) disorders", 
+                "Trastornos neuróticos y de ansiedad": "Neurotic and anxiety disorders", "Trastornos de la conducta alimentaria / sueño": "Eating / sleep disorders", 
+                "Trastornos de la personalidad": "Personality disorders", "Discapacidad intelectual": "Intellectual disability", 
+                "Trastornos del desarrollo psicobiológico (Autismo)": "Psychobiological development disorders (Autism)", "Otros trastornos mentales": "Other mental disorders",
+                "Atrofias sistémicas del SNC": "Systemic atrophies of CNS", "Trastornos extrapiramidales y del movimiento (Parkinson)": "Extrapyramidal and movement disorders (Parkinson's)", 
+                "Enfermedades degenerativas (Alzheimer)": "Degenerative diseases (Alzheimer's)", "Enfermedades desmielinizantes (Esclerosis Múltiple)": "Demyelinating diseases (Multiple Sclerosis)", 
+                "Trastornos episódicos y paroxísticos (Epilepsia, Migraña)": "Episodic and paroxysmal disorders (Epilepsy, Migraine)", "Trastornos de nervios y plexos": "Nerve and plexus disorders", 
+                "Polineuropatías": "Polyneuropathies", "Enfermedades de la unión neuromuscular (Miastenia)": "Diseases of the neuromuscular junction (Myasthenia)", 
+                "Parálisis cerebral y síndromes paralíticos": "Cerebral palsy and paralytic syndromes", "Otros trastornos neurológicos": "Other neurological disorders",
+                "Ojo": "Eye", "Oído": "Ear", "Otros órganos de los sentidos": "Other sense organs",
+                "Hipertensión": "Hypertension", "Cardiopatía isquémica": "Ischemic heart disease", "Enfermedad cardiopulmonar": "Cardiopulmonary disease", 
+                "Otras enfermedades del corazón (Insuficiencia Cardíaca)": "Other heart diseases (Heart Failure)", "Cerebrovascular": "Cerebrovascular", 
+                "Enfermedades de arterias y capilares": "Diseases of arteries and capillaries", "Enfermedades de venas y vasos linfáticos": "Diseases of veins and lymphatic vessels", 
+                "Otros circulatorios": "Other circulatory",
+                "Vías respiratorias altas": "Upper respiratory tract", "Infecciones agudas / neumonía / influenza": "Acute infections / pneumonia / influenza", 
+                "Infecciones respiratorias bajas": "Lower respiratory infections", "Enfermedades de vías respiratorias superiores": "Diseases of upper respiratory tract", 
+                "Asma / EPOC / bronquitis": "Asthma / COPD / bronchitis", "Enfermedades del pulmón por agentes externos (Neumoconiosis)": "Lung diseases due to external agents (Pneumoconiosis)", 
+                "Enfermedades pulmonares intersticiales": "Interstitial lung diseases", "Otros respiratorios": "Other respiratory",
+                "Boca / dientes / faringe": "Mouth / teeth / pharynx", "Esófago / estómago / duodeno": "Esophagus / stomach / duodenum", 
+                "Apendicitis": "Appendicitis", "Hernias": "Hernias", "Enfermedad de Crohn y colitis": "Crohn's disease and colitis", 
+                "Otras enfermedades de los intestinos": "Other diseases of the intestines", "Hígado": "Liver", 
+                "Vesícula / vías biliares / páncreas": "Gallbladder / biliary tract / pancreas", "Otros digestivos": "Other digestive",
+                "Dermatitis y eczema": "Dermatitis and eczema", "Trastornos papuloescamosos (Psoriasis)": "Papulosquamous disorders (Psoriasis)", 
+                "Urticaria y eritema": "Urticaria and erythema", "Trastornos de las faneras / Otros trastornos de piel": "Disorders of skin appendages / Other skin disorders", 
+                "Otras enfermedades de la piel": "Other skin diseases",
+                "Artropatías": "Arthropathies", "Tejido conectivo (Lupus, etc.)": "Connective tissue (Lupus, etc.)", "Dorsopatías": "Dorsopathies", 
+                "Tejidos blandos": "Soft tissues", "Osteopatías y condropatías (Osteoporosis)": "Osteopathies and chondropathies (Osteoporosis)", 
+                "Otros osteomusculares": "Other musculoskeletal",
+                "Riñón (Insuficiencia Renal Crónica)": "Kidney (Chronic Renal Failure)", "Vías urinarias bajas": "Lower urinary tract", 
+                "Genital masculino (Hiperplasia Prostática)": "Male genital (Prostatic Hyperplasia)", "Mama": "Breast", 
+                "Genital femenino (Endometriosis, etc.)": "Female genital (Endometriosis, etc.)", "Otros genitourinarios": "Other genitourinary",
+                "Malformaciones del sistema nervioso (Espina bífida)": "Malformations of the nervous system (Spina bifida)", "Malformaciones cardíacas congénitas": "Congenital heart malformations", 
+                "Anomalías cromosómicas (Síndrome de Down)": "Chromosomal abnormalities (Down Syndrome)", "Otras malformaciones congénitas": "Other congenital malformations",
+                "Enfermedad respiratoria crónica perinatal": "Chronic perinatal respiratory disease", 
+                "Secuelas crónicas de traumatismos": "Chronic sequelae of injuries",
+                "Síndrome Post-COVID (Long COVID)": "Post-COVID Syndrome (Long COVID)", "Otras condiciones especiales (U)": "Other special conditions (U)",
+                "Historia personal de tumores / enfermedades": "Personal history of tumors / diseases", "Ausencia adquirida de miembros / órganos": "Acquired absence of limbs / organs", 
+                "Aberturas artificiales (Ostomías)": "Artificial openings (Ostomies)", "Estado de órgano trasplantado": "Transplanted organ status", 
+                "Presencia de implantes cardíacos / vasculares": "Presence of cardiac / vascular implants", "Dependencia de máquinas (diálisis, oxígeno)": "Machine dependence (dialysis, oxygen)", 
+                "Otros factores de salud": "Other health factors",
+                "DESCONOCIDO": "UNKNOWN"
+            }
+            traducciones_cie = {k.upper(): v for k, v in cie10_ui_dict.items()}
+            return traducciones_cie.get(val_str, value)
+        
+        bool_suffixes = ('_mental', '_funcional', '_dispositivos', '_reiteradas', '_hemorragico', '_internacion', '_irregular', '_paliativos', '_presion', '_infeccioso', '_activa', '_mayor', '_quirurgica', '_transfusional')
+        if key_es.startswith('LLM_') or key_es.startswith('EST_') or key_es in ('pluripatologico', 'IN_ORDENIN') or (key_es.endswith(bool_suffixes) and not key_es.startswith('DELTA_')):
+            try:
+                return "Yes" if float(value) == 1.0 else "No"
+            except ValueError:
+                if val_str in ['TRUE', 'YES', '1']: return "Yes"
+                if val_str in ['FALSE', 'NO', '0']: return "No"
+                pass
+                
         try:
-            return "Yes" if float(value) == 1.0 else "No"
+            f_val = float(value)
+            if f_val.is_integer(): return str(int(f_val))
         except ValueError:
             pass
+        return value
+    
+    def safe_int(value, default="N/A"):
+        try:
+            if pd.isna(value) or value == "": return default
+            return int(float(value))
+        except (ValueError, TypeError):
+            return default
+    
+    def renderizar_notas_gemelo(texto_evolucion, citas_llm, lista_enfermedades):
+        if not isinstance(texto_evolucion, str) or not texto_evolucion:
+            return "No narrative context available."
             
-    try:
-        f_val = float(value)
-        if f_val.is_integer(): return str(int(f_val))
-    except ValueError:
-        pass
-    return value
-
-def safe_int(value, default="N/A"):
-    try:
-        if pd.isna(value) or value == "": return default
-        return int(float(value))
-    except (ValueError, TypeError):
-        return default
-
-def renderizar_notas_gemelo(texto_evolucion, citas_llm, lista_enfermedades):
-    if not isinstance(texto_evolucion, str) or not texto_evolucion:
-        return "No narrative context available."
+        texto_resaltado = texto_evolucion
         
-    texto_resaltado = texto_evolucion
+        if isinstance(citas_llm, dict):
+            for cita, variable in citas_llm.items():
+                if isinstance(cita, str) and cita.strip():
+                    cita_escapada = re.escape(cita)
+                    marcador = f"<mark style='background-color: #FFF2CC; color: #000000; border-radius: 3px; padding: 2px 4px;'><b>{cita}</b> <span style='font-size: 0.7em; background-color: #FFD966; padding: 2px 5px; border-radius: 8px; color: #594000; margin-left: 4px; display: inline-block; vertical-align: middle; line-height: 1;'>{variable}</span></mark>"
+                    texto_resaltado = re.sub(cita_escapada, marcador, texto_resaltado, flags=re.IGNORECASE)
+                    
+        if isinstance(lista_enfermedades, list):
+            for enfermedad in lista_enfermedades:
+                if isinstance(enfermedad, str) and enfermedad.strip():
+                    patron = rf"\b({re.escape(enfermedad)})\b"
+                    marcador = r"<mark style='background-color: #FFCCCC; color: #000000; border-radius: 3px; padding: 0px 2px;'>\1</mark>"
+                    texto_resaltado = re.sub(patron, marcador, texto_resaltado, flags=re.IGNORECASE)
+                    
+        return f"""
+        <div style='
+            line-height: 1.8; 
+            font-size: 14px; 
+            padding: 15px; 
+            background-color: var(--secondary-background-color, rgba(128, 128, 128, 0.1)); 
+            color: var(--text-color, inherit); 
+            border-radius: 8px; 
+            border: 1px solid rgba(128, 128, 128, 0.2);
+        '>
+            {texto_resaltado}
+        </div>
+        """
     
-    if isinstance(citas_llm, list):
-        for cita in citas_llm:
-            if isinstance(cita, str) and cita.strip():
-                cita_escapada = re.escape(cita)
-                marcador = f"<mark style='background-color: #FFF2CC; border-radius: 3px; padding: 2px;'><b>{cita}</b></mark>"
-                texto_resaltado = re.sub(cita_escapada, marcador, texto_resaltado, flags=re.IGNORECASE)
-                
-    if isinstance(lista_enfermedades, list):
-        for enfermedad in lista_enfermedades:
-            if isinstance(enfermedad, str) and enfermedad.strip():
-                patron = rf"\b({re.escape(enfermedad)})\b"
-                marcador = r"<mark style='background-color: #FFCCCC; border-radius: 3px; padding: 0px 2px;'>\1</mark>"
-                texto_resaltado = re.sub(patron, marcador, texto_resaltado, flags=re.IGNORECASE)
-                
-    return f"<div style='line-height: 1.6; font-size: 14px; padding: 10px; background-color: #F8F9FA; border-radius: 5px; border: 1px solid #E9ECEF;'>{texto_resaltado}</div>"
-
-
-
-st.markdown("---")
-st.subheader("Clinical Similarity Network & Topology")
-st.markdown("Topological visualization using K-NN and Harmonic Centrality. Identifies the Archetypal Patient within the cluster.")
-
-# 🌟 FIX: Cambiamos a cache_data con TTL (Time To Live) para que no se quede pegado para siempre, 
-# o simplemente mantenemos resource pero sabiendo que hay que limpiar la caché.
-@st.cache_resource
-def load_similarity_assets():
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    ruta_x = os.path.join(BASE_DIR, 'X_train_proc_llm.npy')
-    ruta_ext = os.path.join(BASE_DIR, 'matriz_extended_display_llm.npy')
-    ruta_cols = os.path.join(BASE_DIR, 'columnas_display_llm.npy')
+    st.markdown("---")
+    st.markdown("#### Clinical Similarity Network & Topology")
     
-    if not all(os.path.exists(p) for p in [ruta_x, ruta_ext, ruta_cols]):
-        raise FileNotFoundError("Similarity assets missing.")
+    @st.cache_resource
+    def load_similarity_assets():
+        BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+        ruta_x = os.path.join(BASE_DIR, 'X_train_proc_llm.npy')
+        ruta_ext = os.path.join(BASE_DIR, 'matriz_extended_display_llm.npy')
+        ruta_cols = os.path.join(BASE_DIR, 'columnas_display_llm.npy')
         
-    X_train_proc = np.load(ruta_x)
-    matriz_ext = np.load(ruta_ext, allow_pickle=True)
-    nombres_columnas = np.load(ruta_cols, allow_pickle=True)
+        if not all(os.path.exists(p) for p in [ruta_x, ruta_ext, ruta_cols]):
+            raise FileNotFoundError("Similarity assets missing. Ensure matrices are in the server volume.")
+            
+        X_train_proc = np.load(ruta_x)
+        matriz_ext = np.load(ruta_ext, allow_pickle=True)
+        nombres_columnas = np.load(ruta_cols, allow_pickle=True)
+        
+        knn_engine = NearestNeighbors(n_neighbors=20, metric='cosine')
+        knn_engine.fit(X_train_proc)
+        
+        import umap
+        umap_reducer = umap.UMAP(n_neighbors=15, min_dist=0.1, metric='cosine', random_state=42)
+        umap_embeddings = umap_reducer.fit_transform(X_train_proc)
+        
+        return knn_engine, matriz_ext, nombres_columnas, X_train_proc, umap_embeddings
     
-    knn_engine = NearestNeighbors(n_neighbors=20, metric='cosine')
-    knn_engine.fit(X_train_proc)
-    
-    return knn_engine, matriz_ext, nombres_columnas, X_train_proc
-
-if 'mostrar_grafo' not in st.session_state:
-    st.session_state.mostrar_grafo = False
-
-if st.button("Generate Archetype Graph", key="btn_gen_arch_graph"):
-    st.session_state.mostrar_grafo = True
-
-if st.session_state.mostrar_grafo:
     plt.close('all') 
     
     try:
-        with st.spinner("Calculating topological metrics and harmonic centrality..."):
-            knn, matriz_extended, nombres_columnas, X_train_proc = load_similarity_assets()
+        with st.spinner("Calculating topological metrics and embedding projections..."):
+            knn, matriz_extended, nombres_columnas, X_train_proc, umap_embeddings = load_similarity_assets()
             
             prep = pipeline.named_steps['preprocesador']
             X_paciente_proc = prep.transform(df_paciente)
@@ -1168,19 +1696,25 @@ if st.session_state.mostrar_grafo:
             vecinos_idx = indices[0]
             distancias_vecinos = distancias[0]
             
+            paciente_umap_coords = np.mean(umap_embeddings[vecinos_idx[:3]], axis=0, keepdims=True)
+            
             col_idx = {col: i for i, col in enumerate(nombres_columnas)}
-            prefijos_nlp = ('LLM_', 'ING_', 'EVO_', 'DELTA_', 'rango_', 'pluripatologico', 'dias_', 'CIE10_MACRO')
+            
+            # --- NUEVA ASIGNACIÓN DINÁMICA DE VARIABLES COMUNES ---
+            prefijos_nlp = ('LLM_', 'ING_', 'EVO_', 'DELTA_', 'rango_', 'pluripatologico', 'dias_', 'CIE10_MACRO', 'sexo', 'IN_COMPLEJIDAD', 'cantidad_interconsultas', 'visitas_', 'EST_', 'IN_ORDENIN', 'Area', 'HIST_condicion_ultimo_egreso')
             columnas_comunes_dinamicas = [col for col in nombres_columnas if str(col).startswith(prefijos_nlp)]
             
             COLOR_NEW_PATIENT = '#87CEEB' 
             COLOR_HIST_READMIT = '#FF4444' 
             COLOR_HIST_SAFE = '#00C851'    
             COLOR_ARCHETYPE = '#FFD700' 
-            
             SIZE_NEW_PATIENT = 2500 
-            SIZE_BASE_TWIN = 400
             
             similitudes_brutas = [max(0, (1 - d)) * 100 for d in distancias_vecinos]
+            
+            min_sim = min(similitudes_brutas)
+            max_sim = max(similitudes_brutas)
+            rango_sim = max_sim - min_sim if max_sim != min_sim else 1.0 
             
             G = nx.Graph()
             nodo_paciente = "Current\nPatient"
@@ -1188,24 +1722,30 @@ if st.session_state.mostrar_grafo:
             
             nodos_gemelos = []
             info_inspeccion = {}
+            invalid_markers = ["N/A", "MISSING_DATA", "NONE", "NAN", ""]
             
             for i, (idx, similitud_pct) in enumerate(zip(vecinos_idx, similitudes_brutas)):
                 reingreso_real = float(matriz_extended[idx, col_idx['target']])
                 color_nodo = COLOR_HIST_READMIT if reingreso_real == 1.0 else COLOR_HIST_SAFE
-                label_grafo = f"Twin {i+1}\n({similitud_pct:.1f}%)"
+                
+                raw_ing = str(matriz_extended[idx, col_idx.get('texto_anamnesis_ingreso', -1)] if 'texto_anamnesis_ingreso' in col_idx else "")
+                raw_evo = str(matriz_extended[idx, col_idx.get('texto_evolucion_internacion', -1)] if 'texto_evolucion_internacion' in col_idx else "")
+                
+                tiene_texto = (raw_ing.upper().strip() not in invalid_markers) or (raw_evo.upper().strip() not in invalid_markers)
+                icono_texto = " [TXT]" if tiene_texto else ""
+                
+                label_grafo = f"Patient {i+1}{icono_texto}\n({similitud_pct:.1f}%)"
                 nodos_gemelos.append(label_grafo)
                 
-                G.add_node(label_grafo, color=color_nodo, size=SIZE_BASE_TWIN, edge_color='white', line_width=1)
+                norm_sim = (similitud_pct - min_sim) / rango_sim
+                tamaño_dinamico = 400 + (norm_sim * 1400)
+                
+                G.add_node(label_grafo, color=color_nodo, size=tamaño_dinamico, edge_color='white', line_width=1.5)
                 G.add_edge(nodo_paciente, label_grafo, weight=similitud_pct/10) 
                 
                 datos_gemelo = {
                     "similitud": similitud_pct,
                     "outcome_text": "Readmitted" if reingreso_real == 1.0 else "Safe Discharge",
-                    "area": matriz_extended[idx, col_idx.get('Area', -1)] if 'Area' in col_idx else "N/A",
-                    "sexo": matriz_extended[idx, col_idx.get('sexo', -1)] if 'sexo' in col_idx else "N/A",
-                    "interconsultas": matriz_extended[idx, col_idx.get('cantidad_interconsultas', -1)] if 'cantidad_interconsultas' in col_idx else "N/A",
-                    "guardia": matriz_extended[idx, col_idx.get('visitas_guardia_6meses_previos', -1)] if 'visitas_guardia_6meses_previos' in col_idx else "N/A",
-                    "complejidad": matriz_extended[idx, col_idx.get('IN_COMPLEJIDAD', -1)] if 'IN_COMPLEJIDAD' in col_idx else "N/A",
                     "farmacos": matriz_extended[idx, col_idx.get('FARMACOS_TEXTO', -1)] if 'FARMACOS_TEXTO' in col_idx else "N/A",
                     "diagsec": matriz_extended[idx, col_idx.get('DIAGNOSTICOS_SEC_ACTIVOS', -1)] if 'DIAGNOSTICOS_SEC_ACTIVOS' in col_idx else "N/A",
                     "datos_comunes": {}
@@ -1213,7 +1753,7 @@ if st.session_state.mostrar_grafo:
                 for col_comun in columnas_comunes_dinamicas:
                     datos_gemelo["datos_comunes"][col_comun] = matriz_extended[idx, col_idx[col_comun]]
                 info_inspeccion[label_grafo] = datos_gemelo
-
+    
             X_gemelos = X_train_proc[vecinos_idx]
             dist_gemelos = pairwise_distances(X_gemelos, metric='cosine')
             umbral_conexion = np.percentile(dist_gemelos, 30) 
@@ -1228,11 +1768,10 @@ if st.session_state.mostrar_grafo:
             centrality.pop(nodo_paciente, None) 
             arquetipo_label = max(centrality, key=centrality.get)
             
-            G.nodes[arquetipo_label]['size'] = 1800
             G.nodes[arquetipo_label]['edge_color'] = COLOR_ARCHETYPE
-            G.nodes[arquetipo_label]['line_width'] = 4
+            G.nodes[arquetipo_label]['line_width'] = 4.5
             info_inspeccion[arquetipo_label]["is_archetype"] = True
-
+    
             fig, ax = plt.subplots(figsize=(10, 8))
             pos = nx.spring_layout(G, seed=42, k=0.85)
             
@@ -1247,12 +1786,164 @@ if st.session_state.mostrar_grafo:
             nx.draw_networkx_labels(G, pos, ax=ax, font_size=8, font_weight='bold', font_color='black')
             ax.axis('off')
             
+            y_hist = matriz_extended[:, col_idx['target']].astype(float)
+            
+            def get_col_data(col_name, default="Unknown"):
+                return matriz_extended[:, col_idx[col_name]] if col_name in col_idx else np.full(matriz_extended.shape[0], default)
+
+            edades = get_col_data('rango_edad')
+            diagnosticos = get_col_data('CIE10_MACRO')
+            dias = get_col_data('dias_internados', '0')
+            
+            hover_texts = []
+            for i in range(len(y_hist)):
+                outcome_str = "Readmitted" if y_hist[i] == 1 else "Safe Discharge"
+                diag_val = format_clinical_value('CIE10_MACRO', diagnosticos[i])
+                edad_val = format_clinical_value('rango_edad', edades[i])
+                dias_val = safe_int(dias[i])
+                
+                hover_texts.append(f"<b>Outcome:</b> {outcome_str}<br>"
+                                   f"<b>Diagnosis:</b> {diag_val}<br>"
+                                   f"<b>Age:</b> {edad_val}<br>"
+                                   f"<b>Stay:</b> {dias_val} days")
+            hover_texts = np.array(hover_texts)
+
             col_grafo, col_panel = st.columns([2, 1])
             
             with col_grafo:
-                st.pyplot(fig)
-                plt.close(fig)
-                st.caption("🌟 The node highlighted in gold is the **Archetypal Patient** (highest Harmonic Centrality within the local cohort).")
+                sub_tab_knn, sub_tab_umap = st.tabs(["🧬 Micro-Neighborhood (K-NN)", "🌌 Global Universe (UMAP)"])
+                
+                with sub_tab_knn:
+                    st.pyplot(fig)
+                    plt.close(fig)
+                    with st.expander("🗺️ How to read the Topology Map", expanded=False):
+                        st.markdown("""
+                        - 📏 **Node Distance (Proximity):** Represents multidimensional clinical similarity. Nodes physically closer to the *Current Patient* share highly identical medical histories and evolution trajectories.
+                        - 🫧 **Node Size:** Proportional to the match percentage. Larger nodes indicate a stronger and more reliable "clinical twin" correlation.
+                        - 🎨 **Node Colors:** 🟢 **Safe Discharge** (Historical) | 🔴 **Readmitted** (Historical) | 🔵 **Current Patient**
+                        - 🌟 **Gold Border:** The **Archetypal Patient**. Represents the statistical center of gravity (highest Harmonic Centrality) of this specific clinical cluster.
+                        """)
+                        
+                with sub_tab_umap:
+                    modo_color = st.radio(
+                        "🎨 Select UMAP Coloring Mode:",
+                        ["Default (Outcome)", "Diagnosis Search (One-vs-Rest)", "Age Distribution", "Multimorbidity Status"],
+                        horizontal=True
+                    )
+                    
+                    fig_umap = go.Figure()
+                    
+                    if modo_color == "Default (Outcome)":
+                        mask_safe = y_hist == 0
+                        mask_readmit = y_hist == 1
+                        
+                        fig_umap.add_trace(go.Scatter(
+                            x=umap_embeddings[mask_safe, 0], y=umap_embeddings[mask_safe, 1],
+                            mode='markers', name='Safe Discharge',
+                            text=hover_texts[mask_safe], hoverinfo='text',
+                            marker=dict(color='#00C851', size=6, opacity=0.5)
+                        ))
+                        fig_umap.add_trace(go.Scatter(
+                            x=umap_embeddings[mask_readmit, 0], y=umap_embeddings[mask_readmit, 1],
+                            mode='markers', name='Readmitted',
+                            text=hover_texts[mask_readmit], hoverinfo='text',
+                            marker=dict(color='#FF4444', size=6, opacity=0.5)
+                        ))
+                        
+                    elif modo_color == "Diagnosis Search (One-vs-Rest)":
+                        diagnosticos_traducidos = np.array([format_clinical_value('CIE10_MACRO', d) for d in diagnosticos])
+                        unique_diags = sorted(list(set(diagnosticos_traducidos)))
+                        
+                        diag_seleccionado = st.selectbox("🔎 Type to search and isolate a specific diagnosis:", unique_diags)
+                        
+                        mask_active = diagnosticos_traducidos == diag_seleccionado
+                        mask_inactive = ~mask_active
+                        
+                        fig_umap.add_trace(go.Scatter(
+                            x=umap_embeddings[mask_inactive, 0], y=umap_embeddings[mask_inactive, 1],
+                            mode='markers', name='Other Diagnoses',
+                            text=hover_texts[mask_inactive], hoverinfo='text',
+                            marker=dict(color='#E0E0E0', size=5, opacity=0.3)
+                        ))
+                        fig_umap.add_trace(go.Scatter(
+                            x=umap_embeddings[mask_active, 0], y=umap_embeddings[mask_active, 1],
+                            mode='markers', name=diag_seleccionado,
+                            text=hover_texts[mask_active], hoverinfo='text',
+                            marker=dict(color='#FF8C00', size=7, opacity=0.8, line=dict(color='white', width=0.5))
+                        ))
+                        
+                    elif modo_color == "Age Distribution":
+                        edades_traducidas = np.array([format_clinical_value('rango_edad', e) for e in edades])
+                        unique_ages = sorted(list(set(edades_traducidas)))
+                        
+                        color_palette = ['#636EFA', '#EF553B', '#00CC96', '#AB63FA', '#FFA15A', '#19D3F3']
+                        
+                        for idx, age_group in enumerate(unique_ages):
+                            mask_age = edades_traducidas == age_group
+                            c = color_palette[idx % len(color_palette)]
+                            
+                            fig_umap.add_trace(go.Scatter(
+                                x=umap_embeddings[mask_age, 0], y=umap_embeddings[mask_age, 1],
+                                mode='markers', name=age_group,
+                                text=hover_texts[mask_age], hoverinfo='text',
+                                marker=dict(color=c, size=6, opacity=0.6)
+                            ))
+                            
+                    elif modo_color == "Multimorbidity Status":
+                        pluri_raw = get_col_data('pluripatologico', 0.0)
+                        try:
+                            pluri_floats = np.array([float(x) if str(x).strip() != '' and str(x).strip().upper() not in ['NAN', 'NONE', 'N/A'] else 0.0 for x in pluri_raw])
+                            mask_yes = pluri_floats == 1.0
+                        except:
+                            mask_yes = np.array([str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'] for x in pluri_raw])
+                            
+                        mask_no = ~mask_yes
+                        
+                        fig_umap.add_trace(go.Scatter(
+                            x=umap_embeddings[mask_no, 0], y=umap_embeddings[mask_no, 1],
+                            mode='markers', name='No Multimorbidity',
+                            text=hover_texts[mask_no], hoverinfo='text',
+                            marker=dict(color='#AAB7B8', size=6, opacity=0.5)
+                        ))
+                        fig_umap.add_trace(go.Scatter(
+                            x=umap_embeddings[mask_yes, 0], y=umap_embeddings[mask_yes, 1],
+                            mode='markers', name='Multimorbidity (Pluripathological)',
+                            text=hover_texts[mask_yes], hoverinfo='text',
+                            marker=dict(color='#9B59B6', size=6, opacity=0.7)
+                        ))
+
+                    # Proyección Estrella Paciente Actual
+                    diag_paciente = format_clinical_value('CIE10_MACRO', df_paciente['CIE10_MACRO'].iloc[0] if 'CIE10_MACRO' in df_paciente.columns else 'N/A')
+                    edad_paciente = format_clinical_value('rango_edad', df_paciente['rango_edad'].iloc[0] if 'rango_edad' in df_paciente.columns else 'N/A')
+                    dias_paciente = safe_int(df_paciente['dias_internados'].iloc[0] if 'dias_internados' in df_paciente.columns else 0)
+                    
+                    paciente_hover = (f"<b>CURRENT PATIENT</b><br>"
+                                      f"<b>Diagnosis:</b> {diag_paciente}<br>"
+                                      f"<b>Age:</b> {edad_paciente}<br>"
+                                      f"<b>Stay:</b> {dias_paciente} days")
+                    
+                    fig_umap.add_trace(go.Scatter(
+                        x=[paciente_umap_coords[0, 0]], y=[paciente_umap_coords[0, 1]],
+                        mode='markers', name='Current Patient',
+                        text=[paciente_hover], hoverinfo='text',
+                        marker=dict(color='#87CEEB', size=18, symbol='star', line=dict(color='black', width=2))
+                    ))
+                    
+                    fig_umap.update_layout(
+                        plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+                        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                        margin=dict(l=10, r=10, t=30, b=10), height=500,
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5)
+                    )
+                    
+                    st.plotly_chart(fig_umap, use_container_width=True)
+                    with st.expander("🗺️ How to read the UMAP Map", expanded=False):
+                        st.markdown("""
+                        - 🌌 **Global View:** Shows the entire hospital population clustered by multidimensional clinical phenotype, not just the immediate neighbors.
+                        - 🎨 **Dynamic Filters:** Use the radio buttons to explore how Age, Multimorbidity, or specific Diagnoses shape the risk topology.
+                        - 🖱️ **Deep Hover:** Hover over any node to inspect its specific underlying medical truth (Age, Stay, Diagnosis).
+                        """)
                 
             with col_panel:
                 st.markdown("### 🔍 Case Inspector")
@@ -1264,17 +1955,42 @@ if st.session_state.mostrar_grafo:
                     idx_gemelo_matriz = vecinos_idx[lista_nodos.index(seleccion)]
                     data = info_inspeccion[seleccion]
                     
-                    if data.get("is_archetype"):
-                        st.warning("⭐ **Archetypal Patient (Cluster Hub)**")
-                        
-                    st.metric(label="Clinical Match", value=f"{data['similitud']:.1f}%")
-                    
-                    if data['outcome_text'] == "Readmitted":
-                        st.error(f"**Outcome:** {data['outcome_text']}")
-                    else:
-                        st.success(f"**Outcome:** {data['outcome_text']}")
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        st.metric(label="Clinical Match", value=f"{data['similitud']:.1f}%")
+                    with c2:
+                        if data['outcome_text'] == "Readmitted":
+                            st.error(f"**Outcome:**\n{data['outcome_text']}")
+                        else:
+                            st.success(f"**Outcome:**\n{data['outcome_text']}")
                     
                     st.markdown("---")
+                    
+                    if data.get("is_archetype"):
+                        with st.expander("⭐ Local Prototype Insights (Micro-Cluster Anchor)", expanded=False):
+                            st.markdown(
+                                """
+                                <div style='
+                                    padding: 12px; 
+                                    background-color: rgba(255, 215, 0, 0.1); 
+                                    border-left: 4px solid #FFD700; 
+                                    border-radius: 4px;
+                                '>
+                                    <h5 style='margin-top:0; color:#FFD700; font-size:14px;'>🎯 Local Network Insights</h5>
+                                    <p style='font-size:12px; margin-bottom:8px;'>
+                                        <b>1. Representative Variant:</b> This is not a general textbook case, but rather the <b>Local Prototype</b>. Among the 20 historical patients most similar to your current case, this specific patient represents the mathematical center of gravity (averaging out the extreme outliers of this specific sub-group).
+                                    </p>
+                                    <p style='font-size:12px; margin-bottom:8px;'>
+                                        <b>2. Micro-Cluster Anchor:</b> The current prediction relies heavily on the density of this immediate neighborhood. Because your patient aligns closely with this local anchor, the risk probability is highly reliable for this specific phenotypic variant.
+                                    </p>
+                                    <p style='font-size:12px; margin-bottom:0;'>
+                                        <b>3. Tailored Reference:</b> Use this patient's retrospective records below as a highly specific baseline template. Their outcome is the most statistically probable path for your current patient's unique condition.
+                                    </p>
+                                </div>
+                                """, 
+                                unsafe_allow_html=True
+                            )
+                    
                     st.markdown("#### 🤝 Shared Clinical Profile")
                     with st.expander("View Core Matching Variables", expanded=True):
                         for nombre_var_es, valor_var in data['datos_comunes'].items():
@@ -1284,106 +2000,16 @@ if st.session_state.mostrar_grafo:
                     
                     st.markdown("---")
                     
-                    traduccion_sexo = {'MASCULINO': 'Male', 'FEMENINO': 'Female'}
-                    traduccion_area = {'CIRUGIA': 'Surgery', 'CLINICA MEDICA': 'Internal Medicine', 'TERAPIA INTENSIVA': 'ICU', 'UNIDAD CORONARIA': 'CCU', 'GUARDIA': 'ER', 'TRAUMATOLOGIA': 'Traumatology', 'PEDIATRIA': 'Pediatrics'}
-                    traduccion_complejidad = {'ALTA': 'High', 'MEDIA': 'Medium', 'BAJA': 'Low'}
-                    
                     def traducir_ninguno(texto):
                         texto_str = str(texto).strip()
                         if texto_str.upper() == 'NINGUNO': return 'None'
                         elif texto_str == '': return 'Unknown'
                         return texto_str
 
-                    sexo_en = traduccion_sexo.get(str(data['sexo']).strip().upper(), data['sexo'])
-                    area_en = traduccion_area.get(str(data['area']).strip().upper(), data['area'])
-                    complejidad_en = traduccion_complejidad.get(str(data['complejidad']).strip().upper(), data['complejidad'])
-                    
                     diagsec_en = traducir_ninguno(data['diagsec'])
                     farmacos_raw = data['farmacos']
                     
                     st.markdown("#### 🏥 Retrospective Details")
-                    st.markdown(f"**Sex:** {sexo_en} | **Area:** {area_en}")
-                    st.markdown(f"**Complexity:** {complejidad_en}")
-                    st.markdown(f"**Prior ER Visits (6m):** {safe_int(data['guardia'])}")
-                    st.markdown(f"**Consultations:** {safe_int(data['interconsultas'])}")
-                    
-                    # --- BLOQUE DE FENOTIPO NARRATIVO LIMPIO ---
-                    st.markdown("#### 📜 Narrative Phenotype (Notes)")
-                    
-                    raw_ing = str(matriz_extended[idx_gemelo_matriz, col_idx.get('texto_anamnesis_ingreso', -1)] if 'texto_anamnesis_ingreso' in col_idx else "")
-                    raw_evo = str(matriz_extended[idx_gemelo_matriz, col_idx.get('texto_evolucion_internacion', -1)] if 'texto_evolucion_internacion' in col_idx else "")
-                    
-                    invalid_markers = ["N/A", "MISSING_DATA", "NONE", "NAN", ""]
-                    texto_ing = "" if raw_ing.upper().strip() in invalid_markers else raw_ing
-                    texto_evo = "" if raw_evo.upper().strip() in invalid_markers else raw_evo
-                    
-                    if not texto_ing and not texto_evo:
-                        st.info("ℹ️ No narrative clinical notes available for this patient.")
-                    else:
-                        texto_completo = ""
-                        if texto_ing: texto_completo += f"**Admission:**\n{texto_ing}\n\n"
-                        if texto_evo: texto_completo += f"**Evolution:**\n{texto_evo}"
-                        
-                        citas_gemelo = []
-                        for col_nombre in nombres_columnas:
-                            if col_nombre.startswith("TX_"):
-                                cita_val = str(matriz_extended[idx_gemelo_matriz, col_idx[col_nombre]])
-                                if cita_val and cita_val.strip() not in ["nan", "None", "", "N/A"]:
-                                    citas_gemelo.append(cita_val.strip())
-                        
-                            enfermedades_a_resaltar = [
-                            # --- Base original ---
-                            "diabetes", "hipertensión", "epoc", "neumonía", "tuberculosis", "iam", "acv", "cáncer",
-                            "trombosis", "celulitis", "plaquetopenia", "fa", "fibrilación auricular", "insuficiencia cardíaca",
-                            "sepsis", "infarto", "arritmia", "infección", "sme compartimental",
-                        
-                            # --- Cardiovasculares y Hemodinámicas ---
-                            "isquemia", "angina", "miocardiopatía", "endocarditis", "pericarditis", "shock",
-                            "aneurisma", "taponamiento cardíaco", "tvp", "tromboembolismo", "tep",
-                            "hipertensión arterial", "hta", "hipotensión", "bradicardia", "taquicardia", "ic",
-                        
-                            # --- Respiratorias ---
-                            "asma", "bronquitis", "derrame pleural", "edema agudo de pulmón", "eap",
-                            "insuficiencia respiratoria", "sdra", "neumotórax", "fibrosis pulmonar", "broncoespasmo",
-                        
-                            # --- Renales y Urológicas ---
-                            "itu", "infección urinaria", "insuficiencia renal", "ira", "irc", "pielonefritis",
-                            "litiasis", "nefropatía", "retención aguda de orina", "rao", "hematuria",
-                        
-                            # --- Metabólicas y Endocrinas ---
-                            "hipotiroidismo", "hipertiroidismo", "cetoacidosis", "hipoglucemia", "hiperglucemia",
-                            "dislipidemia", "obesidad", "desnutrición", "sme metabólico", "acidosis",
-                        
-                            # --- Neurológicas y Psiquiátricas ---
-                            "convulsión", "epilepsia", "demencia", "alzheimer", "parkinson", "delirium",
-                            "encefalopatía", "meningitis", "isquemia cerebral", "hemorragia subaracnoidea",
-                            "ataque isquémico transitorio", "ait", "sme confusional", "delirio",
-                        
-                            # --- Digestivas y Hepáticas ---
-                            "cirrosis", "hepatitis", "pancreatitis", "colecistitis", "apendicitis", "peritonitis",
-                            "hemorragia digestiva", "hda", "hdb", "úlcera", "obstrucción intestinal", "íleo",
-                            "isquemia mesentérica", "ascitis", "insuficiencia hepática", "gastroenteritis",
-                        
-                            # --- Hematológicas y Oncológicas ---
-                            "anemia", "leucemia", "linfoma", "neutropenia", "coagulopatía", "metástasis",
-                            "tumor", "neoplasia", "leucocitosis", "pancitopenia", "mieloma",
-                        
-                            # --- Infecciosas y Sistémicas ---
-                            "bacteriemia", "shock séptico", "covid", "osteomielitis", "fascitis",
-                            "candidiasis", "aspergilosis", "vih", "sida", "dengue", "bacteraemia", "sir",
-                        
-                            # --- Traumatológicas, Piel y Quirúrgicas ---
-                            "fractura", "luxación", "artrosis", "artritis", "sme de aplastamiento",
-                            "úlcera por presión", "escara", "herida quirúrgica", "evisceración", "dehiscencia",
-                            "osteomielitis", "necrosis", "gangrena"
-                        ]
-                        texto_html = renderizar_notas_gemelo(texto_completo, citas_gemelo, enfermedades_a_resaltar)
-                        
-                        with st.expander("🔍 Inspect Original Clinical Notes", expanded=False):
-                            st.caption("🟡 **Yellow:** Extracted Phenotype Evidence | 🔴 **Red:** Disease Mention")
-                            st.markdown(texto_html, unsafe_allow_html=True)
-
-                    st.markdown("#### Clinical Background")
                     st.markdown(f"**Secondary Diagnoses:**\n{diagsec_en}")
                     st.markdown(f"**Medications:**")
                     
@@ -1400,6 +2026,67 @@ if st.session_state.mostrar_grafo:
                             
                         for f in lista_traducida:
                             st.markdown(f"- {f}")
+                    
+                    st.markdown("#### 📜 Narrative Phenotype (Notes)")
+                    
+                    raw_ing = str(matriz_extended[idx_gemelo_matriz, col_idx.get('texto_anamnesis_ingreso', -1)] if 'texto_anamnesis_ingreso' in col_idx else "")
+                    raw_evo = str(matriz_extended[idx_gemelo_matriz, col_idx.get('texto_evolucion_internacion', -1)] if 'texto_evolucion_internacion' in col_idx else "")
+                    
+                    invalid_markers = ["N/A", "MISSING_DATA", "NONE", "NAN", ""]
+                    texto_ing = "" if raw_ing.upper().strip() in invalid_markers else raw_ing
+                    texto_evo = "" if raw_evo.upper().strip() in invalid_markers else raw_evo
+                    
+                    if not texto_ing and not texto_evo:
+                        st.info("ℹ️ No narrative clinical notes available for this patient.")
+                    else:
+                        texto_completo = ""
+                        if texto_ing: texto_completo += f"**Admission:**\n{texto_ing}\n\n"
+                        if texto_evo: texto_completo += f"**Evolution:**\n{texto_evo}"
+                        
+                        citas_gemelo = {} 
+                        for col_nombre in nombres_columnas:
+                            if col_nombre.startswith("TX_"):
+                                cita_val = str(matriz_extended[idx_gemelo_matriz, col_idx[col_nombre]])
+                                if cita_val and cita_val.strip() not in ["nan", "None", "", "N/A"]:
+                                    var_original = col_nombre.replace("TX_", "")
+                                    var_traducida = TRANSLATION_DICT.get(var_original, var_original.replace('_', ' ').title())
+                                    citas_gemelo[cita_val.strip()] = var_traducida
+                        
+                        enfermedades_a_resaltar = [
+                            "diabetes", "hipertensión", "epoc", "neumonía", "tuberculosis", "iam", "acv", "cáncer",
+                            "trombosis", "celulitis", "plaquetopenia", "fa", "fibrilación auricular", "insuficiencia cardíaca",
+                            "sepsis", "infarto", "arritmia", "infección", "sme compartimental",
+                            "isquemia", "angina", "miocardiopatía", "endocarditis", "pericarditis", "shock",
+                            "aneurisma", "taponamiento cardíaco", "tvp", "tromboembolismo", "tep",
+                            "hipertensión arterial", "hta", "hipotensión", "bradicardia", "taquicardia", "ic",
+                            "sca", "síndrome coronario agudo", "insuficiencia venosa",
+                            "asma", "bronquitis", "derrame pleural", "edema agudo de pulmón", "eap",
+                            "insuficiencia respiratoria", "sdra", "neumotórax", "fibrosis pulmonar", "broncoespasmo",
+                            "itu", "infección urinaria", "insuficiencia renal", "ira", "irc", "pielonefritis",
+                            "litiasis", "nefropatía", "retención aguda de orina", "rao", "hematuria",
+                            "hipotiroidismo", "hipertiroidismo", "cetoacidosis", "hipoglucemia", "hiperglucemia",
+                            "dislipidemia", "obesidad", "desnutrición", "sme metabólico", "acidosis",
+                            "convulsión", "epilepsia", "demencia", "alzheimer", "parkinson", "delirium",
+                            "encefalopatía", "meningitis", "isquemia cerebral", "hemorragia subaracnoidea",
+                            "ataque isquémico transitorio", "ait", "sme confusional", "delirio",
+                            "cirrosis", "hepatitis", "pancreatitis", "colecistitis", "apendicitis", "peritonitis",
+                            "hemorragia digestiva", "hda", "hdb", "úlcera", "úlceras", "úlcera gástrica", 
+                            "obstrucción intestinal", "íleo", "isquemia mesentérica", "ascitis", 
+                            "insuficiencia hepática", "gastroenteritis", "colitis", "colitis ulcerosa", 
+                            "enfermedad de crohn", "diverticulitis", "celiaquía",
+                            "anemia", "leucemia", "linfoma", "neutropenia", "coagulopatía", "metástasis",
+                            "tumor", "neoplasia", "leucocitosis", "pancitopenia", "mieloma",
+                            "bacteriemia", "shock séptico", "covid", "osteomielitis", "fascitis",
+                            "candidiasis", "aspergilosis", "vih", "sida", "dengue", "bacteraemia", "sir", "tbc",
+                            "fractura", "luxación", "artrosis", "artritis", "sme de aplastamiento",
+                            "úlcera por presión", "úlceras por presión", "escara", "escaras", 
+                            "herida quirúrgica", "evisceración", "dehiscencia", "osteomielitis", "necrosis", "gangrena"
+                        ]
+                        texto_html = renderizar_notas_gemelo(texto_completo, citas_gemelo, enfermedades_a_resaltar)
+                        
+                        with st.expander("🔍 Inspect Original Clinical Notes", expanded=False):
+                            st.caption("🟡 **Yellow:** Extracted Phenotype Evidence | 🔴 **Red:** Disease Mention")
+                            st.markdown(texto_html, unsafe_allow_html=True)
                             
     except Exception as e:
         st.error("Error generating similarity topology graph.")
