@@ -260,9 +260,10 @@ st.sidebar.header("🩺 Phenotype Loading")
 
 opciones_edad_dict = {"Minor": "Menor de edad", "Young Adult": "Adulto Joven", "Middle-aged Adult": "Adulto de mediana edad", "Older Adult": "Adulto mayor", "Elderly": "Anciano"}
 af_dict = {'Autoimmune': 'autoinmune', 'Other Cardiovascular': 'cardiovascular_otro', 'Diabetes': 'diabetes', 'Hypertension': 'hipertension', 'Other Metabolic': 'metabolico_otro', 'Neurological': 'neurologico', 'Oncological': 'oncologico', 'Psychiatric': 'psiquiatrico', 'Renal': 'renal', 'Respiratory': 'respiratorio'}
-cro_dict = {'Medication Abandonment': 'abandono_medicacion', 'Alcoholism': 'alcoholismo', 'Severe Malnutrition': 'desnutricion_severa', 'Illicit Drugs': 'drogas_ilicitas', 'Geriatric Frailty': 'fragilidad_geriatrica', 'History of Falls': 'historial_caidas', 'Oxygen Dependent': 'oxigenodependiente', 'Polypharmacy': 'polifarmacia', 'Active Smoking': 'tabaquismo_activo'}
-ing_dict = {'Mental Alteration': 'alteracion_mental', 'Repeated Consultations': 'consultas_reiteradas', 'Functional Dependency': 'dependencia_funcional', 'Device Bearer': 'portador_dispositivos', 'Hemorrhagic Risk': 'riesgo_hemorragico'}
-evo_dict = {'Infectious Isolation': 'aislamiento_infeccioso', 'Mental Alteration': 'alteracion_mental', 'Hospitalization Complication': 'complicacion_internacion', 'Palliative Care': 'cuidados_paliativos', 'Functional Dependency': 'dependencia_funcional', 'Irregular Discharge / Escape': 'fuga_o_alta_irregular', 'Device Bearer': 'portador_dispositivos', 'Pressure Ulcers': 'ulceras_presion'}
+
+cro_dict = {'Active Smoking': 'tabaquismo_activo', 'Polypharmacy': 'polifarmacia', 'Oxygen Dependent': 'oxigenodependiente', 'History of Falls': 'historial_caidas', 'Medication Abandonment': 'abandono_medicacion'}
+ing_dict = {'Mental Alteration': 'alteracion_mental', 'Repeated Consultations': 'consultas_reiteradas', 'Functional Dependency': 'dependencia_funcional', 'Device Bearer': 'portador_dispositivos', 'Hemorrhagic Risk': 'riesgo_hemorragico', 'Active Infection': 'infeccion_activa'}
+evo_dict = {'Infectious Isolation': 'aislamiento_infeccioso', 'Mental Alteration': 'alteracion_mental', 'Hospitalization Complication': 'complicacion_internacion', 'Palliative Care': 'cuidados_paliativos', 'Functional Dependency': 'dependencia_funcional', 'Irregular Discharge / Escape': 'fuga_o_alta_irregular', 'Device Bearer': 'portador_dispositivos', 'Pressure Ulcers': 'ulceras_presion', 'Major Therapeutic Change': 'cambio_terapeutico_mayor', 'Surgical Intervention': 'intervencion_quirurgica', 'Transfusion Support': 'soporte_transfusional'}
 
 # Inicialización de estado
 for key in ["ui_af_sel", "ui_cro_sel", "ui_ing_sel", "ui_evo_sel"]:
@@ -278,14 +279,27 @@ cie10_input = st.sidebar.text_input("Reason for admission (ICD-10 Code):", value
 dias_internados = st.sidebar.number_input("Number of days hospitalized:", min_value=1, max_value=150, value=5)
 rango_edad_ui = st.sidebar.selectbox("Patient Age Range:", list(opciones_edad_dict.keys()))
 rango_edad = opciones_edad_dict[rango_edad_ui].upper()
+
+# --- NUEVAS VARIABLES OPERATIVAS ---
+sexo_input = st.sidebar.selectbox("Sex:", ["MASCULINO", "FEMENINO"])
+area_input = st.sidebar.selectbox("Admission Area:", [
+    "Clinica_Medica", "Cirugia", "Corta_Estancia", "Cuida_Minimos", 
+    "Emerg_Guardias", "Hosp_domiciliaria", "Hospital_de_dia", 
+    "Pediatria", "Terapia_Intensiva", "Terapia_Intensiva_Ped"
+])
+complejidad_input = st.sidebar.number_input("Complexity Level (IN_COMPLEJIDAD):", min_value=1, step=1, value=1, help="Administrative classification level")
+interconsultas_input = st.sidebar.number_input("Interconsultations:", min_value=0, value=0)
+visitas_guardia_input = st.sidebar.number_input("ER Visits (Previous 6 months):", min_value=0, value=0)
+
 es_pluripatologico = st.sidebar.checkbox("Is the patient Pluripathological?", value=False)
+ingreso_ambulancia = st.sidebar.checkbox("Arrived by Ambulance (EST_ingreso_ambulancia)?", value=False)
+internacion_programada = st.sidebar.checkbox("Scheduled Admission (IN_ORDENIN)?", value=False)
 
 st.sidebar.markdown("---")
 
 # --- BLOQUE 2: MOTOR NLP (AUTOMATIZACIÓN) ---
 st.sidebar.subheader("2. Narrative Phenotype (NLP)")
 
-# 🌟 FIX DE SEGURIDAD: Leer API Key de st.secrets de forma segura
 api_key_default = ""
 try:
     if "GEMINI_API_KEY" in st.secrets:
@@ -293,7 +307,7 @@ try:
     elif "GOOGLE_API_KEY" in st.secrets:
         api_key_default = st.secrets["GOOGLE_API_KEY"]
 except Exception:
-    pass # Si st.secrets no está configurado, pasamos silenciosamente al ingreso manual
+    pass 
 
 api_key = st.sidebar.text_input(
     "Gemini API Key (Live Triage):", 
@@ -313,23 +327,66 @@ if st.sidebar.button("🧠 Run NLP Extraction", use_container_width=True):
     else:
         with st.spinner("Forensic extraction in progress..."):
             try:
-                # El resto de tu código NLP se mantiene exactamente igual a partir de aquí
                 genai.configure(api_key=api_key)
                 modelo_nlp = genai.GenerativeModel(
                     'models/gemini-2.5-flash', 
                     generation_config=genai.GenerationConfig(response_mime_type="application/json", temperature=0.0)
                 )
 
-                
-                prompt_sistema = """Eres un auditor médico forense estricto. Extrae variables de riesgo.
-REGLAS:
-1. CERO INFERENCIA: Si no se menciona, valor es false/null, cita "".
-2. NEGACIONES: "niega", "sin" = false.
-3. SEPARACIÓN TEMPORAL: ING_ (Estado al Ingreso), EVO_ (Curso de Internación).
-4. CITA EXACTA: Máximo 15 palabras.
+                prompt_sistema = """
+Eres un auditor médico forense estricto. Tu tarea es extraer variables de riesgo clínico de la historia clínica mediante un análisis determinista y algorítmico.
 
-Devuelve JSON. Claves: LLM_tabaquismo_activo, LLM_alcoholismo, LLM_drogas_ilicitas, LLM_fragilidad_geriatrica, LLM_polifarmacia, LLM_desnutricion_severa, LLM_oxigenodependiente, LLM_historial_caidas, LLM_abandono_medicacion, LLM_AF_diabetes, LLM_AF_hipertension, LLM_AF_cardiovascular_otro, LLM_AF_oncologico, LLM_AF_metabolico_otro, LLM_AF_neurologico, LLM_AF_psiquiatrico, LLM_AF_respiratorio, LLM_AF_renal, LLM_AF_autoinmune, ING_dolor_eva (0-10), ING_gravedad_percibida (1-10), ING_alteracion_mental, ING_dependencia_funcional, ING_portador_dispositivos, ING_consultas_reiteradas, ING_riesgo_hemorragico, EVO_dolor_eva (0-10), EVO_gravedad_percibida (1-10), EVO_alteracion_mental, EVO_dependencia_funcional, EVO_portador_dispositivos, EVO_complicacion_internacion, EVO_fuga_o_alta_irregular, EVO_cuidados_paliativos, EVO_ulceras_presion, EVO_aislamiento_infeccioso.
-FORMATO: {"LLM_tabaquismo_activo": {"valor": true, "cita": "fuma 10 cigarrillos al día"}, ...}"""
+REGLAS DE ORO (INQUEBRANTABLES):
+1. CERO INVENCIÓN (EXTRACCIÓN SEMÁNTICA): No inventes diagnósticos. DEBES marcar una variable como 'true' SOLO si el texto describe explícitamente los términos, signos, síntomas o equivalentes clínicos definidos en nuestro Diccionario.
+2. NEGACIONES ABSOLUTAS: Si un síntoma/condición está negado ("niega", "sin", "no presenta"), equivale a que no lo tiene. Valor = false, cita = "". EXCEPCIÓN: Si se niega el dolor ("sin dolor"), el valor de dolor_eva DEBE ser 0, no null.
+3. SEPARACIÓN TEMPORAL (POR CONTEXTO, NO POR TÍTULO): 
+   - Las variables "ING_" se evalúan buscando la descripción del estado del paciente *al momento de llegar al hospital*, sin importar bajo qué título esté escrito.
+   - Las variables "EVO_" se evalúan buscando eventos o estados que ocurrieron *durante los días de internación*.
+4. ATRIBUCIÓN FAMILIAR: "LLM_AF_" aplica SOLO a familia consanguínea (padres, hermanos, abuelos). No cónyuges.
+5. TRAZABILIDAD FORENSE (COPY-PASTE): La 'cita' DEBE ser una extracción LITERAL (verbatim) del texto original (máximo 15 palabras). PROHIBIDO parafrasear o resumir. Si el valor es true, la cita no puede estar vacía.
+6. CÁLCULO DE POLIFARMACIA: Estás autorizado a contar. Si en el plan o indicaciones se listan 5 o más fármacos diferentes administrados simultáneamente, marca LLM_polifarmacia como true.
+
+DICCIONARIO DE VARIABLES Y CRITERIOS CLÍNICOS EXACTOS:
+
+-- A. Estáticas (Evaluar en todo el texto histórico y actual):
+- LLM_tabaquismo_activo: Fuma actualmente (excluye ex-fumadores sin recaída).
+- LLM_polifarmacia: Toma 5+ fármacos simultáneos o el texto dice "polifarmacia".
+- LLM_oxigenodependiente: Uso crónico domiciliario de O2, cánula nasal permanente o VNI.
+- LLM_historial_caidas: Traumatismos o caídas ocurridas PREVIAMENTE al ingreso actual.
+- LLM_abandono_medicacion: El paciente/familia dejó de tomar la medicación por decisión propia, mala adherencia o razones socioeconómicas. (NO aplica si la suspensión fue indicación médica).
+
+-- B. Antecedentes Familiares (Solo Consanguíneos):
+LLM_AF_diabetes, LLM_AF_hipertension, LLM_AF_cardiovascular_otro (IAM, ACV), LLM_AF_oncologico, LLM_AF_metabolico_otro, LLM_AF_neurologico, LLM_AF_psiquiatrico, LLM_AF_respiratorio, LLM_AF_renal, LLM_AF_autoinmune.
+
+-- C. Dinámicas (Prefijo ING_ para Ingreso, EVO_ para Evolución):
+- dolor_eva (entero 0-10): Extrae el valor numérico SOLO si se asocia explícitamente a la intensidad del dolor (ej. "EVA 7", "dolor 8/10"). ¡CUIDADO: No confundas fechas (ej. 7/10 como 7 de octubre) ni puntajes de Glasgow con el dolor! Si usa palabras, mapea: "sin dolor"=0, "leve"=2, "moderado"=5, "intenso"=8, "insoportable"=10. Si NO se menciona el dolor, usa el primitivo null estricto (sin comillas).
+- gravedad_percibida (entero 1-10): Mapea el contexto clínico: 1-3 (Ambulatorio/Leve), 4-6 (Sala general estable), 7-8 (Cuidados Intermedios/Descompensado), 9-10 (UTI/Shock/Reanimación/Asistencia Respiratoria). Si no hay datos suficientes, usa null.
+- alteracion_mental (bool): Mención de delirium, excitación, desorientación, confusión, obnubilación, letargo, sopor, coma, somnolencia excesiva o Glasgow < 15.
+- dependencia_funcional (bool): Requiere asistencia para actividades básicas, paciente postrado, hemiplejía, cuadriplejía, paresia severa, o ACV secuelar motor.
+- portador_dispositivos (bool): Sonda, colostomía, PICC/vía central, traqueostomía, catéteres, drenajes.
+
+-- D. Exclusivas de Ingreso (Solo estado al momento de la admisión):
+- ING_consultas_reiteradas (bool): Ya había consultado en días previos por este mismo episodio.
+- ING_riesgo_hemorragico (bool): Sangrado activo, melena, hematemesis, epistaxis severa, plaquetopenia/trombocitopenia, coagulopatía o bajo anticoagulación activa.
+- ING_infeccion_activa (bool): Mención de fiebre al ingreso, sospecha de sepsis, uso empírico de antibióticos desde la guardia o foco infeccioso claro (neumonía, ITU, celulitis).
+
+-- E. Exclusivas de Evolución (Solo eventos del curso de la internación):
+- EVO_complicacion_internacion (bool): Infección intrahospitalaria, nueva caída, flebitis, intercurrencia nueva, shock, sepsis, descompensación hemodinámica, o necesidad de pase a UTI.
+- EVO_fuga_o_alta_irregular (bool): Retiro voluntario, alta exigida, fuga.
+- EVO_cuidados_paliativos (bool): Adecuación de esfuerzo terapéutico, LET, terminalidad, cuidados de fin de vida.
+- EVO_ulceras_presion (bool): Escaras, úlceras por decúbito.
+- EVO_aislamiento_infeccioso (bool): Aislamiento de contacto o respiratorio.
+- EVO_cambio_terapeutico_mayor (bool): Inicio de insulina, anticoagulación, inotrópicos, o anticonvulsivantes durante la internación.
+- EVO_intervencion_quirurgica (bool): Mención de paso por quirófano, cirugía, o procedimiento invasivo mayor (endoscopía, cateterismo).
+- EVO_soporte_transfusional (bool): Requirió transfusión de hemoderivados durante su estadía.
+
+FORMATO DE SALIDA OBLIGATORIO:
+Devuelve un JSON válido donde CADA CLAVE es un objeto con 'valor' y 'cita'. Claves esperadas:
+LLM_tabaquismo_activo, LLM_polifarmacia, LLM_oxigenodependiente, LLM_historial_caidas, LLM_abandono_medicacion, LLM_AF_diabetes, LLM_AF_hipertension, LLM_AF_cardiovascular_otro, LLM_AF_oncologico, LLM_AF_metabolico_otro, LLM_AF_neurologico, LLM_AF_psiquiatrico, LLM_AF_respiratorio, LLM_AF_renal, LLM_AF_autoinmune, ING_dolor_eva (0-10), ING_gravedad_percibida (1-10), ING_alteracion_mental, ING_dependencia_funcional, ING_portador_dispositivos, ING_consultas_reiteradas, ING_riesgo_hemorragico, ING_infeccion_activa, EVO_dolor_eva (0-10), EVO_gravedad_percibida (1-10), EVO_alteracion_mental, EVO_dependencia_funcional, EVO_portador_dispositivos, EVO_complicacion_internacion, EVO_fuga_o_alta_irregular, EVO_cuidados_paliativos, EVO_ulceras_presion, EVO_aislamiento_infeccioso, EVO_cambio_terapeutico_mayor, EVO_intervencion_quirurgica, EVO_soporte_transfusional.
+
+Ejemplo: {"LLM_tabaquismo_activo": {"valor": true, "cita": "fuma 10 cigarrillos al día"}, ...}
+A continuación la historia clínica para auditar:
+"""
                 
                 bloque_clinico = f"\n\n--- ESTADO AL INGRESO ---\n{ing_text}\n\n--- CURSO DE INTERNACIÓN ---\n{evo_text}"
                 respuesta = modelo_nlp.generate_content(prompt_sistema + bloque_clinico)
@@ -377,17 +434,14 @@ FORMATO: {"LLM_tabaquismo_activo": {"valor": true, "cita": "fuma 10 cigarrillos 
 if st.session_state.nlp_processed and st.session_state.nlp_quotes:
     with st.sidebar.expander("📝 View Extracted Evidence", expanded=True):
         
-        # 1. Invertimos los diccionarios locales para traducir de Español a Inglés
         inv_af = {v: k for k, v in af_dict.items()}
         inv_cro = {v: k for k, v in cro_dict.items()}
         inv_ing = {v: k for k, v in ing_dict.items()}
         inv_evo = {v: k for k, v in evo_dict.items()}
         
         for var, quote in st.session_state.nlp_quotes.items():
-            # 2. Limpiamos los prefijos técnicos
             var_clean = var.replace("LLM_AF_", "").replace("LLM_", "").replace("ING_", "").replace("EVO_", "")
             
-            # 3. Asignamos el contexto clínico y traducimos usando los diccionarios
             if var.startswith("LLM_AF_"):
                 nombre_base = inv_af.get(var_clean, var_clean.replace('_', ' ').title())
                 var_traducida = f"Family History: {nombre_base}"
@@ -411,7 +465,6 @@ if st.session_state.nlp_processed and st.session_state.nlp_quotes:
             else:
                 var_traducida = var_clean.replace('_', ' ').title()
             
-            # 4. Renderizamos en la interfaz
             st.markdown(f"**{var_traducida}:**\n> *\"{quote}\"*")
 
 st.sidebar.markdown("---")
@@ -490,7 +543,14 @@ calcular_delta_seguro('DELTA_gravedad_percibida', 'EVO_gravedad_percibida', 'ING
 calcular_delta_seguro('DELTA_alteracion_mental', 'EVO_alteracion_mental', 'ING_alteracion_mental')
 calcular_delta_seguro('DELTA_dependencia_funcional', 'EVO_dependencia_funcional', 'ING_dependencia_funcional')
 calcular_delta_seguro('DELTA_portador_dispositivos', 'EVO_portador_dispositivos', 'ING_portador_dispositivos')
-
+# ---> INSERTA ESTE BLOQUE EXACTAMENTE AQUÍ <---
+if 'sexo' in paciente_data: paciente_data['sexo'] = sexo_input
+if 'Area' in paciente_data: paciente_data['Area'] = area_input
+if 'IN_COMPLEJIDAD' in paciente_data: paciente_data['IN_COMPLEJIDAD'] = float(complejidad_input)
+if 'cantidad_interconsultas' in paciente_data: paciente_data['cantidad_interconsultas'] = float(interconsultas_input)
+if 'visitas_guardia_6meses_previos' in paciente_data: paciente_data['visitas_guardia_6meses_previos'] = float(visitas_guardia_input)
+if 'EST_ingreso_ambulancia' in paciente_data: paciente_data['EST_ingreso_ambulancia'] = 1.0 if ingreso_ambulancia else 0.0
+if 'IN_ORDENIN' in paciente_data: paciente_data['IN_ORDENIN'] = 1.0 if internacion_programada else 0.0
 df_paciente = pd.DataFrame([paciente_data])[columnas_modelo]
 
 tab_diagnostico, tab_estrategia, tab_evidencia = st.tabs([
@@ -623,10 +683,14 @@ with tab_diagnostico:
                     'DELTA_portador_dispositivos': 'Device Bearer Delta', 'ING_alteracion_mental': 'Initial Mental Alt.',
                     'ING_consultas_reiteradas': 'Initial Repeated Consults', 'ING_dependencia_funcional': 'Initial Func. Dep.',
                     'ING_portador_dispositivos': 'Initial Device Bearer', 'ING_riesgo_hemorragico': 'Initial Hemorrhagic Risk',
+                    'ING_infeccion_activa': 'Initial Active Infection', # <-- NUEVA
                     'EVO_aislamiento_infeccioso': 'Current Infect. Isolation', 'EVO_alteracion_mental': 'Current Mental Alt.',
                     'EVO_complicacion_internacion': 'Current Hosp. Complication', 'EVO_cuidados_paliativos': 'Current Palliat. Care',
                     'EVO_dependencia_funcional': 'Current Func. Dep.', 'EVO_fuga_o_alta_irregular': 'Current Irreg. Discharge',
                     'EVO_portador_dispositivos': 'Current Device Bearer', 'EVO_ulceras_presion': 'Current Pressure Ulcers',
+                    'EVO_cambio_terapeutico_mayor': 'Current Major Ther. Change', # <-- NUEVA
+                    'EVO_intervencion_quirurgica': 'Current Surgical Interv.', # <-- NUEVA
+                    'EVO_soporte_transfusional': 'Current Transfusion Support', # <-- NUEVA
                     'LLM_AF_autoinmune': 'Fam. Hist: Autoimmune', 'LLM_AF_cardiovascular_otro': 'Fam. Hist: Other CV',
                     'LLM_AF_diabetes': 'Fam. Hist: Diabetes', 'LLM_AF_hipertension': 'Fam. Hist: Hypertension',
                     'LLM_AF_metabolico_otro': 'Fam. Hist: Other Metabolic', 'LLM_AF_neurologico': 'Fam. Hist: Neurological',
@@ -636,7 +700,14 @@ with tab_diagnostico:
                     'LLM_desnutricion_severa': 'Chronic: Severe Malnutrition', 'LLM_drogas_ilicitas': 'Chronic: Illicit Drugs',
                     'LLM_fragilidad_geriatrica': 'Chronic: Geriatric Frailty', 'LLM_historial_caidas': 'Chronic: History of Falls',
                     'LLM_oxigenodependiente': 'Chronic: Oxygen Dependent', 'LLM_polifarmacia': 'Chronic: Polypharmacy',
-                    'LLM_tabaquismo_activo': 'Chronic: Active Smoking'
+                    'LLM_tabaquismo_activo': 'Chronic: Active Smoking',
+                    'sexo': 'Sex',
+                    'Area': 'Admission Area',
+                    'IN_COMPLEJIDAD': 'Complexity Level',
+                    'cantidad_interconsultas': 'Interconsultations',
+                    'visitas_guardia_6meses_previos': 'ER Visits (6m)',
+                    'EST_ingreso_ambulancia': 'Ambulance Arrival',
+                    'IN_ORDENIN': 'Scheduled Admission'
                 }
                 
                 nombres_limpios_traducidos = []
@@ -1422,14 +1493,20 @@ with tab_evidencia:
         'LLM_AF_autoinmune': 'FHx: Autoimmune', 'ING_dolor_eva': 'Admission: Pain (VAS)', 'ING_gravedad_percibida': 'Admission: Perceived Severity',
         'ING_alteracion_mental': 'Admission: Altered Mental Status', 'ING_dependencia_funcional': 'Admission: Functional Dependence',
         'ING_portador_dispositivos': 'Admission: Medical Devices', 'ING_consultas_reiteradas': 'Admission: Repeated Consultations',
-        'ING_riesgo_hemorragico': 'Admission: Hemorrhagic Risk', 'EVO_dolor_eva': 'Evolution: Pain (VAS)',
-        'EVO_gravedad_percibida': 'Evolution: Perceived Severity', 'EVO_alteracion_mental': 'Evolution: Altered Mental Status',
-        'EVO_dependencia_funcional': 'Evolution: Functional Dependence', 'EVO_portador_dispositivos': 'Evolution: Medical Devices',
-        'EVO_complicacion_internacion': 'Evolution: Hospital Complication', 'EVO_fuga_o_alta_irregular': 'Evolution: Irregular Discharge (AMA)',
-        'EVO_cuidados_paliativos': 'Evolution: Palliative Care', 'EVO_ulceras_presion': 'Evolution: Pressure Ulcers',
-        'EVO_aislamiento_infeccioso': 'Evolution: Infectious Isolation', 'DELTA_dolor_eva': 'Δ Pain (VAS)',
+        'ING_riesgo_hemorragico': 'Admission: Hemorrhagic Risk', 'ING_infeccion_activa': 'Admission: Active Infection',
+        'EVO_dolor_eva': 'Evolution: Pain (VAS)', 'EVO_gravedad_percibida': 'Evolution: Perceived Severity', 
+        'EVO_alteracion_mental': 'Evolution: Altered Mental Status', 'EVO_dependencia_funcional': 'Evolution: Functional Dependence', 
+        'EVO_portador_dispositivos': 'Evolution: Medical Devices', 'EVO_complicacion_internacion': 'Evolution: Hospital Complication', 
+        'EVO_fuga_o_alta_irregular': 'Evolution: Irregular Discharge (AMA)', 'EVO_cuidados_paliativos': 'Evolution: Palliative Care', 
+        'EVO_ulceras_presion': 'Evolution: Pressure Ulcers', 'EVO_aislamiento_infeccioso': 'Evolution: Infectious Isolation', 
+        'EVO_cambio_terapeutico_mayor': 'Evolution: Major Therapeutic Change', 'EVO_intervencion_quirurgica': 'Evolution: Surgical Intervention', 
+        'EVO_soporte_transfusional': 'Evolution: Transfusion Support', 'DELTA_dolor_eva': 'Δ Pain (VAS)',
         'DELTA_gravedad_percibida': 'Δ Perceived Severity', 'DELTA_alteracion_mental': 'Δ Altered Mental Status',
-        'DELTA_dependencia_funcional': 'Δ Functional Dependence', 'DELTA_portador_dispositivos': 'Δ Medical Devices'
+        'DELTA_dependencia_funcional': 'Δ Functional Dependence', 'DELTA_portador_dispositivos': 'Δ Medical Devices',
+        'sexo': 'Sex', 'Area': 'Admission Area', 'IN_COMPLEJIDAD': 'Complexity Level', 
+        'cantidad_interconsultas': 'Interconsultations', 'visitas_guardia_6meses_previos': 'ER Visits (6m)',
+        'EST_ingreso_ambulancia': 'Ambulance Arrival', 'IN_ORDENIN': 'Scheduled Admission', 
+        'HIST_condicion_ultimo_egreso': 'Previous Discharge Condition'
     }
     
     def format_clinical_value(key_es, value):
@@ -1437,6 +1514,24 @@ with tab_evidencia:
         if key_es == 'rango_edad':
             traducciones_edad = {'ADULTO DE MEDIANA EDAD': 'Middle-Aged Adult', 'ADULTO MAYOR': 'Senior Adult', 'ADULTO JOVEN': 'Young Adult', 'ANCIANO': 'Elderly'}
             return traducciones_edad.get(val_str, value)
+            
+        if key_es == 'sexo':
+            return {'MASCULINO': 'Male', 'FEMENINO': 'Female'}.get(val_str, value)
+            
+        if key_es == 'Area':
+            traduccion_area = {
+                'CIRUGIA': 'Surgery', 'CLINICA_MEDICA': 'Internal Medicine', 'CLINICA MEDICA': 'Internal Medicine',
+                'TERAPIA_INTENSIVA': 'ICU', 'TERAPIA INTENSIVA': 'ICU', 'UNIDAD CORONARIA': 'CCU',
+                'EMERG_GUARDIAS': 'ER', 'GUARDIA': 'ER', 'TRAUMATOLOGIA': 'Traumatology',
+                'PEDIATRIA': 'Pediatrics', 'CORTA_ESTANCIA': 'Short Stay', 'CUIDA_MINIMOS': 'Minimum Care',
+                'HOSP_DOMICILIARIA': 'Home Hospitalization', 'HOSPITAL_DE_DIA': 'Day Hospital',
+                'TERAPIA_INTENSIVA_PED': 'Pediatric ICU'
+            }
+            return traduccion_area.get(val_str, value)
+            
+        if key_es == 'IN_COMPLEJIDAD':
+            traduccion_comp = {'ALTA': 'High', 'MEDIA': 'Medium', 'BAJA': 'Low'}
+            return traduccion_comp.get(val_str, value) if not val_str.isdigit() else str(int(float(value)))
             
         if key_es == 'CIE10_MACRO':
             cie10_ui_dict = {
@@ -1502,15 +1597,16 @@ with tab_evidencia:
                 "Otros factores de salud": "Other health factors",
                 "DESCONOCIDO": "UNKNOWN"
             }
-            # Convertir claves a mayúsculas para asegurar el match
             traducciones_cie = {k.upper(): v for k, v in cie10_ui_dict.items()}
             return traducciones_cie.get(val_str, value)
         
-        bool_suffixes = ('_mental', '_funcional', '_dispositivos', '_reiteradas', '_hemorragico', '_internacion', '_irregular', '_paliativos', '_presion', '_infeccioso')
-        if key_es.startswith('LLM_') or key_es == 'pluripatologico' or (key_es.endswith(bool_suffixes) and not key_es.startswith('DELTA_')):
+        bool_suffixes = ('_mental', '_funcional', '_dispositivos', '_reiteradas', '_hemorragico', '_internacion', '_irregular', '_paliativos', '_presion', '_infeccioso', '_activa', '_mayor', '_quirurgica', '_transfusional')
+        if key_es.startswith('LLM_') or key_es.startswith('EST_') or key_es in ('pluripatologico', 'IN_ORDENIN') or (key_es.endswith(bool_suffixes) and not key_es.startswith('DELTA_')):
             try:
                 return "Yes" if float(value) == 1.0 else "No"
             except ValueError:
+                if val_str in ['TRUE', 'YES', '1']: return "Yes"
+                if val_str in ['FALSE', 'NO', '0']: return "No"
                 pass
                 
         try:
@@ -1603,7 +1699,9 @@ with tab_evidencia:
             paciente_umap_coords = np.mean(umap_embeddings[vecinos_idx[:3]], axis=0, keepdims=True)
             
             col_idx = {col: i for i, col in enumerate(nombres_columnas)}
-            prefijos_nlp = ('LLM_', 'ING_', 'EVO_', 'DELTA_', 'rango_', 'pluripatologico', 'dias_', 'CIE10_MACRO')
+            
+            # --- NUEVA ASIGNACIÓN DINÁMICA DE VARIABLES COMUNES ---
+            prefijos_nlp = ('LLM_', 'ING_', 'EVO_', 'DELTA_', 'rango_', 'pluripatologico', 'dias_', 'CIE10_MACRO', 'sexo', 'IN_COMPLEJIDAD', 'cantidad_interconsultas', 'visitas_', 'EST_', 'IN_ORDENIN', 'Area', 'HIST_condicion_ultimo_egreso')
             columnas_comunes_dinamicas = [col for col in nombres_columnas if str(col).startswith(prefijos_nlp)]
             
             COLOR_NEW_PATIENT = '#87CEEB' 
@@ -1648,11 +1746,6 @@ with tab_evidencia:
                 datos_gemelo = {
                     "similitud": similitud_pct,
                     "outcome_text": "Readmitted" if reingreso_real == 1.0 else "Safe Discharge",
-                    "area": matriz_extended[idx, col_idx.get('Area', -1)] if 'Area' in col_idx else "N/A",
-                    "sexo": matriz_extended[idx, col_idx.get('sexo', -1)] if 'sexo' in col_idx else "N/A",
-                    "interconsultas": matriz_extended[idx, col_idx.get('cantidad_interconsultas', -1)] if 'cantidad_interconsultas' in col_idx else "N/A",
-                    "guardia": matriz_extended[idx, col_idx.get('visitas_guardia_6meses_previos', -1)] if 'visitas_guardia_6meses_previos' in col_idx else "N/A",
-                    "complejidad": matriz_extended[idx, col_idx.get('IN_COMPLEJIDAD', -1)] if 'IN_COMPLEJIDAD' in col_idx else "N/A",
                     "farmacos": matriz_extended[idx, col_idx.get('FARMACOS_TEXTO', -1)] if 'FARMACOS_TEXTO' in col_idx else "N/A",
                     "diagsec": matriz_extended[idx, col_idx.get('DIAGNOSTICOS_SEC_ACTIVOS', -1)] if 'DIAGNOSTICOS_SEC_ACTIVOS' in col_idx else "N/A",
                     "datos_comunes": {}
@@ -1907,28 +2000,32 @@ with tab_evidencia:
                     
                     st.markdown("---")
                     
-                    traduccion_sexo = {'MASCULINO': 'Male', 'FEMENINO': 'Female'}
-                    traduccion_area = {'CIRUGIA': 'Surgery', 'CLINICA MEDICA': 'Internal Medicine', 'TERAPIA INTENSIVA': 'ICU', 'UNIDAD CORONARIA': 'CCU', 'GUARDIA': 'ER', 'TRAUMATOLOGIA': 'Traumatology', 'PEDIATRIA': 'Pediatrics'}
-                    traduccion_complejidad = {'ALTA': 'High', 'MEDIA': 'Medium', 'BAJA': 'Low'}
-                    
                     def traducir_ninguno(texto):
                         texto_str = str(texto).strip()
                         if texto_str.upper() == 'NINGUNO': return 'None'
                         elif texto_str == '': return 'Unknown'
                         return texto_str
 
-                    sexo_en = traduccion_sexo.get(str(data['sexo']).strip().upper(), data['sexo'])
-                    area_en = traduccion_area.get(str(data['area']).strip().upper(), data['area'])
-                    complejidad_en = traduccion_complejidad.get(str(data['complejidad']).strip().upper(), data['complejidad'])
-                    
                     diagsec_en = traducir_ninguno(data['diagsec'])
                     farmacos_raw = data['farmacos']
                     
                     st.markdown("#### 🏥 Retrospective Details")
-                    st.markdown(f"**Sex:** {sexo_en} | **Area:** {area_en}")
-                    st.markdown(f"**Complexity:** {complejidad_en}")
-                    st.markdown(f"**Prior ER Visits (6m):** {safe_int(data['guardia'])}")
-                    st.markdown(f"**Consultations:** {safe_int(data['interconsultas'])}")
+                    st.markdown(f"**Secondary Diagnoses:**\n{diagsec_en}")
+                    st.markdown(f"**Medications:**")
+                    
+                    if str(farmacos_raw).strip().upper() in ('NINGUNO', '', 'NONE', 'N/A'):
+                        st.markdown("None")
+                    else:
+                        lista_farmacos = [f.strip() for f in str(farmacos_raw).split(',')]
+                        try:
+                            from translations import FARMACOS_TRANSLATION_DICT
+                            dict_farmacos_upper = {k.upper(): v for k, v in FARMACOS_TRANSLATION_DICT.items()}
+                            lista_traducida = [dict_farmacos_upper.get(f.upper(), f.strip().title()) for f in lista_farmacos]
+                        except ImportError:
+                            lista_traducida = [f.strip().title() for f in lista_farmacos]
+                            
+                        for f in lista_traducida:
+                            st.markdown(f"- {f}")
                     
                     st.markdown("#### 📜 Narrative Phenotype (Notes)")
                     
@@ -1990,24 +2087,6 @@ with tab_evidencia:
                         with st.expander("🔍 Inspect Original Clinical Notes", expanded=False):
                             st.caption("🟡 **Yellow:** Extracted Phenotype Evidence | 🔴 **Red:** Disease Mention")
                             st.markdown(texto_html, unsafe_allow_html=True)
-
-                    st.markdown("#### Clinical Background")
-                    st.markdown(f"**Secondary Diagnoses:**\n{diagsec_en}")
-                    st.markdown(f"**Medications:**")
-                    
-                    if str(farmacos_raw).strip().upper() in ('NINGUNO', '', 'NONE', 'N/A'):
-                        st.markdown("None")
-                    else:
-                        lista_farmacos = [f.strip() for f in str(farmacos_raw).split(',')]
-                        try:
-                            from translations import FARMACOS_TRANSLATION_DICT
-                            dict_farmacos_upper = {k.upper(): v for k, v in FARMACOS_TRANSLATION_DICT.items()}
-                            lista_traducida = [dict_farmacos_upper.get(f.upper(), f.strip().title()) for f in lista_farmacos]
-                        except ImportError:
-                            lista_traducida = [f.strip().title() for f in lista_farmacos]
-                            
-                        for f in lista_traducida:
-                            st.markdown(f"- {f}")
                             
     except Exception as e:
         st.error("Error generating similarity topology graph.")
