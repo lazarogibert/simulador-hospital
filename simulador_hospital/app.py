@@ -2011,7 +2011,7 @@ with tab_evidencia:
                         - 🎯 **Outcome Symbols (Always Active):** - ⚪ **Circles:** Safe Discharges.
                             - 🔶 **Diamonds:** Readmitted Patients.
                         - 🖱️ **Deep Hover:** Hover over any node to inspect its specific underlying medical truth.
-                        - 💡 **Interactive Legend:** Double-click any item in the legend above the chart to isolate that specific cohort. 
+                        - 💡 **Interactive Legend:** Click any item in the legend above the chart to isolate that specific cohort. 
                         """)
                 
             with col_panel:
