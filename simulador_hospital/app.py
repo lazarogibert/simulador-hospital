@@ -1047,8 +1047,14 @@ with tab_estrategia:
                 'Hosp. Complication': 'EVO_complicacion_internacion',
                 'Pressure Ulcers': 'EVO_ulceras_presion',
                 'Palliative Care': 'EVO_cuidados_paliativos',
-                'Irregular Discharge': 'EVO_fuga_o_alta_irregular'
+                'Irregular Discharge': 'EVO_fuga_o_alta_irregular',
+                # --- NUEVAS VARIABLES DE EVOLUCIÓN ---
+                'Major Ther. Change': 'EVO_cambio_terapeutico_mayor',
+                'Surgical Interv.': 'EVO_intervencion_quirurgica',
+                'Transfusion Support': 'EVO_soporte_transfusional'
             }
+            
+            
             
             cols_evo = st.columns(4)
             status_evo_sim = {}
@@ -1288,6 +1294,9 @@ with tab_estrategia:
                                 'EVO_complicacion_internacion': 'Hospitalization Complication', 'EVO_cuidados_paliativos': 'Palliative Care',
                                 'EVO_dependencia_funcional': 'Functional Dependency', 'EVO_fuga_o_alta_irregular': 'Irregular Discharge / Escape',
                                 'EVO_portador_dispositivos': 'Device Bearer', 'EVO_ulceras_presion': 'Pressure Ulcers',
+                                'EVO_cambio_terapeutico_mayor': 'Major Therapeutic Change',
+                                'EVO_intervencion_quirurgica': 'Surgical Intervention',
+                                'EVO_soporte_transfusional': 'Transfusion Support',
                                 'dias_internados': 'Additional Hospitalization Days'
                             }
                             
