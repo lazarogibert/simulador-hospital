@@ -1899,7 +1899,7 @@ with tab_evidencia:
                         st.plotly_chart(fig_umap, use_container_width=True)
                 
                 with col_panel:
-                    st.markdown(f"### 👥 Similar Patients Found (n={len(vecinos_idx)})")
+                    st.markdown(f"### Similar Patients Found (n={len(vecinos_idx)})")
                     st.caption("Aggregated statistics for the current neighborhood")
                     
                     # ROBUSTEZ: Prevención de división por cero si no hay datos procesados en listas
