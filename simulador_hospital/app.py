@@ -1777,15 +1777,25 @@ with tab_evidencia:
                     st.metric("Historical Readmission Rate", f"{tasa_reingreso:.1f}%")
                     st.progress(tasa_reingreso / 100)
                     
+                    # 2. Demographic Breakdown
                     hombres = sum(1 for s in cohort_sex if str(s).strip().upper() == 'MASCULINO')
                     pct_hombres = (hombres / len(cohort_sex)) * 100 if cohort_sex else 0.0
                     pct_mujeres = 100 - pct_hombres if cohort_sex else 0.0
                     
-                    edades_traducidas = [format_clinical_value('rango_edad', e) for e in cohort_ages]
-                    edad_predominante = pd.Series(edades_traducidas).mode()[0] if edades_traducidas else "Unknown"
-                    
                     st.markdown("---")
-                    st.markdown(f"**Demographics:**\n- **Gender:** {pct_hombres:.0f}% Male / {pct_mujeres:.0f}% Female\n- **Mode Age:** {edad_predominante}")
+                    st.markdown(f"**Demographics:**\n- **Gender:** {pct_hombres:.0f}% Male / {pct_mujeres:.0f}% Female")
+                    
+                    # Desglose distributivo de edades en lugar de solo la Moda
+                    st.markdown("**Age Distribution:**")
+                    if cohort_ages:
+                        edades_traducidas = [format_clinical_value('rango_edad', e) for e in cohort_ages]
+                        distribucion_edades = pd.Series(edades_traducidas).value_counts(normalize=True) * 100
+                        
+                        # Mostramos el top 3 de grupos etarios para dar idea de la dispersión
+                        for edad, pct in distribucion_edades.head(3).items():
+                            st.markdown(f"- {edad}: {pct:.1f}%")
+                    else:
+                        st.markdown("- Unknown")
                     
                     pluri_count = sum(1 for p in cohort_multimorbidity if str(p).strip().upper() in ['1', '1.0', 'TRUE'])
                     pct_pluri = (pluri_count / len(cohort_multimorbidity)) * 100 if cohort_multimorbidity else 0.0
