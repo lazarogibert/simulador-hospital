@@ -1810,12 +1810,12 @@ with tab_evidencia:
                         pct_diag = (count / len(cohort_diagnoses)) * 100
                         st.markdown(f"- {diag} ({pct_diag:.1f}%)")
                 
-                # --- 4. UMAP TABULAR VIEW DOWN BELOW ---
+               # --- 4. UMAP TABULAR VIEW DOWN BELOW ---
                 st.markdown("---")
                 with st.expander("🌌 Expand Global Universe View (UMAP)", expanded=False):
                     modo_color = st.radio(
                         "🎨 Select UMAP Coloring Mode:",
-                        ["Readmitted vs Safe Discharge", "Age Distribution"],
+                        ["Readmitted vs Safe Discharge", "Age Distribution", "Multimorbidity"],
                         horizontal=True
                     )
                     
@@ -1872,6 +1872,26 @@ with tab_evidencia:
                                 text=hover_texts_global[mask_age], hoverinfo='text',
                                 marker=dict(color=color_palette[idx_color % len(color_palette)], size=5, opacity=0.6, line=borde_marcador)
                             ))
+                            
+                    elif modo_color == "Multimorbidity":
+                        pluri_global = matriz_extended[:, col_idx.get('pluripatologico', -1)]
+                        # ROBUSTEZ: Extracción segura de booleanos sin importar cómo se guardaron en la matriz cruda
+                        mask_yes = np.array([str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'] for x in pluri_global])
+                        mask_no = ~mask_yes
+                        
+                        fig_umap.add_trace(go.Scatter(
+                            x=umap_embeddings[mask_no, 0], y=umap_embeddings[mask_no, 1],
+                            mode='markers', name='No Multimorbidity',
+                            text=hover_texts_global[mask_no], hoverinfo='text',
+                            marker=dict(color='#AAB7B8', size=5, opacity=0.6, symbol='circle', line=borde_marcador)
+                        ))
+                        
+                        fig_umap.add_trace(go.Scatter(
+                            x=umap_embeddings[mask_yes, 0], y=umap_embeddings[mask_yes, 1],
+                            mode='markers', name='Multimorbidity Present',
+                            text=hover_texts_global[mask_yes], hoverinfo='text',
+                            marker=dict(color='#D2691E', size=6, opacity=0.8, symbol='circle', line=borde_marcador)
+                        ))
                     
                     # Current Patient Star
                     paciente_umap_coords = np.mean(umap_embeddings[vecinos_idx_pool[:3]], axis=0, keepdims=True)
