@@ -1712,7 +1712,7 @@ with tab_evidencia:
                 umbral_similitud = st.slider(
                     "Minimum Similarity Threshold (%)", 
                     min_value=50, max_value=99, value=75, step=1,
-                    help="Higher values restrict the network to nearly identical patients."
+                    help="Higher values restrict the network to nearly identical admissions."
                 )
             
             st.markdown("---")
@@ -1722,7 +1722,7 @@ with tab_evidencia:
             similitudes_brutas = similitudes_brutas_pool[mask_umbral]
             
             if len(vecinos_idx) == 0:
-                st.warning(f"No historical patients found with a similarity match equal to or greater than {umbral_similitud}%. Please lower the threshold.")
+                st.warning(f"No historical admissions found with a similarity match equal to or greater than {umbral_similitud}%. Please lower the threshold.")
             else:
                 col_idx = {col: i for i, col in enumerate(nombres_columnas)}
                 
@@ -1737,7 +1737,7 @@ with tab_evidencia:
                 rango_sim = max_sim - min_sim if max_sim != min_sim else 1.0 
                 
                 G = nx.Graph()
-                nodo_paciente = "Current\nPatient"
+                nodo_paciente = "Current\nAdmission"
                 G.add_node(nodo_paciente, color=COLOR_NEW_PATIENT, size=SIZE_NEW_PATIENT, edge_color='black', line_width=3)
                 
                 nodos_gemelos = []
@@ -1755,7 +1755,7 @@ with tab_evidencia:
                     tiene_texto = (raw_ing.upper().strip() not in ["N/A", "MISSING_DATA", "NONE", "NAN", ""]) or (raw_evo.upper().strip() not in ["N/A", "MISSING_DATA", "NONE", "NAN", ""])
                     icono_texto = " [TXT]" if tiene_texto else ""
                     
-                    label_grafo = f"Pt. {i+1}{icono_texto}\n({similitud_pct:.1f}%)"
+                    label_grafo = f"Case {i+1}{icono_texto}\n({similitud_pct:.1f}%)"
                     nodos_gemelos.append(label_grafo)
                     
                     norm_sim = (similitud_pct - min_sim) / rango_sim
@@ -1827,16 +1827,15 @@ with tab_evidencia:
                     with st.expander("🗺️ Topology Legend", expanded=False):
                         st.markdown("""
                         - 🫧 **Node Size:** Proportional to the match percentage.
-                        - 🎨 **Node Colors:** 🟢 **Safe Discharge** | 🔴 **Readmitted** | 🔵 **Current Patient**
-                        - 🌟 **Gold Border:** The **Archetypal Patient** (Local cluster anchor).
+                        - 🎨 **Node Colors:** 🟢 **Safe Discharge** | 🔴 **Readmitted** | 🔵 **Current Admission**
+                        - 🌟 **Gold Border:** The **Archetypal Admission** (Local cluster anchor).
                         """)
                 
                 with col_panel:
-                    # IMPLEMENTACIÓN CERO SCROLL: Sub-Tabs para el panel derecho
                     sub_tab_global, sub_tab_inspector = st.tabs(["🧬 Cohort Profile", "🔍 Case Inspector"])
                     
                     with sub_tab_global:
-                        st.markdown(f"### Similar Patients Found (n={len(vecinos_idx)})")
+                        st.markdown(f"### 👥 Similar Admissions Found (n={len(vecinos_idx)})")
                         tasa_reingreso = (sum(cohort_outcomes) / len(cohort_outcomes)) * 100 if cohort_outcomes else 0.0
                         st.metric("Historical Readmission Rate", f"{tasa_reingreso:.1f}%")
                         st.progress(tasa_reingreso / 100)
@@ -1872,10 +1871,10 @@ with tab_evidencia:
                     with sub_tab_inspector:
                         lista_nodos = list(info_inspeccion.keys())
                         if not lista_nodos:
-                            st.info("No patients available to inspect.")
+                            st.info("No admissions available to inspect.")
                         else:
                             idx_arquetipo_selector = lista_nodos.index(arquetipo_label) if arquetipo_label in lista_nodos else 0
-                            seleccion = st.selectbox("Inspect Patient Twin:", lista_nodos, index=idx_arquetipo_selector)
+                            seleccion = st.selectbox("Inspect Similar Admission:", lista_nodos, index=idx_arquetipo_selector)
                             
                             if seleccion:
                                 data = info_inspeccion[seleccion]
@@ -1896,7 +1895,7 @@ with tab_evidencia:
                                     st.markdown("""
                                     <div style='padding: 12px; background-color: rgba(255, 215, 0, 0.1); border-left: 4px solid #FFD700; border-radius: 4px; margin-bottom:15px;'>
                                         <h5 style='margin-top:0; color:#FFD700; font-size:14px;'>🎯 Micro-Cluster Anchor</h5>
-                                        <p style='font-size:12px; margin-bottom:0;'>This patient represents the mathematical center of gravity for the current neighborhood.</p>
+                                        <p style='font-size:12px; margin-bottom:0;'>This historical admission represents the mathematical center of gravity for the current neighborhood.</p>
                                     </div>
                                     """, unsafe_allow_html=True)
                                 
@@ -1930,7 +1929,7 @@ with tab_evidencia:
                                 texto_evo = "" if raw_evo.upper().strip() in invalid_markers else raw_evo
                                 
                                 if not texto_ing and not texto_evo:
-                                    st.info("ℹ️ No narrative clinical notes available for this patient.")
+                                    st.info("ℹ️ No narrative clinical notes available for this admission.")
                                 else:
                                     texto_completo = ""
                                     if texto_ing: texto_completo += f"**Admission:**\n{texto_ing}\n\n"
@@ -2006,8 +2005,8 @@ with tab_umap:
             pluri_global = matriz_extended[:, col_idx.get('pluripatologico', -1)]
             
             # ROBUSTEZ: Métricas globales base
-            total_pacientes = len(y_hist_global)
-            tasa_reingreso_base = (sum(y_hist_global) / total_pacientes) * 100 if total_pacientes > 0 else 0.0
+            total_internaciones = len(y_hist_global)
+            tasa_reingreso_base = (sum(y_hist_global) / total_internaciones) * 100 if total_internaciones > 0 else 0.0
             
             hover_texts_global = []
             for i in range(len(y_hist_global)):
@@ -2085,20 +2084,20 @@ with tab_umap:
                     distancias_rescue, indices_rescue = knn.kneighbors(X_paciente_proc)
                     vecinos_idx_pool = indices_rescue[0]
                 
-                # Proyección Estrella del Paciente Actual
+                # Proyección Estrella de la Internación Actual
                 paciente_umap_coords = np.mean(umap_embeddings[vecinos_idx_pool[:3]], axis=0, keepdims=True)
                 diag_paciente = format_clinical_value('CIE10_MACRO', df_paciente['CIE10_MACRO'].iloc[0] if 'CIE10_MACRO' in df_paciente.columns else 'N/A')
                 edad_paciente = format_clinical_value('rango_edad', df_paciente['rango_edad'].iloc[0] if 'rango_edad' in df_paciente.columns else 'N/A')
                 dias_paciente = safe_int(df_paciente['dias_internados'].iloc[0] if 'dias_internados' in df_paciente.columns else 0)
                 
-                paciente_hover = (f"<b>CURRENT PATIENT</b><br>"
+                paciente_hover = (f"<b>CURRENT ADMISSION</b><br>"
                                   f"<b>Diagnosis:</b> {diag_paciente}<br>"
                                   f"<b>Age:</b> {edad_paciente}<br>"
                                   f"<b>Stay:</b> {dias_paciente} days")
     
                 fig_umap.add_trace(go.Scatter(
                     x=[paciente_umap_coords[0, 0]], y=[paciente_umap_coords[0, 1]],
-                    mode='markers', name='Current Patient',
+                    mode='markers', name='Current Admission',
                     text=[paciente_hover], hoverinfo='text',
                     marker=dict(color='#87CEEB', size=20, symbol='star', line=dict(color='black', width=2.5))
                 ))
@@ -2119,7 +2118,7 @@ with tab_umap:
                     f"""
                     <div style='padding:10px; background-color:rgba(128,128,128,0.1); border-radius:5px; margin-bottom:15px;'>
                         <p style='margin:0; font-size:12px; color:gray;'>CENSUS PROJECTION</p>
-                        <h4 style='margin:0;'>N = {total_pacientes:,} patients</h4>
+                        <h4 style='margin:0;'>N = {total_internaciones:,} historical admissions</h4>
                         <p style='margin:0; font-size:14px;'>Hospital Base Readmission Rate: <b>{tasa_reingreso_base:.1f}%</b></p>
                     </div>
                     """, unsafe_allow_html=True
@@ -2127,11 +2126,11 @@ with tab_umap:
 
                 if modo_color == "Readmitted vs Safe Discharge":
                     total_readmits = sum(y_hist_global)
-                    total_safes = total_pacientes - total_readmits
+                    total_safes = total_internaciones - total_readmits
                     
                     st.markdown("#### 🔴 Topography of Failure")
-                    st.markdown(f"- **Total Readmissions:** {int(total_readmits):,} patients.")
-                    st.markdown(f"- **Total Safe Discharges:** {int(total_safes):,} patients.")
+                    st.markdown(f"- **Total Readmissions:** {int(total_readmits):,} admissions.")
+                    st.markdown(f"- **Total Safe Discharges:** {int(total_safes):,} admissions.")
                     st.markdown("---")
                     st.markdown("**Clinical Reading:**\nRather than perfect isolation, the UMAP reveals specific **Risk Density Zones**. Areas where diamonds (readmissions) and circles (safes) heavily overlap represent *Clinical Uncertainty Borders*. In these coordinates, human judgment struggles, making the AI's counterfactual mitigation crucial.")
 
@@ -2152,7 +2151,7 @@ with tab_umap:
                     mask_multi_yes = np.array([str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'] for x in pluri_global])
                     mask_multi_no = ~mask_multi_yes
                     
-                    pct_pluri_global = (sum(mask_multi_yes) / total_pacientes) * 100 if total_pacientes > 0 else 0
+                    pct_pluri_global = (sum(mask_multi_yes) / total_internaciones) * 100 if total_internaciones > 0 else 0
                     
                     tasa_multi_yes = (sum(y_hist_global[mask_multi_yes]) / sum(mask_multi_yes)) * 100 if sum(mask_multi_yes) > 0 else 0.0
                     tasa_multi_no = (sum(y_hist_global[mask_multi_no]) / sum(mask_multi_no)) * 100 if sum(mask_multi_no) > 0 else 0.0
@@ -2162,16 +2161,15 @@ with tab_umap:
                     st.markdown(f"- **Hospital Prevalence:** {pct_pluri_global:.1f}%")
                     st.markdown(f"- **Relative Risk Multiplier:** **{riesgo_relativo:.1f}x**")
                     st.markdown("---")
-                    st.markdown(f"**Clinical Reading:**\nMultimorbidity acts as a structural gravity well. Patients with multimorbidity have a base readmission rate of **{tasa_multi_yes:.1f}%** compared to just **{tasa_multi_no:.1f}%** for non-multimorbid patients. Notice how their orange spatial distribution almost perfectly overlaps with the hospital's historical red zones.")
+                    st.markdown(f"**Clinical Reading:**\nMultimorbidity acts as a structural gravity well. Admissions involving multimorbidity have a base readmission rate of **{tasa_multi_yes:.1f}%** compared to just **{tasa_multi_no:.1f}%** for non-multimorbid cases. Notice how their orange spatial distribution almost perfectly overlaps with the hospital's historical red zones.")
 
                 # ROBUSTEZ 3: Fallback seguro para la inferencia de riesgo local
                 st.markdown("---")
-                st.markdown("#### ⭐ Current Patient Zone")
+                st.markdown("#### ⭐ Current Admission Zone")
                 
                 if 'cohort_outcomes' in locals() and cohort_outcomes:
                     tasa_reingreso_local = (sum(cohort_outcomes) / len(cohort_outcomes)) * 100
                 else:
-                    # Si no hay memoria de la cohorte local, extraemos la tasa de los 20 vecinos más cercanos directamente
                     if 'vecinos_idx_pool' in locals():
                         vecinos_cercanos = vecinos_idx_pool[:20]
                         outcomes_locales = y_hist_global[vecinos_cercanos]
@@ -2183,7 +2181,7 @@ with tab_umap:
                 color_zona = "red" if tasa_reingreso_local > tasa_reingreso_base else "green"
                 
                 st.markdown(
-                    f"Your patient landed in a **<span style='color:{color_zona}'>{estado_zona}</span>**.<br>"
+                    f"This admission landed in a **<span style='color:{color_zona}'>{estado_zona}</span>**.<br>"
                     f"The immediate topological neighborhood surrounding the star has a historical failure rate of **{tasa_reingreso_local:.1f}%**.", 
                     unsafe_allow_html=True
                 )
