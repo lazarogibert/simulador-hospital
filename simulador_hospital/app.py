@@ -583,10 +583,11 @@ for col in variables_categoricas_train:
 # ---------------------------------------------------------------
 
 df_paciente = pd.DataFrame([paciente_data])[columnas_modelo]
-tab_diagnostico, tab_estrategia, tab_evidencia = st.tabs([
+tab_diagnostico, tab_estrategia, tab_evidencia, tab_umap = st.tabs([
     "📊 1. Current Risk & Audit", 
     "🧭 2. Stabilization & Simulation", 
-    "🧬 3. Historical Evidence"
+    "🧬 3. Cohort & Inspector (KNN)",
+    "🌌 4. Global Universe (UMAP)"
 ])
 
 with tab_diagnostico:
@@ -1522,14 +1523,13 @@ with tab_estrategia:
 
 
 
-
 # ==========================================
-# 8. DYNAMIC CLINICAL COHORT EXPLORER (KNN + AGGREGATES)
+# 8. DYNAMIC CLINICAL COHORT EXPLORER (KNN)
 # ==========================================
 with tab_evidencia:
-    st.markdown("#### Clinical Similarity Network & Cohort Profile")
+    st.markdown("#### Clinical Similarity Network & Cohort Audit")
     
-    # Helper format function required for Cohort Profile
+    # --- HELPER FUNCTIONS ---
     def format_clinical_value(key_es, value):
         val_str = str(value).strip().upper()
         if key_es == 'rango_edad':
@@ -1551,7 +1551,7 @@ with tab_evidencia:
                 "Cáncer de vías urinarias": "Urinary tract cancer", "Cáncer de sistema nervioso central": "Central nervous system cancer", 
                 "Cáncer linfoide / hematopoyético": "Lymphoid / hematopoietic cancer", "Otros tumores malignos": "Other malignant tumors", 
                 "Tumores in situ o benignos": "In situ or benign tumors", "Anemias nutricionales": "Nutritional anemias", 
-                "Anemias hemolíticas": "Hemolytic anemias", "Aplasias y cross": "Aplasias and other anemias", 
+                "Anemias hemolíticas": "Hemolytic anemias", "Aplasias y otras anemias": "Aplasias and other anemias", 
                 "Defectos de coagulación / púrpura": "Coagulation defects / purpura", "Trastornos de inmunodeficiencia": "Immunodeficiency disorders", 
                 "Otros trastornos de la sangre": "Other blood disorders",
                 "Tiroides": "Thyroid", "Diabetes": "Diabetes", "Glucosa / hipoglucemia": "Glucose / hypoglycemia", 
@@ -1605,13 +1605,71 @@ with tab_evidencia:
             return traducciones_cie.get(val_str, value)
         return value
 
-    # ROBUSTNESS FIX: Added safe_int to prevent UI crashes on NaNs
     def safe_int(value, default="N/A"):
         try:
             if pd.isna(value) or value == "": return default
             return int(float(value))
         except (ValueError, TypeError):
             return default
+
+    def traducir_ninguno(texto):
+        texto_str = str(texto).strip()
+        if texto_str.upper() == 'NINGUNO': return 'None'
+        elif texto_str == '': return 'Unknown'
+        return texto_str
+
+    def renderizar_notas_gemelo(texto_evolucion, citas_llm, lista_enfermedades):
+        if not isinstance(texto_evolucion, str) or not texto_evolucion:
+            return "No narrative context available."
+            
+        texto_resaltado = texto_evolucion
+        if isinstance(citas_llm, dict):
+            for cita, variable in citas_llm.items():
+                if isinstance(cita, str) and cita.strip():
+                    cita_escapada = re.escape(cita)
+                    marcador = f"<mark style='background-color: #FFF2CC; color: #000000; border-radius: 3px; padding: 2px 4px;'><b>{cita}</b> <span style='font-size: 0.7em; background-color: #FFD966; padding: 2px 5px; border-radius: 8px; color: #594000; margin-left: 4px; display: inline-block; vertical-align: middle; line-height: 1;'>{variable}</span></mark>"
+                    texto_resaltado = re.sub(cita_escapada, marcador, texto_resaltado, flags=re.IGNORECASE)
+                    
+        if isinstance(lista_enfermedades, list):
+            for enfermedad in lista_enfermedades:
+                if isinstance(enfermedad, str) and enfermedad.strip():
+                    patron = rf"\b({re.escape(enfermedad)})\b"
+                    marcador = r"<mark style='background-color: #FFCCCC; color: #000000; border-radius: 3px; padding: 0px 2px;'>\1</mark>"
+                    texto_resaltado = re.sub(patron, marcador, texto_resaltado, flags=re.IGNORECASE)
+                    
+        return f"""
+        <div style='line-height: 1.8; font-size: 14px; padding: 15px; background-color: var(--secondary-background-color, rgba(128, 128, 128, 0.1)); color: var(--text-color, inherit); border-radius: 8px; border: 1px solid rgba(128, 128, 128, 0.2);'>
+            {texto_resaltado}
+        </div>
+        """
+
+    TRANSLATION_DICT = {
+        'dias_internados': 'Length of Stay (Days)', 'rango_edad': 'Age Range', 'pluripatologico': 'Multimorbidity',
+        'CIE10_MACRO': 'Primary Diagnosis (ICD-10)', 'LLM_tabaquismo_activo': 'Active Smoking', 'LLM_alcoholismo': 'Alcoholism',
+        'LLM_drogas_ilicitas': 'Illicit Drug Use', 'LLM_fragilidad_geriatrica': 'Geriatric Frailty',
+        'LLM_polifarmacia': 'Polypharmacy', 'LLM_desnutricion_severa': 'Severe Malnutrition', 'LLM_oxigenodependiente': 'Oxygen Dependent',
+        'LLM_historial_caidas': 'History of Falls', 'LLM_abandono_medicacion': 'Medication Abandonment',
+        'LLM_AF_diabetes': 'FHx: Diabetes', 'LLM_AF_hipertension': 'FHx: Hypertension', 'LLM_AF_cardiovascular_otro': 'FHx: Other Cardiovascular',
+        'LLM_AF_oncologico': 'FHx: Oncology', 'LLM_AF_metabolico_otro': 'FHx: Other Metabolic', 'LLM_AF_neurologico': 'FHx: Neurology',
+        'LLM_AF_psiquiatrico': 'FHx: Psychiatry', 'LLM_AF_respiratorio': 'FHx: Respiratory', 'LLM_AF_renal': 'FHx: Renal',
+        'LLM_AF_autoinmune': 'FHx: Autoimmune', 'ING_dolor_eva': 'Admission: Pain (VAS)', 'ING_gravedad_percibida': 'Admission: Perceived Severity',
+        'ING_alteracion_mental': 'Admission: Mental Alteration', 'ING_dependencia_funcional': 'Admission: Functional Dependency',
+        'ING_portador_dispositivos': 'Admission: Device Bearer', 'ING_consultas_reiteradas': 'Admission: Repeated Consultations',
+        'ING_riesgo_hemorragico': 'Admission: Hemorrhagic Risk', 'ING_infeccion_activa': 'Admission: Active Infection',
+        'EVO_dolor_eva': 'Evolution: Pain (VAS)', 'EVO_gravedad_percibida': 'Evolution: Perceived Severity', 
+        'EVO_alteracion_mental': 'Evolution: Mental Alteration', 'EVO_dependencia_funcional': 'Evolution: Functional Dependency', 
+        'EVO_portador_dispositivos': 'Evolution: Device Bearer', 'EVO_complicacion_internacion': 'Evolution: Hospital Complication', 
+        'EVO_fuga_o_alta_irregular': 'Evolution: Irregular Discharge / Escape', 'EVO_cuidados_paliativos': 'Evolution: Palliative Care', 
+        'EVO_ulceras_presion': 'Evolution: Pressure Ulcers', 'EVO_aislamiento_infeccioso': 'Evolution: Infectious Isolation', 
+        'EVO_cambio_terapeutico_mayor': 'Evolution: Major Therapeutic Change', 'EVO_intervencion_quirurgica': 'Evolution: Surgical Intervention', 
+        'EVO_soporte_transfusional': 'Evolution: Transfusion Support', 'DELTA_dolor_eva': 'Δ Pain (VAS)',
+        'DELTA_gravedad_percibida': 'Δ Perceived Severity', 'DELTA_alteracion_mental': 'Δ Mental Alteration',
+        'DELTA_dependencia_funcional': 'Δ Functional Dependency', 'DELTA_portador_dispositivos': 'Δ Device Bearer',
+        'sexo': 'Sex', 'Area': 'Admission Area', 'IN_COMPLEJIDAD': 'Complexity Level', 
+        'cantidad_interconsultas': 'Interconsultations', 'visitas_guardia_6meses_previos': 'ER Visits (6m)',
+        'EST_ingreso_ambulancia': 'Ambulance Arrival', 'IN_ORDENIN': 'Scheduled Admission', 
+        'HIST_condicion_ultimo_egreso': 'Previous Discharge Condition'
+    }
 
     @st.cache_resource
     def load_similarity_assets():
@@ -1627,7 +1685,6 @@ with tab_evidencia:
         matriz_ext = np.load(ruta_ext, allow_pickle=True)
         nombres_columnas = np.load(ruta_cols, allow_pickle=True)
         
-        # EXTENDED POOL: We fit up to 150 neighbors to allow deep slider filtering
         knn_engine = NearestNeighbors(n_neighbors=150, metric='cosine')
         knn_engine.fit(X_train_proc)
         
@@ -1639,7 +1696,7 @@ with tab_evidencia:
     plt.close('all') 
     
     try:
-        with st.spinner("Calculating topological metrics and embedding projections..."):
+        with st.spinner("Calculating topological metrics..."):
             knn, matriz_extended, nombres_columnas, X_train_proc, umap_embeddings = load_similarity_assets()
             
             prep = pipeline.named_steps['preprocesador']
@@ -1649,25 +1706,23 @@ with tab_evidencia:
             vecinos_idx_pool = indices[0]
             similitudes_brutas_pool = np.maximum(0, (1 - distancias[0])) * 100
             
-            # --- 1. THE DYNAMIC THRESHOLD CONTROLLER ---
             col_slider, col_empty = st.columns([2, 1])
             with col_slider:
                 st.info("Adjust the similarity threshold to expand or restrict the clinical neighborhood.")
                 umbral_similitud = st.slider(
                     "Minimum Similarity Threshold (%)", 
                     min_value=50, max_value=99, value=75, step=1,
-                    help="Higher values restrict the network to nearly identical patients. Lower values reveal broader trends."
+                    help="Higher values restrict the network to nearly identical patients."
                 )
             
             st.markdown("---")
             
-            # Filter the pool based on the slider
             mask_umbral = similitudes_brutas_pool >= umbral_similitud
             vecinos_idx = vecinos_idx_pool[mask_umbral]
             similitudes_brutas = similitudes_brutas_pool[mask_umbral]
             
             if len(vecinos_idx) == 0:
-                st.warning(f"No historical patients found with a similarity match equal to or greater than {umbral_similitud}%. Please lower the threshold to expand the search radius.")
+                st.warning(f"No historical patients found with a similarity match equal to or greater than {umbral_similitud}%. Please lower the threshold.")
             else:
                 col_idx = {col: i for i, col in enumerate(nombres_columnas)}
                 
@@ -1677,7 +1732,6 @@ with tab_evidencia:
                 COLOR_ARCHETYPE = '#FFD700' 
                 SIZE_NEW_PATIENT = 2500 
                 
-                # ROBUSTNESS: Ensure max_sim and min_sim are valid even if only 1 patient is filtered
                 min_sim = min(similitudes_brutas) if len(similitudes_brutas) > 1 else similitudes_brutas[0]
                 max_sim = max(similitudes_brutas) if len(similitudes_brutas) > 1 else similitudes_brutas[0]
                 rango_sim = max_sim - min_sim if max_sim != min_sim else 1.0 
@@ -1689,20 +1743,19 @@ with tab_evidencia:
                 nodos_gemelos = []
                 info_inspeccion = {}
                 
-                cohort_outcomes = []
-                cohort_ages = []
-                cohort_sex = []
-                cohort_diagnoses = []
-                cohort_multimorbidity = []
+                cohort_outcomes, cohort_ages, cohort_sex, cohort_diagnoses, cohort_multimorbidity = [], [], [], [], []
                 
-                # --- 2. BUILD THE GRAPH AND EXTRACT DATA ---
                 for i, (idx, similitud_pct) in enumerate(zip(vecinos_idx, similitudes_brutas)):
                     reingreso_real = float(matriz_extended[idx, col_idx['target']])
                     cohort_outcomes.append(reingreso_real)
                     
                     color_nodo = COLOR_HIST_READMIT if reingreso_real == 1.0 else COLOR_HIST_SAFE
-                    # ROBUSTNESS: Unique identifier per node to avoid overlaps
-                    label_grafo = f"Pt. {i+1}\n({similitud_pct:.1f}%)"
+                    raw_ing = str(matriz_extended[idx, col_idx.get('texto_anamnesis_ingreso', -1)] if 'texto_anamnesis_ingreso' in col_idx else "")
+                    raw_evo = str(matriz_extended[idx, col_idx.get('texto_evolucion_internacion', -1)] if 'texto_evolucion_internacion' in col_idx else "")
+                    tiene_texto = (raw_ing.upper().strip() not in ["N/A", "MISSING_DATA", "NONE", "NAN", ""]) or (raw_evo.upper().strip() not in ["N/A", "MISSING_DATA", "NONE", "NAN", ""])
+                    icono_texto = " [TXT]" if tiene_texto else ""
+                    
+                    label_grafo = f"Pt. {i+1}{icono_texto}\n({similitud_pct:.1f}%)"
                     nodos_gemelos.append(label_grafo)
                     
                     norm_sim = (similitud_pct - min_sim) / rango_sim
@@ -1716,24 +1769,34 @@ with tab_evidencia:
                     cohort_diagnoses.append(matriz_extended[idx, col_idx.get('CIE10_MACRO', -1)])
                     cohort_multimorbidity.append(matriz_extended[idx, col_idx.get('pluripatologico', -1)])
                     
-                    info_inspeccion[label_grafo] = {
+                    datos_gemelo = {
                         "similitud": similitud_pct,
+                        "idx_matriz": idx,
                         "outcome_text": "Readmitted" if reingreso_real == 1.0 else "Safe Discharge",
-                        "diagsec": matriz_extended[idx, col_idx.get('DIAGNOSTICOS_SEC_ACTIVOS', -1)] if 'DIAGNOSTICOS_SEC_ACTIVOS' in col_idx else "N/A"
+                        "farmacos": matriz_extended[idx, col_idx.get('FARMACOS_TEXTO', -1)] if 'FARMACOS_TEXTO' in col_idx else "N/A",
+                        "diagsec": matriz_extended[idx, col_idx.get('DIAGNOSTICOS_SEC_ACTIVOS', -1)] if 'DIAGNOSTICOS_SEC_ACTIVOS' in col_idx else "N/A",
+                        "datos_comunes": {}
                     }
+                    
+                    prefijos_nlp = ('LLM_', 'ING_', 'EVO_', 'DELTA_', 'rango_', 'pluripatologico', 'dias_', 'CIE10_MACRO', 'sexo', 'IN_COMPLEJIDAD', 'cantidad_interconsultas', 'visitas_', 'EST_', 'IN_ORDENIN', 'Area', 'HIST_condicion_ultimo_egreso')
+                    columnas_comunes_dinamicas = [col for col in nombres_columnas if str(col).startswith(prefijos_nlp)]
+                    
+                    for col_comun in columnas_comunes_dinamicas:
+                        datos_gemelo["datos_comunes"][col_comun] = matriz_extended[idx, col_idx[col_comun]]
+                        
+                    info_inspeccion[label_grafo] = datos_gemelo
         
                 if len(vecinos_idx) > 1:
                     X_gemelos = X_train_proc[vecinos_idx]
                     dist_gemelos = pairwise_distances(X_gemelos, metric='cosine')
                     umbral_conexion = np.percentile(dist_gemelos, 30) 
-                    
                     for i in range(len(vecinos_idx)):
                         for j in range(i + 1, len(vecinos_idx)):
                             if dist_gemelos[i, j] < umbral_conexion:
                                 peso_interno = max(0.1, 1 - dist_gemelos[i, j])
                                 G.add_edge(nodos_gemelos[i], nodos_gemelos[j], weight=peso_interno * 2)
                 
-                # ROBUSTNESS: Dynamic recalculation of harmonic centrality
+                arquetipo_label = None
                 centrality = nx.harmonic_centrality(G)
                 centrality.pop(nodo_paciente, None) 
                 if centrality:
@@ -1751,192 +1814,286 @@ with tab_evidencia:
                 line_widths = [data.get('line_width', 1) for node, data in G.nodes(data=True)]
                 
                 nx.draw_networkx_edges(G, pos, ax=ax, alpha=0.3, edge_color='#A0A0A0')
-                nx.draw_networkx_nodes(G, pos, ax=ax, node_color=node_colors, node_size=node_sizes, 
-                                       edgecolors=edge_colors, linewidths=line_widths, alpha=0.95)
+                nx.draw_networkx_nodes(G, pos, ax=ax, node_color=node_colors, node_size=node_sizes, edgecolors=edge_colors, linewidths=line_widths, alpha=0.95)
                 nx.draw_networkx_labels(G, pos, ax=ax, font_size=8, font_weight='bold', font_color='black')
                 ax.axis('off')
                 
-                # --- 3. UI LAYOUT: TABS (LEFT) vs COHORT DASHBOARD (RIGHT) ---
-                col_grafo, col_panel = st.columns([1.5, 1])
+                # --- UI LAYOUT: GRAPH vs (PROFILE / INSPECTOR TABS) ---
+                col_grafo, col_panel = st.columns([1.5, 1.2])
                 
                 with col_grafo:
-                    # RESTAURACIÓN UX: Sub-tabs para evitar el scroll vertical
-                    sub_tab_knn, sub_tab_umap = st.tabs(["🧬 Micro-Neighborhood (K-NN)", "🌌 Global Universe (UMAP)"])
-                    
-                    with sub_tab_knn:
-                        st.pyplot(fig)
-                        plt.close(fig)
-                        with st.expander("🗺️ Topology Legend", expanded=False):
-                            st.markdown("""
-                            - 🫧 **Node Size:** Proportional to the match percentage.
-                            - 🎨 **Node Colors:** 🟢 **Safe Discharge** | 🔴 **Readmitted** | 🔵 **Current Patient**
-                            - 🌟 **Gold Border:** The **Archetypal Patient** (Local cluster anchor).
-                            """)
-                            
-                    with sub_tab_umap:
-                        modo_color = st.radio(
-                            "🎨 Select UMAP Coloring Mode:",
-                            ["Readmitted vs Safe Discharge", "Age Distribution", "Multimorbidity"],
-                            horizontal=True
-                        )
-                        
-                        fig_umap = go.Figure()
-                        
-                        # --- CONFIGURACIÓN VISUAL MAESTRA ---
-                        borde_marcador = dict(width=0.6, color='rgba(255,255,255,0.6)')
-                        leyenda_formas = "(⚪ Safe | 🔶 Readmit)" 
-                        
-                        y_hist_global = matriz_extended[:, col_idx['target']].astype(float)
-                        mask_safe_global = (y_hist_global == 0)
-                        mask_readmit_global = (y_hist_global == 1)
-                        
-                        # Tooltips Globales
-                        edades_global = matriz_extended[:, col_idx.get('rango_edad', -1)]
-                        diag_global = matriz_extended[:, col_idx.get('CIE10_MACRO', -1)]
-                        dias_global = matriz_extended[:, col_idx.get('dias_internados', -1)]
-                        
-                        hover_texts_global = []
-                        for i in range(len(y_hist_global)):
-                            outcome_str = "Readmitted" if y_hist_global[i] == 1 else "Safe Discharge"
-                            diag_val = format_clinical_value('CIE10_MACRO', diag_global[i])
-                            edad_val = format_clinical_value('rango_edad', edades_global[i])
-                            dias_val = safe_int(dias_global[i])
-                            hover_texts_global.append(
-                                f"<b>Outcome:</b> {outcome_str}<br>"
-                                f"<b>Diagnosis:</b> {diag_val}<br>"
-                                f"<b>Age:</b> {edad_val}<br>"
-                                f"<b>Stay:</b> {dias_val} days"
-                            )
-                        hover_texts_global = np.array(hover_texts_global)
-    
-                        # --- RESTAURACIÓN DE LA FUNCIÓN MULTIDIMENSIONAL ---
-                        def agregar_capa_umap(fig, mascara_filtro, color_hex, nombre_grupo, es_activo=True):
-                            grupo_legend_id = str(nombre_grupo).replace(" ", "_").lower()
-                            
-                            # 1. Dummy Trace (Botón visible en la leyenda para agrupar)
-                            fig.add_trace(go.Scatter(
-                                x=[None], y=[None], mode='markers',
-                                name=f"{nombre_grupo} {leyenda_formas}", legendgroup=grupo_legend_id,
-                                marker=dict(color=color_hex, size=10, symbol='square') 
-                            ))
-                            
-                            # 2. Datos Seguros (Círculos difuminados, ocultos en leyenda, unidos al grupo)
-                            fig.add_trace(go.Scatter(
-                                x=umap_embeddings[mascara_filtro & mask_safe_global, 0], 
-                                y=umap_embeddings[mascara_filtro & mask_safe_global, 1],
-                                mode='markers', legendgroup=grupo_legend_id, showlegend=False, 
-                                text=hover_texts_global[mascara_filtro & mask_safe_global], hoverinfo='text',
-                                marker=dict(color=color_hex, size=5 if es_activo else 4, opacity=0.5 if es_activo else 0.3, symbol='circle', line=borde_marcador)
-                            ))
-                            
-                            # 3. Datos Reingreso (Diamantes sólidos, arriba de todo, unidos al grupo)
-                            fig.add_trace(go.Scatter(
-                                x=umap_embeddings[mascara_filtro & mask_readmit_global, 0], 
-                                y=umap_embeddings[mascara_filtro & mask_readmit_global, 1],
-                                mode='markers', legendgroup=grupo_legend_id, showlegend=False, 
-                                text=hover_texts_global[mascara_filtro & mask_readmit_global], hoverinfo='text',
-                                marker=dict(color=color_hex, size=8 if es_activo else 6, opacity=0.9 if es_activo else 0.5, symbol='diamond', line=dict(color='white', width=0.8) if es_activo else borde_marcador)
-                            ))
-                        # ----------------------------------------------------
-                        
-                        if modo_color == "Readmitted vs Safe Discharge":
-                            fig_umap.add_trace(go.Scatter(
-                                x=umap_embeddings[mask_safe_global, 0], y=umap_embeddings[mask_safe_global, 1],
-                                mode='markers', name='Safe Discharge',
-                                text=hover_texts_global[mask_safe_global], hoverinfo='text',
-                                marker=dict(color='#00C851', size=5, opacity=0.5, symbol='circle', line=borde_marcador)
-                            ))
-                            fig_umap.add_trace(go.Scatter(
-                                x=umap_embeddings[mask_readmit_global, 0], y=umap_embeddings[mask_readmit_global, 1],
-                                mode='markers', name='Readmitted',
-                                text=hover_texts_global[mask_readmit_global], hoverinfo='text',
-                                marker=dict(color='#FF4444', size=8, opacity=0.9, symbol='diamond', line=dict(color='white', width=0.8))
-                            ))
-                        
-                        elif modo_color == "Age Distribution":
-                            edades_trad_global = np.array([format_clinical_value('rango_edad', e) for e in edades_global])
-                            unique_ages = sorted(list(set(edades_trad_global)))
-                            color_palette = ['#636EFA', '#EF553B', '#00CC96', '#AB63FA', '#FFA15A', '#19D3F3']
-                            
-                            for idx_color, age_group in enumerate(unique_ages):
-                                mask_age = edades_trad_global == age_group
-                                color_asignado = color_palette[idx_color % len(color_palette)]
-                                agregar_capa_umap(fig_umap, mask_age, color_asignado, age_group, es_activo=True)
-                                
-                        elif modo_color == "Multimorbidity":
-                            pluri_global = matriz_extended[:, col_idx.get('pluripatologico', -1)]
-                            mask_yes = np.array([str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'] for x in pluri_global])
-                            mask_no = ~mask_yes
-                            
-                            agregar_capa_umap(fig_umap, mask_no, '#AAB7B8', 'No Multimorbidity', es_activo=True)
-                            agregar_capa_umap(fig_umap, mask_yes, '#D2691E', 'Multimorbidity Present', es_activo=True)
-                        
-                        # Proyección Estrella del Paciente Actual
-                        paciente_umap_coords = np.mean(umap_embeddings[vecinos_idx_pool[:3]], axis=0, keepdims=True)
-                        diag_paciente = format_clinical_value('CIE10_MACRO', df_paciente['CIE10_MACRO'].iloc[0] if 'CIE10_MACRO' in df_paciente.columns else 'N/A')
-                        edad_paciente = format_clinical_value('rango_edad', df_paciente['rango_edad'].iloc[0] if 'rango_edad' in df_paciente.columns else 'N/A')
-                        dias_paciente = safe_int(df_paciente['dias_internados'].iloc[0] if 'dias_internados' in df_paciente.columns else 0)
-                        
-                        paciente_hover = (f"<b>CURRENT PATIENT</b><br>"
-                                          f"<b>Diagnosis:</b> {diag_paciente}<br>"
-                                          f"<b>Age:</b> {edad_paciente}<br>"
-                                          f"<b>Stay:</b> {dias_paciente} days")
-    
-                        fig_umap.add_trace(go.Scatter(
-                            x=[paciente_umap_coords[0, 0]], y=[paciente_umap_coords[0, 1]],
-                            mode='markers', name='Current Patient',
-                            text=[paciente_hover], hoverinfo='text',
-                            marker=dict(color='#87CEEB', size=18, symbol='star', line=dict(color='black', width=2))
-                        ))
-                        
-                        fig_umap.update_layout(
-                            plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
-                            xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                            yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                            margin=dict(l=10, r=10, t=30, b=10), height=450,
-                            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5)
-                        )
-                        st.plotly_chart(fig_umap, use_container_width=True)
+                    st.pyplot(fig)
+                    plt.close(fig)
+                    with st.expander("🗺️ Topology Legend", expanded=False):
+                        st.markdown("""
+                        - 🫧 **Node Size:** Proportional to the match percentage.
+                        - 🎨 **Node Colors:** 🟢 **Safe Discharge** | 🔴 **Readmitted** | 🔵 **Current Patient**
+                        - 🌟 **Gold Border:** The **Archetypal Patient** (Local cluster anchor).
+                        """)
                 
                 with col_panel:
-                    st.markdown(f"### Similar Patients Found (n={len(vecinos_idx)})")
-                    st.caption("Aggregated statistics for the current neighborhood")
+                    # IMPLEMENTACIÓN CERO SCROLL: Sub-Tabs para el panel derecho
+                    sub_tab_global, sub_tab_inspector = st.tabs(["🧬 Cohort Profile", "🔍 Case Inspector"])
                     
-                    # ROBUSTEZ: Prevención de división por cero si no hay datos procesados en listas
-                    tasa_reingreso = (sum(cohort_outcomes) / len(cohort_outcomes)) * 100 if cohort_outcomes else 0.0
-                    st.metric("Historical Readmission Rate", f"{tasa_reingreso:.1f}%")
-                    st.progress(tasa_reingreso / 100)
-                    
-                    hombres = sum(1 for s in cohort_sex if str(s).strip().upper() == 'MASCULINO')
-                    pct_hombres = (hombres / len(cohort_sex)) * 100 if cohort_sex else 0.0
-                    pct_mujeres = 100 - pct_hombres if cohort_sex else 0.0
-                    
-                    st.markdown("---")
-                    st.markdown(f"**Demographics:**\n- **Gender:** {pct_hombres:.0f}% Male / {pct_mujeres:.0f}% Female")
-                    
-                    st.markdown("**Age Distribution:**")
-                    if cohort_ages:
-                        edades_traducidas = [format_clinical_value('rango_edad', e) for e in cohort_ages]
-                        distribucion_edades = pd.Series(edades_traducidas).value_counts(normalize=True) * 100
+                    with sub_tab_global:
+                        st.markdown(f"### 👥 Similar Patients Found (n={len(vecinos_idx)})")
+                        tasa_reingreso = (sum(cohort_outcomes) / len(cohort_outcomes)) * 100 if cohort_outcomes else 0.0
+                        st.metric("Historical Readmission Rate", f"{tasa_reingreso:.1f}%")
+                        st.progress(tasa_reingreso / 100)
                         
-                        for edad, pct in distribucion_edades.head(3).items():
-                            st.markdown(f"- {edad}: {pct:.1f}%")
-                    else:
-                        st.markdown("- Unknown")
-                    
-                    pluri_count = sum(1 for p in cohort_multimorbidity if str(p).strip().upper() in ['1', '1.0', 'TRUE'])
-                    pct_pluri = (pluri_count / len(cohort_multimorbidity)) * 100 if cohort_multimorbidity else 0.0
-                    st.markdown(f"**Multimorbidity Present:** {pct_pluri:.0f}%")
-                    
-                    st.markdown("---")
-                    st.markdown("**Top 3 Primary Diagnoses:**")
-                    diagnosticos_traducidos = [format_clinical_value('CIE10_MACRO', d) for d in cohort_diagnoses]
-                    top_diags = pd.Series(diagnosticos_traducidos).value_counts().head(3)
-                    
-                    for diag, count in top_diags.items():
-                        pct_diag = (count / len(cohort_diagnoses)) * 100
-                        st.markdown(f"- {diag} ({pct_diag:.1f}%)")
+                        hombres = sum(1 for s in cohort_sex if str(s).strip().upper() == 'MASCULINO')
+                        pct_hombres = (hombres / len(cohort_sex)) * 100 if cohort_sex else 0.0
+                        pct_mujeres = 100 - pct_hombres if cohort_sex else 0.0
+                        
+                        st.markdown("---")
+                        st.markdown(f"**Demographics:**\n- **Gender:** {pct_hombres:.0f}% Male / {pct_mujeres:.0f}% Female")
+                        
+                        st.markdown("**Age Distribution:**")
+                        if cohort_ages:
+                            edades_traducidas = [format_clinical_value('rango_edad', e) for e in cohort_ages]
+                            distribucion_edades = pd.Series(edades_traducidas).value_counts(normalize=True) * 100
+                            for edad, pct in distribucion_edades.head(3).items():
+                                st.markdown(f"- {edad}: {pct:.1f}%")
+                        else:
+                            st.markdown("- Unknown")
+                        
+                        pluri_count = sum(1 for p in cohort_multimorbidity if str(p).strip().upper() in ['1', '1.0', 'TRUE'])
+                        pct_pluri = (pluri_count / len(cohort_multimorbidity)) * 100 if cohort_multimorbidity else 0.0
+                        st.markdown(f"**Multimorbidity Present:** {pct_pluri:.0f}%")
+                        
+                        st.markdown("---")
+                        st.markdown("**Top 3 Primary Diagnoses:**")
+                        diagnosticos_traducidos = [format_clinical_value('CIE10_MACRO', d) for d in cohort_diagnoses]
+                        top_diags = pd.Series(diagnosticos_traducidos).value_counts().head(3)
+                        for diag, count in top_diags.items():
+                            pct_diag = (count / len(cohort_diagnoses)) * 100
+                            st.markdown(f"- {diag} ({pct_diag:.1f}%)")
+
+                    with sub_tab_inspector:
+                        lista_nodos = list(info_inspeccion.keys())
+                        if not lista_nodos:
+                            st.info("No patients available to inspect.")
+                        else:
+                            idx_arquetipo_selector = lista_nodos.index(arquetipo_label) if arquetipo_label in lista_nodos else 0
+                            seleccion = st.selectbox("Inspect Patient Twin:", lista_nodos, index=idx_arquetipo_selector)
+                            
+                            if seleccion:
+                                data = info_inspeccion[seleccion]
+                                idx_gemelo_matriz = data['idx_matriz']
+                                
+                                c1, c2 = st.columns(2)
+                                with c1:
+                                    st.metric(label="Clinical Match", value=f"{data['similitud']:.1f}%")
+                                with c2:
+                                    if data['outcome_text'] == "Readmitted":
+                                        st.error(f"**Outcome:**\n{data['outcome_text']}")
+                                    else:
+                                        st.success(f"**Outcome:**\n{data['outcome_text']}")
+                                
+                                st.markdown("---")
+                                
+                                if data.get("is_archetype"):
+                                    st.markdown("""
+                                    <div style='padding: 12px; background-color: rgba(255, 215, 0, 0.1); border-left: 4px solid #FFD700; border-radius: 4px; margin-bottom:15px;'>
+                                        <h5 style='margin-top:0; color:#FFD700; font-size:14px;'>🎯 Micro-Cluster Anchor</h5>
+                                        <p style='font-size:12px; margin-bottom:0;'>This patient represents the mathematical center of gravity for the current neighborhood.</p>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                                
+                                diagsec_en = traducir_ninguno(data['diagsec'])
+                                farmacos_raw = data['farmacos']
+                                
+                                st.markdown("#### 🏥 Retrospective Details")
+                                st.markdown(f"**Secondary Diagnoses:**\n{diagsec_en}")
+                                st.markdown(f"**Medications:**")
+                                
+                                if str(farmacos_raw).strip().upper() in ('NINGUNO', '', 'NONE', 'N/A'):
+                                    st.markdown("None")
+                                else:
+                                    lista_farmacos = [f.strip() for f in str(farmacos_raw).split(',')]
+                                    try:
+                                        from translations import FARMACOS_TRANSLATION_DICT
+                                        dict_farmacos_upper = {k.upper(): v for k, v in FARMACOS_TRANSLATION_DICT.items()}
+                                        lista_traducida = [dict_farmacos_upper.get(f.upper(), f.strip().title()) for f in lista_farmacos]
+                                    except ImportError:
+                                        lista_traducida = [f.strip().title() for f in lista_farmacos]
+                                        
+                                    for f in lista_traducida:
+                                        st.markdown(f"- {f}")
+                                
+                                st.markdown("#### 📜 Narrative Phenotype")
+                                raw_ing = str(matriz_extended[idx_gemelo_matriz, col_idx.get('texto_anamnesis_ingreso', -1)] if 'texto_anamnesis_ingreso' in col_idx else "")
+                                raw_evo = str(matriz_extended[idx_gemelo_matriz, col_idx.get('texto_evolucion_internacion', -1)] if 'texto_evolucion_internacion' in col_idx else "")
+                                
+                                invalid_markers = ["N/A", "MISSING_DATA", "NONE", "NAN", ""]
+                                texto_ing = "" if raw_ing.upper().strip() in invalid_markers else raw_ing
+                                texto_evo = "" if raw_evo.upper().strip() in invalid_markers else raw_evo
+                                
+                                if not texto_ing and not texto_evo:
+                                    st.info("ℹ️ No narrative clinical notes available for this patient.")
+                                else:
+                                    texto_completo = ""
+                                    if texto_ing: texto_completo += f"**Admission:**\n{texto_ing}\n\n"
+                                    if texto_evo: texto_completo += f"**Evolution:**\n{texto_evo}"
+                                    
+                                    citas_gemelo = {} 
+                                    for col_nombre in nombres_columnas:
+                                        if col_nombre.startswith("TX_"):
+                                            cita_val = str(matriz_extended[idx_gemelo_matriz, col_idx[col_nombre]])
+                                            if cita_val and cita_val.strip() not in ["nan", "None", "", "N/A"]:
+                                                var_original = col_nombre.replace("TX_", "")
+                                                var_traducida = TRANSLATION_DICT.get(var_original, var_original.replace('_', ' ').title())
+                                                citas_gemelo[cita_val.strip()] = var_traducida
+                                    
+                                    enfermedades_a_resaltar = [
+                                        "diabetes", "hipertensión", "epoc", "neumonía", "tuberculosis", "iam", "acv", "cáncer",
+                                        "trombosis", "celulitis", "plaquetopenia", "fa", "fibrilación auricular", "insuficiencia cardíaca",
+                                        "sepsis", "infarto", "arritmia", "infección", "isquemia", "shock", "aneurisma",
+                                        "hipertensión arterial", "hta", "hipotensión", "bradicardia", "taquicardia",
+                                        "asma", "bronquitis", "derrame pleural", "edema agudo de pulmón",
+                                        "insuficiencia respiratoria", "itu", "infección urinaria", "insuficiencia renal",
+                                        "hipotiroidismo", "hipertiroidismo", "cetoacidosis", "hipoglucemia", "hiperglucemia",
+                                        "dislipidemia", "obesidad", "desnutrición", "sme metabólico",
+                                        "convulsión", "epilepsia", "demencia", "alzheimer", "parkinson", "delirium",
+                                        "cirrosis", "hepatitis", "pancreatitis", "colecistitis", "apendicitis", "peritonitis",
+                                        "hemorragia digestiva", "úlcera", "obstrucción intestinal", "gastroenteritis",
+                                        "anemia", "leucemia", "linfoma", "neutropenia", "coagulopatía", "metástasis",
+                                        "bacteriemia", "shock séptico", "covid", "osteomielitis", "vih", "dengue", "tbc",
+                                        "fractura", "luxación", "artrosis", "artritis", "úlcera por presión", "escara"
+                                    ]
+                                    texto_html = renderizar_notas_gemelo(texto_completo, citas_gemelo, enfermedades_a_resaltar)
+                                    
+                                    with st.expander("🔍 Inspect Original Clinical Notes", expanded=False):
+                                        st.caption("🟡 **Yellow:** Phenotype Evidence | 🔴 **Red:** Disease Mention")
+                                        st.markdown(texto_html, unsafe_allow_html=True)
 
     except Exception as e:
         st.error("Error generating similarity topology graph.")
+        st.warning(f"Technical Detail: {str(e)}")
+
+# ==========================================
+# 9. GLOBAL UNIVERSE (UMAP) IN NEW TAB
+# ==========================================
+with tab_umap:
+    st.markdown("#### Global Clinical Universe Mapping (UMAP)")
+    try:
+        with st.spinner("Projecting multi-dimensional space..."):
+            modo_color = st.radio(
+                "🎨 Select UMAP Coloring Mode:",
+                ["Readmitted vs Safe Discharge", "Age Distribution", "Multimorbidity"],
+                horizontal=True
+            )
+            
+            fig_umap = go.Figure()
+            borde_marcador = dict(width=0.6, color='rgba(255,255,255,0.6)')
+            leyenda_formas = "(⚪ Safe | 🔶 Readmit)" 
+            
+            y_hist_global = matriz_extended[:, col_idx['target']].astype(float)
+            mask_safe_global = (y_hist_global == 0)
+            mask_readmit_global = (y_hist_global == 1)
+            
+            edades_global = matriz_extended[:, col_idx.get('rango_edad', -1)]
+            diag_global = matriz_extended[:, col_idx.get('CIE10_MACRO', -1)]
+            dias_global = matriz_extended[:, col_idx.get('dias_internados', -1)]
+            
+            hover_texts_global = []
+            for i in range(len(y_hist_global)):
+                outcome_str = "Readmitted" if y_hist_global[i] == 1 else "Safe Discharge"
+                diag_val = format_clinical_value('CIE10_MACRO', diag_global[i])
+                edad_val = format_clinical_value('rango_edad', edades_global[i])
+                dias_val = safe_int(dias_global[i])
+                hover_texts_global.append(
+                    f"<b>Outcome:</b> {outcome_str}<br>"
+                    f"<b>Diagnosis:</b> {diag_val}<br>"
+                    f"<b>Age:</b> {edad_val}<br>"
+                    f"<b>Stay:</b> {dias_val} days"
+                )
+            hover_texts_global = np.array(hover_texts_global)
+
+            def agregar_capa_umap(fig, mascara_filtro, color_hex, nombre_grupo, es_activo=True):
+                grupo_legend_id = str(nombre_grupo).replace(" ", "_").lower()
+                
+                fig.add_trace(go.Scatter(
+                    x=[None], y=[None], mode='markers',
+                    name=f"{nombre_grupo} {leyenda_formas}", legendgroup=grupo_legend_id,
+                    marker=dict(color=color_hex, size=10, symbol='square') 
+                ))
+                
+                fig.add_trace(go.Scatter(
+                    x=umap_embeddings[mascara_filtro & mask_safe_global, 0], 
+                    y=umap_embeddings[mascara_filtro & mask_safe_global, 1],
+                    mode='markers', legendgroup=grupo_legend_id, showlegend=False, 
+                    text=hover_texts_global[mascara_filtro & mask_safe_global], hoverinfo='text',
+                    marker=dict(color=color_hex, size=5 if es_activo else 4, opacity=0.5 if es_activo else 0.3, symbol='circle', line=borde_marcador)
+                ))
+                
+                fig.add_trace(go.Scatter(
+                    x=umap_embeddings[mascara_filtro & mask_readmit_global, 0], 
+                    y=umap_embeddings[mascara_filtro & mask_readmit_global, 1],
+                    mode='markers', legendgroup=grupo_legend_id, showlegend=False, 
+                    text=hover_texts_global[mascara_filtro & mask_readmit_global], hoverinfo='text',
+                    marker=dict(color=color_hex, size=8 if es_activo else 6, opacity=0.9 if es_activo else 0.5, symbol='diamond', line=dict(color='white', width=0.8) if es_activo else borde_marcador)
+                ))
+            
+            if modo_color == "Readmitted vs Safe Discharge":
+                fig_umap.add_trace(go.Scatter(
+                    x=umap_embeddings[mask_safe_global, 0], y=umap_embeddings[mask_safe_global, 1],
+                    mode='markers', name='Safe Discharge',
+                    text=hover_texts_global[mask_safe_global], hoverinfo='text',
+                    marker=dict(color='#00C851', size=5, opacity=0.5, symbol='circle', line=borde_marcador)
+                ))
+                fig_umap.add_trace(go.Scatter(
+                    x=umap_embeddings[mask_readmit_global, 0], y=umap_embeddings[mask_readmit_global, 1],
+                    mode='markers', name='Readmitted',
+                    text=hover_texts_global[mask_readmit_global], hoverinfo='text',
+                    marker=dict(color='#FF4444', size=8, opacity=0.9, symbol='diamond', line=dict(color='white', width=0.8))
+                ))
+            
+            elif modo_color == "Age Distribution":
+                edades_trad_global = np.array([format_clinical_value('rango_edad', e) for e in edades_global])
+                unique_ages = sorted(list(set(edades_trad_global)))
+                color_palette = ['#636EFA', '#EF553B', '#00CC96', '#AB63FA', '#FFA15A', '#19D3F3']
+                
+                for idx_color, age_group in enumerate(unique_ages):
+                    mask_age = edades_trad_global == age_group
+                    color_asignado = color_palette[idx_color % len(color_palette)]
+                    agregar_capa_umap(fig_umap, mask_age, color_asignado, age_group, es_activo=True)
+                    
+            elif modo_color == "Multimorbidity":
+                pluri_global = matriz_extended[:, col_idx.get('pluripatologico', -1)]
+                mask_yes = np.array([str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'] for x in pluri_global])
+                mask_no = ~mask_yes
+                
+                agregar_capa_umap(fig_umap, mask_no, '#AAB7B8', 'No Multimorbidity', es_activo=True)
+                agregar_capa_umap(fig_umap, mask_yes, '#D2691E', 'Multimorbidity Present', es_activo=True)
+            
+            # Proyección Estrella del Paciente Actual
+            paciente_umap_coords = np.mean(umap_embeddings[vecinos_idx_pool[:3]], axis=0, keepdims=True)
+            diag_paciente = format_clinical_value('CIE10_MACRO', df_paciente['CIE10_MACRO'].iloc[0] if 'CIE10_MACRO' in df_paciente.columns else 'N/A')
+            edad_paciente = format_clinical_value('rango_edad', df_paciente['rango_edad'].iloc[0] if 'rango_edad' in df_paciente.columns else 'N/A')
+            dias_paciente = safe_int(df_paciente['dias_internados'].iloc[0] if 'dias_internados' in df_paciente.columns else 0)
+            
+            paciente_hover = (f"<b>CURRENT PATIENT</b><br>"
+                              f"<b>Diagnosis:</b> {diag_paciente}<br>"
+                              f"<b>Age:</b> {edad_paciente}<br>"
+                              f"<b>Stay:</b> {dias_paciente} days")
+
+            fig_umap.add_trace(go.Scatter(
+                x=[paciente_umap_coords[0, 0]], y=[paciente_umap_coords[0, 1]],
+                mode='markers', name='Current Patient',
+                text=[paciente_hover], hoverinfo='text',
+                marker=dict(color='#87CEEB', size=18, symbol='star', line=dict(color='black', width=2))
+            ))
+            
+            fig_umap.update_layout(
+                plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+                xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                margin=dict(l=10, r=10, t=30, b=10), height=550,
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5)
+            )
+            st.plotly_chart(fig_umap, use_container_width=True)
+
+    except Exception as e:
+        st.error("Error generating UMAP projection.")
         st.warning(f"Technical Detail: {str(e)}")
