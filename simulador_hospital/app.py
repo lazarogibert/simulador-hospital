@@ -1522,7 +1522,8 @@ with tab_estrategia:
 
 
 
-with tab_evidencia:# ==========================================
+
+# ==========================================
 # 8. DYNAMIC CLINICAL COHORT EXPLORER (KNN + AGGREGATES)
 # ==========================================
 with tab_evidencia:
