@@ -1836,7 +1836,7 @@ with tab_evidencia:
                     sub_tab_global, sub_tab_inspector = st.tabs(["🧬 Cohort Profile", "🔍 Case Inspector"])
                     
                     with sub_tab_global:
-                        st.markdown(f"### 👥 Similar Patients Found (n={len(vecinos_idx)})")
+                        st.markdown(f"### Similar Patients Found (n={len(vecinos_idx)})")
                         tasa_reingreso = (sum(cohort_outcomes) / len(cohort_outcomes)) * 100 if cohort_outcomes else 0.0
                         st.metric("Historical Readmission Rate", f"{tasa_reingreso:.1f}%")
                         st.progress(tasa_reingreso / 100)
@@ -1977,17 +1977,25 @@ with tab_evidencia:
 with tab_umap:
     st.markdown("#### Global Clinical Universe Mapping (UMAP)")
     try:
-        with st.spinner("Projecting multi-dimensional space..."):
+        with st.spinner("Projecting multi-dimensional space and calculating topological insights..."):
             modo_color = st.radio(
                 "🎨 Select UMAP Coloring Mode:",
                 ["Readmitted vs Safe Discharge", "Age Distribution", "Multimorbidity"],
                 horizontal=True
             )
             
+            # --- UI LAYOUT: MAP (LEFT) vs INSIGHTS (RIGHT) ---
+            col_mapa, col_insights = st.columns([2.2, 1.2])
+            
             fig_umap = go.Figure()
             borde_marcador = dict(width=0.6, color='rgba(255,255,255,0.6)')
             leyenda_formas = "(⚪ Safe | 🔶 Readmit)" 
             
+            # ROBUSTEZ 1: Desacople de Scope. Aseguramos que col_idx exista independientemente de la tab anterior.
+            if 'col_idx' not in locals():
+                col_idx = {col: i for i, col in enumerate(nombres_columnas)}
+            
+            # Datos Globales Base
             y_hist_global = matriz_extended[:, col_idx['target']].astype(float)
             mask_safe_global = (y_hist_global == 0)
             mask_readmit_global = (y_hist_global == 1)
@@ -1995,6 +2003,11 @@ with tab_umap:
             edades_global = matriz_extended[:, col_idx.get('rango_edad', -1)]
             diag_global = matriz_extended[:, col_idx.get('CIE10_MACRO', -1)]
             dias_global = matriz_extended[:, col_idx.get('dias_internados', -1)]
+            pluri_global = matriz_extended[:, col_idx.get('pluripatologico', -1)]
+            
+            # ROBUSTEZ: Métricas globales base
+            total_pacientes = len(y_hist_global)
+            tasa_reingreso_base = (sum(y_hist_global) / total_pacientes) * 100 if total_pacientes > 0 else 0.0
             
             hover_texts_global = []
             for i in range(len(y_hist_global)):
@@ -2035,65 +2048,146 @@ with tab_umap:
                     marker=dict(color=color_hex, size=8 if es_activo else 6, opacity=0.9 if es_activo else 0.5, symbol='diamond', line=dict(color='white', width=0.8) if es_activo else borde_marcador)
                 ))
             
-            if modo_color == "Readmitted vs Safe Discharge":
-                fig_umap.add_trace(go.Scatter(
-                    x=umap_embeddings[mask_safe_global, 0], y=umap_embeddings[mask_safe_global, 1],
-                    mode='markers', name='Safe Discharge',
-                    text=hover_texts_global[mask_safe_global], hoverinfo='text',
-                    marker=dict(color='#00C851', size=5, opacity=0.5, symbol='circle', line=borde_marcador)
-                ))
-                fig_umap.add_trace(go.Scatter(
-                    x=umap_embeddings[mask_readmit_global, 0], y=umap_embeddings[mask_readmit_global, 1],
-                    mode='markers', name='Readmitted',
-                    text=hover_texts_global[mask_readmit_global], hoverinfo='text',
-                    marker=dict(color='#FF4444', size=8, opacity=0.9, symbol='diamond', line=dict(color='white', width=0.8))
-                ))
-            
-            elif modo_color == "Age Distribution":
-                edades_trad_global = np.array([format_clinical_value('rango_edad', e) for e in edades_global])
-                unique_ages = sorted(list(set(edades_trad_global)))
-                color_palette = ['#636EFA', '#EF553B', '#00CC96', '#AB63FA', '#FFA15A', '#19D3F3']
+            with col_mapa:
+                if modo_color == "Readmitted vs Safe Discharge":
+                    fig_umap.add_trace(go.Scatter(
+                        x=umap_embeddings[mask_safe_global, 0], y=umap_embeddings[mask_safe_global, 1],
+                        mode='markers', name='Safe Discharge',
+                        text=hover_texts_global[mask_safe_global], hoverinfo='text',
+                        marker=dict(color='#00C851', size=5, opacity=0.5, symbol='circle', line=borde_marcador)
+                    ))
+                    fig_umap.add_trace(go.Scatter(
+                        x=umap_embeddings[mask_readmit_global, 0], y=umap_embeddings[mask_readmit_global, 1],
+                        mode='markers', name='Readmitted',
+                        text=hover_texts_global[mask_readmit_global], hoverinfo='text',
+                        marker=dict(color='#FF4444', size=8, opacity=0.9, symbol='diamond', line=dict(color='white', width=0.8))
+                    ))
                 
-                for idx_color, age_group in enumerate(unique_ages):
-                    mask_age = edades_trad_global == age_group
-                    color_asignado = color_palette[idx_color % len(color_palette)]
-                    agregar_capa_umap(fig_umap, mask_age, color_asignado, age_group, es_activo=True)
+                elif modo_color == "Age Distribution":
+                    edades_trad_global = np.array([format_clinical_value('rango_edad', e) for e in edades_global])
+                    unique_ages = sorted(list(set(edades_trad_global)))
+                    color_palette = ['#636EFA', '#EF553B', '#00CC96', '#AB63FA', '#FFA15A', '#19D3F3']
                     
-            elif modo_color == "Multimorbidity":
-                pluri_global = matriz_extended[:, col_idx.get('pluripatologico', -1)]
-                mask_yes = np.array([str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'] for x in pluri_global])
-                mask_no = ~mask_yes
+                    for idx_color, age_group in enumerate(unique_ages):
+                        mask_age = edades_trad_global == age_group
+                        color_asignado = color_palette[idx_color % len(color_palette)]
+                        agregar_capa_umap(fig_umap, mask_age, color_asignado, age_group, es_activo=True)
+                        
+                elif modo_color == "Multimorbidity":
+                    mask_multi_yes = np.array([str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'] for x in pluri_global])
+                    mask_multi_no = ~mask_multi_yes
+                    
+                    agregar_capa_umap(fig_umap, mask_multi_no, '#AAB7B8', 'No Multimorbidity', es_activo=True)
+                    agregar_capa_umap(fig_umap, mask_multi_yes, '#D2691E', 'Multimorbidity Present', es_activo=True)
                 
-                agregar_capa_umap(fig_umap, mask_no, '#AAB7B8', 'No Multimorbidity', es_activo=True)
-                agregar_capa_umap(fig_umap, mask_yes, '#D2691E', 'Multimorbidity Present', es_activo=True)
-            
-            # Proyección Estrella del Paciente Actual
-            paciente_umap_coords = np.mean(umap_embeddings[vecinos_idx_pool[:3]], axis=0, keepdims=True)
-            diag_paciente = format_clinical_value('CIE10_MACRO', df_paciente['CIE10_MACRO'].iloc[0] if 'CIE10_MACRO' in df_paciente.columns else 'N/A')
-            edad_paciente = format_clinical_value('rango_edad', df_paciente['rango_edad'].iloc[0] if 'rango_edad' in df_paciente.columns else 'N/A')
-            dias_paciente = safe_int(df_paciente['dias_internados'].iloc[0] if 'dias_internados' in df_paciente.columns else 0)
-            
-            paciente_hover = (f"<b>CURRENT PATIENT</b><br>"
-                              f"<b>Diagnosis:</b> {diag_paciente}<br>"
-                              f"<b>Age:</b> {edad_paciente}<br>"
-                              f"<b>Stay:</b> {dias_paciente} days")
+                # ROBUSTEZ 2: Motor de rescate para vecinos topológicos si se pierde la memoria de estado
+                if 'vecinos_idx_pool' not in locals():
+                    distancias_rescue, indices_rescue = knn.kneighbors(X_paciente_proc)
+                    vecinos_idx_pool = indices_rescue[0]
+                
+                # Proyección Estrella del Paciente Actual
+                paciente_umap_coords = np.mean(umap_embeddings[vecinos_idx_pool[:3]], axis=0, keepdims=True)
+                diag_paciente = format_clinical_value('CIE10_MACRO', df_paciente['CIE10_MACRO'].iloc[0] if 'CIE10_MACRO' in df_paciente.columns else 'N/A')
+                edad_paciente = format_clinical_value('rango_edad', df_paciente['rango_edad'].iloc[0] if 'rango_edad' in df_paciente.columns else 'N/A')
+                dias_paciente = safe_int(df_paciente['dias_internados'].iloc[0] if 'dias_internados' in df_paciente.columns else 0)
+                
+                paciente_hover = (f"<b>CURRENT PATIENT</b><br>"
+                                  f"<b>Diagnosis:</b> {diag_paciente}<br>"
+                                  f"<b>Age:</b> {edad_paciente}<br>"
+                                  f"<b>Stay:</b> {dias_paciente} days")
+    
+                fig_umap.add_trace(go.Scatter(
+                    x=[paciente_umap_coords[0, 0]], y=[paciente_umap_coords[0, 1]],
+                    mode='markers', name='Current Patient',
+                    text=[paciente_hover], hoverinfo='text',
+                    marker=dict(color='#87CEEB', size=20, symbol='star', line=dict(color='black', width=2.5))
+                ))
+                
+                fig_umap.update_layout(
+                    plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+                    xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                    yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                    margin=dict(l=10, r=10, t=10, b=10), height=550,
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5)
+                )
+                st.plotly_chart(fig_umap, use_container_width=True)
 
-            fig_umap.add_trace(go.Scatter(
-                x=[paciente_umap_coords[0, 0]], y=[paciente_umap_coords[0, 1]],
-                mode='markers', name='Current Patient',
-                text=[paciente_hover], hoverinfo='text',
-                marker=dict(color='#87CEEB', size=18, symbol='star', line=dict(color='black', width=2))
-            ))
-            
-            fig_umap.update_layout(
-                plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
-                xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                margin=dict(l=10, r=10, t=30, b=10), height=550,
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5)
-            )
-            st.plotly_chart(fig_umap, use_container_width=True)
+            with col_insights:
+                st.markdown("### 📊 Global Risk Atlas Insights")
+                
+                st.markdown(
+                    f"""
+                    <div style='padding:10px; background-color:rgba(128,128,128,0.1); border-radius:5px; margin-bottom:15px;'>
+                        <p style='margin:0; font-size:12px; color:gray;'>CENSUS PROJECTION</p>
+                        <h4 style='margin:0;'>N = {total_pacientes:,} patients</h4>
+                        <p style='margin:0; font-size:14px;'>Hospital Base Readmission Rate: <b>{tasa_reingreso_base:.1f}%</b></p>
+                    </div>
+                    """, unsafe_allow_html=True
+                )
+
+                if modo_color == "Readmitted vs Safe Discharge":
+                    total_readmits = sum(y_hist_global)
+                    total_safes = total_pacientes - total_readmits
+                    
+                    st.markdown("#### 🔴 Topography of Failure")
+                    st.markdown(f"- **Total Readmissions:** {int(total_readmits):,} patients.")
+                    st.markdown(f"- **Total Safe Discharges:** {int(total_safes):,} patients.")
+                    st.markdown("---")
+                    st.markdown("**Clinical Reading:**\nRather than perfect isolation, the UMAP reveals specific **Risk Density Zones**. Areas where diamonds (readmissions) and circles (safes) heavily overlap represent *Clinical Uncertainty Borders*. In these coordinates, human judgment struggles, making the AI's counterfactual mitigation crucial.")
+
+                elif modo_color == "Age Distribution":
+                    edades_trad_global = np.array([format_clinical_value('rango_edad', e) for e in edades_global])
+                    df_edades = pd.DataFrame({'Age': edades_trad_global, 'Readmit': y_hist_global})
+                    tasas_edad = df_edades.groupby('Age')['Readmit'].mean() * 100
+                    
+                    edad_max_riesgo = tasas_edad.idxmax() if not tasas_edad.empty else "N/A"
+                    val_max_riesgo = tasas_edad.max() if not tasas_edad.empty else 0.0
+                    
+                    st.markdown("#### ⏳ Generational Risk Gap")
+                    st.markdown(f"- **Highest Risk Group:** {edad_max_riesgo} ({val_max_riesgo:.1f}% base rate).")
+                    st.markdown("---")
+                    st.markdown("**Clinical Reading:**\nObserve how chronological aging alters the topology of risk. If older groups are spatially isolated, it means geriatric clinical language creates a unique mathematical phenotype requiring specialized discharge protocols.")
+
+                elif modo_color == "Multimorbidity":
+                    mask_multi_yes = np.array([str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'] for x in pluri_global])
+                    mask_multi_no = ~mask_multi_yes
+                    
+                    pct_pluri_global = (sum(mask_multi_yes) / total_pacientes) * 100 if total_pacientes > 0 else 0
+                    
+                    tasa_multi_yes = (sum(y_hist_global[mask_multi_yes]) / sum(mask_multi_yes)) * 100 if sum(mask_multi_yes) > 0 else 0.0
+                    tasa_multi_no = (sum(y_hist_global[mask_multi_no]) / sum(mask_multi_no)) * 100 if sum(mask_multi_no) > 0 else 0.0
+                    riesgo_relativo = (tasa_multi_yes / tasa_multi_no) if tasa_multi_no > 0 else 0.0
+                    
+                    st.markdown("#### ⛓️ The Chronicity Burden")
+                    st.markdown(f"- **Hospital Prevalence:** {pct_pluri_global:.1f}%")
+                    st.markdown(f"- **Relative Risk Multiplier:** **{riesgo_relativo:.1f}x**")
+                    st.markdown("---")
+                    st.markdown(f"**Clinical Reading:**\nMultimorbidity acts as a structural gravity well. Patients with multimorbidity have a base readmission rate of **{tasa_multi_yes:.1f}%** compared to just **{tasa_multi_no:.1f}%** for non-multimorbid patients. Notice how their orange spatial distribution almost perfectly overlaps with the hospital's historical red zones.")
+
+                # ROBUSTEZ 3: Fallback seguro para la inferencia de riesgo local
+                st.markdown("---")
+                st.markdown("#### ⭐ Current Patient Zone")
+                
+                if 'cohort_outcomes' in locals() and cohort_outcomes:
+                    tasa_reingreso_local = (sum(cohort_outcomes) / len(cohort_outcomes)) * 100
+                else:
+                    # Si no hay memoria de la cohorte local, extraemos la tasa de los 20 vecinos más cercanos directamente
+                    if 'vecinos_idx_pool' in locals():
+                        vecinos_cercanos = vecinos_idx_pool[:20]
+                        outcomes_locales = y_hist_global[vecinos_cercanos]
+                        tasa_reingreso_local = (sum(outcomes_locales) / len(outcomes_locales)) * 100 if len(outcomes_locales) > 0 else tasa_reingreso_base
+                    else:
+                        tasa_reingreso_local = tasa_reingreso_base
+                        
+                estado_zona = "Hot Zone (High Risk)" if tasa_reingreso_local > tasa_reingreso_base else "Safe Zone (Low Risk)"
+                color_zona = "red" if tasa_reingreso_local > tasa_reingreso_base else "green"
+                
+                st.markdown(
+                    f"Your patient landed in a **<span style='color:{color_zona}'>{estado_zona}</span>**.<br>"
+                    f"The immediate topological neighborhood surrounding the star has a historical failure rate of **{tasa_reingreso_local:.1f}%**.", 
+                    unsafe_allow_html=True
+                )
 
     except Exception as e:
-        st.error("Error generating UMAP projection.")
+        st.error("Error generating UMAP projection and insights.")
         st.warning(f"Technical Detail: {str(e)}")
