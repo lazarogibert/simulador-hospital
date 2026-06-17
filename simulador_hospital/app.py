@@ -1524,12 +1524,12 @@ with tab_estrategia:
 
 
 # ==========================================
-# 8. DYNAMIC CLINICAL COHORT EXPLORER (KNN)
+# 8. DYNAMIC CLINICAL COHORT EXPLORER (KNN + AUTOMATED INSPECTOR)
 # ==========================================
 with tab_evidencia:
     st.markdown("#### Clinical Similarity Network & Cohort Audit")
     
-    # --- HELPER FUNCTIONS ---
+    # --- HELPER FUNCTIONS (ORIGINAL ARCHITECTURE) ---
     def format_clinical_value(key_es, value):
         val_str = str(value).strip().upper()
         if key_es == 'rango_edad':
@@ -1537,6 +1537,19 @@ with tab_evidencia:
             return traducciones_edad.get(val_str, value)
         if key_es == 'sexo':
             return {'MASCULINO': 'Male', 'FEMENINO': 'Female'}.get(val_str, value)
+        if key_es == 'Area':
+            traduccion_area = {
+                'CIRUGIA': 'Surgery', 'CLINICA_MEDICA': 'Internal Medicine', 'CLINICA MEDICA': 'Internal Medicine', 
+                'TERAPIA_INTENSIVA': 'ICU', 'TERAPIA INTENSIVA': 'ICU', 'UNIDAD CORONARIA': 'CCU', 
+                'EMERG_GUARDIAS': 'ER', 'GUARDIA': 'ER', 'TRAUMATOLOGIA': 'Traumatology', 
+                'PEDIATRIA': 'Pediatrics', 'CORTA_ESTANCIA': 'Short Stay', 'CUIDA_MINIMOS': 'Minimum Care', 
+                'HOSP_DOMICILIARIA': 'Home Hospitalization', 'HOSPITAL_DE_DIA': 'Day Hospital', 
+                'TERAPIA_INTENSIVA_PED': 'Pediatric ICU' 
+            }
+            return traduccion_area.get(val_str, value)
+        if key_es == 'IN_COMPLEJIDAD':
+            traduccion_comp = {'ALTA': 'High', 'MEDIA': 'Medium', 'BAJA': 'Low'}
+            return traduccion_comp.get(val_str, value) if not val_str.isdigit() else str(int(float(value)))
         if key_es == 'CIE10_MACRO':
             cie10_ui_dict = {
                 "Tuberculosis": "Tuberculosis", "Lepra": "Leprosy", "Sífilis": "Syphilis", 
@@ -1560,7 +1573,7 @@ with tab_evidencia:
                 "Otros metabólicos / nutricionales": "Other metabolic / nutritional",
                 "Trastornos mentales orgánicos (Demencias)": "Organic mental disorders (Dementias)", "Trastornos por uso de sustancias": "Substance use disorders", 
                 "Esquizofrenia y trastornos psicóticos": "Schizophrenia and psychotic disorders", "Trastornos del humor (Afectivos)": "Mood (Affective) disorders", 
-                "Trastornos neuróticos y de ansiedad": "Neurotic and anxiety disorders", "Trastornos de la conducta alimentaria / sueño": "Eating / sleep disorders", 
+                "Trastornos neuróticos and de ansiedad": "Neurotic and anxiety disorders", "Trastornos de la conducta alimentaria / sueño": "Eating / sleep disorders", 
                 "Trastornos de la personalidad": "Personality disorders", "Discapacidad intelectual": "Intellectual disability", 
                 "Trastornos del desarrollo psicobiológico (Autismo)": "Psychobiological development disorders (Autism)", "Otros trastornos mentales": "Other mental disorders",
                 "Atrofias sistémicas del SNC": "Systemic atrophies of CNS", "Trastornos extrapiramidales y del movimiento (Parkinson)": "Extrapyramidal and movement disorders (Parkinson's)", 
@@ -1603,6 +1616,21 @@ with tab_evidencia:
             }
             traducciones_cie = {k.upper(): v for k, v in cie10_ui_dict.items()}
             return traducciones_cie.get(val_str, value)
+        
+        bool_suffixes = ('_mental', '_funcional', '_dispositivos', '_reiteradas', '_hemorragico', '_internacion', '_irregular', '_paliativos', '_presion', '_infeccioso', '_activa', '_mayor', '_quirurgica', '_transfusional')
+        if key_es.startswith('LLM_') or key_es.startswith('EST_') or key_es in ('pluripatologico', 'IN_ORDENIN') or (key_es.endswith(bool_suffixes) and not key_es.startswith('DELTA_')):
+            try:
+                return "Yes" if float(value) == 1.0 else "No"
+            except ValueError:
+                if val_str in ['TRUE', 'YES', '1']: return "Yes"
+                if val_str in ['FALSE', 'NO', '0']: return "No"
+                pass
+                
+        try:
+            f_val = float(value)
+            if f_val.is_integer(): return str(int(f_val))
+        except ValueError:
+            pass
         return value
 
     def safe_int(value, default="N/A"):
@@ -1643,34 +1671,6 @@ with tab_evidencia:
         </div>
         """
 
-    TRANSLATION_DICT = {
-        'dias_internados': 'Length of Stay (Days)', 'rango_edad': 'Age Range', 'pluripatologico': 'Multimorbidity',
-        'CIE10_MACRO': 'Primary Diagnosis (ICD-10)', 'LLM_tabaquismo_activo': 'Active Smoking', 'LLM_alcoholismo': 'Alcoholism',
-        'LLM_drogas_ilicitas': 'Illicit Drug Use', 'LLM_fragilidad_geriatrica': 'Geriatric Frailty',
-        'LLM_polifarmacia': 'Polypharmacy', 'LLM_desnutricion_severa': 'Severe Malnutrition', 'LLM_oxigenodependiente': 'Oxygen Dependent',
-        'LLM_historial_caidas': 'History of Falls', 'LLM_abandono_medicacion': 'Medication Abandonment',
-        'LLM_AF_diabetes': 'FHx: Diabetes', 'LLM_AF_hipertension': 'FHx: Hypertension', 'LLM_AF_cardiovascular_otro': 'FHx: Other Cardiovascular',
-        'LLM_AF_oncologico': 'FHx: Oncology', 'LLM_AF_metabolico_otro': 'FHx: Other Metabolic', 'LLM_AF_neurologico': 'FHx: Neurology',
-        'LLM_AF_psiquiatrico': 'FHx: Psychiatry', 'LLM_AF_respiratorio': 'FHx: Respiratory', 'LLM_AF_renal': 'FHx: Renal',
-        'LLM_AF_autoinmune': 'FHx: Autoimmune', 'ING_dolor_eva': 'Admission: Pain (VAS)', 'ING_gravedad_percibida': 'Admission: Perceived Severity',
-        'ING_alteracion_mental': 'Admission: Mental Alteration', 'ING_dependencia_funcional': 'Admission: Functional Dependency',
-        'ING_portador_dispositivos': 'Admission: Device Bearer', 'ING_consultas_reiteradas': 'Admission: Repeated Consultations',
-        'ING_riesgo_hemorragico': 'Admission: Hemorrhagic Risk', 'ING_infeccion_activa': 'Admission: Active Infection',
-        'EVO_dolor_eva': 'Evolution: Pain (VAS)', 'EVO_gravedad_percibida': 'Evolution: Perceived Severity', 
-        'EVO_alteracion_mental': 'Evolution: Mental Alteration', 'EVO_dependencia_funcional': 'Evolution: Functional Dependency', 
-        'EVO_portador_dispositivos': 'Evolution: Device Bearer', 'EVO_complicacion_internacion': 'Evolution: Hospital Complication', 
-        'EVO_fuga_o_alta_irregular': 'Evolution: Irregular Discharge / Escape', 'EVO_cuidados_paliativos': 'Evolution: Palliative Care', 
-        'EVO_ulceras_presion': 'Evolution: Pressure Ulcers', 'EVO_aislamiento_infeccioso': 'Evolution: Infectious Isolation', 
-        'EVO_cambio_terapeutico_mayor': 'Evolution: Major Therapeutic Change', 'EVO_intervencion_quirurgica': 'Evolution: Surgical Intervention', 
-        'EVO_soporte_transfusional': 'Evolution: Transfusion Support', 'DELTA_dolor_eva': 'Δ Pain (VAS)',
-        'DELTA_gravedad_percibida': 'Δ Perceived Severity', 'DELTA_alteracion_mental': 'Δ Mental Alteration',
-        'DELTA_dependencia_funcional': 'Δ Functional Dependency', 'DELTA_portador_dispositivos': 'Δ Device Bearer',
-        'sexo': 'Sex', 'Area': 'Admission Area', 'IN_COMPLEJIDAD': 'Complexity Level', 
-        'cantidad_interconsultas': 'Interconsultations', 'visitas_guardia_6meses_previos': 'ER Visits (6m)',
-        'EST_ingreso_ambulancia': 'Ambulance Arrival', 'IN_ORDENIN': 'Scheduled Admission', 
-        'HIST_condicion_ultimo_egreso': 'Previous Discharge Condition'
-    }
-
     @st.cache_resource
     def load_similarity_assets():
         BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1685,7 +1685,8 @@ with tab_evidencia:
         matriz_ext = np.load(ruta_ext, allow_pickle=True)
         nombres_columnas = np.load(ruta_cols, allow_pickle=True)
         
-        knn_engine = NearestNeighbors(n_neighbors=150, metric='cosine')
+        # METHODOLOGICAL CALIBRATION: Initial extended pool (100 neighbors) to feed the interactive threshold
+        knn_engine = NearestNeighbors(n_neighbors=100, metric='cosine')
         knn_engine.fit(X_train_proc)
         
         umap_reducer = umap.UMAP(n_neighbors=15, min_dist=0.1, metric='cosine', random_state=42)
@@ -1696,7 +1697,7 @@ with tab_evidencia:
     plt.close('all') 
     
     try:
-        with st.spinner("Calculating topological metrics..."):
+        with st.spinner("Calculating topological metrics and embedding projections..."):
             knn, matriz_extended, nombres_columnas, X_train_proc, umap_embeddings = load_similarity_assets()
             
             prep = pipeline.named_steps['preprocesador']
@@ -1706,23 +1707,25 @@ with tab_evidencia:
             vecinos_idx_pool = indices[0]
             similitudes_brutas_pool = np.maximum(0, (1 - distancias[0])) * 100
             
+            # --- 1. THE DYNAMIC THRESHOLD CONTROLLER ---
             col_slider, col_empty = st.columns([2, 1])
             with col_slider:
                 st.info("Adjust the similarity threshold to expand or restrict the clinical neighborhood.")
                 umbral_similitud = st.slider(
                     "Minimum Similarity Threshold (%)", 
-                    min_value=50, max_value=99, value=75, step=1,
-                    help="Higher values restrict the network to nearly identical admissions."
+                    min_value=50, max_value=99, value=70, step=1,
+                    help="Higher values restrict the network to nearly identical admissions. Lower values reveal broader trends."
                 )
             
             st.markdown("---")
             
+            # Filter the pool dynamically based on user interaction
             mask_umbral = similitudes_brutas_pool >= umbral_similitud
             vecinos_idx = vecinos_idx_pool[mask_umbral]
             similitudes_brutas = similitudes_brutas_pool[mask_umbral]
             
             if len(vecinos_idx) == 0:
-                st.warning(f"No historical admissions found with a similarity match equal to or greater than {umbral_similitud}%. Please lower the threshold.")
+                st.warning(f"No historical admissions found with a similarity match equal to or greater than {umbral_similitud}%. Please lower the threshold to expand the search radius.")
             else:
                 col_idx = {col: i for i, col in enumerate(nombres_columnas)}
                 
@@ -1742,17 +1745,24 @@ with tab_evidencia:
                 
                 nodos_gemelos = []
                 info_inspeccion = {}
+                invalid_markers = ["N/A", "MISSING_DATA", "NONE", "NAN", ""]
                 
                 cohort_outcomes, cohort_ages, cohort_sex, cohort_diagnoses, cohort_multimorbidity = [], [], [], [], []
                 
+                # --- ORIGINAL DYNAMIC PREFIJO EXTRACTION LOGIC ---
+                prefijos_nlp = ('LLM_', 'ING_', 'EVO_', 'DELTA_', 'rango_', 'pluripatologico', 'dias_', 'CIE10_MACRO', 'sexo', 'IN_COMPLEJIDAD', 'cantidad_interconsultas', 'visitas_', 'EST_', 'IN_ORDENIN', 'Area', 'HIST_condicion_ultimo_egreso')
+                columnas_comunes_dinamicas = [col for col in nombres_columnas if str(col).startswith(prefijos_nlp)]
+                
+                # --- 2. BUILD THE GRAPH AND EXTRACT DATA ---
                 for i, (idx, similitud_pct) in enumerate(zip(vecinos_idx, similitudes_brutas)):
                     reingreso_real = float(matriz_extended[idx, col_idx['target']])
                     cohort_outcomes.append(reingreso_real)
                     
                     color_nodo = COLOR_HIST_READMIT if reingreso_real == 1.0 else COLOR_HIST_SAFE
+                    
                     raw_ing = str(matriz_extended[idx, col_idx.get('texto_anamnesis_ingreso', -1)] if 'texto_anamnesis_ingreso' in col_idx else "")
                     raw_evo = str(matriz_extended[idx, col_idx.get('texto_evolucion_internacion', -1)] if 'texto_evolucion_internacion' in col_idx else "")
-                    tiene_texto = (raw_ing.upper().strip() not in ["N/A", "MISSING_DATA", "NONE", "NAN", ""]) or (raw_evo.upper().strip() not in ["N/A", "MISSING_DATA", "NONE", "NAN", ""])
+                    tiene_texto = (raw_ing.upper().strip() not in invalid_markers) or (raw_evo.upper().strip() not in invalid_markers)
                     icono_texto = " [TXT]" if tiene_texto else ""
                     
                     label_grafo = f"Case {i+1}{icono_texto}\n({similitud_pct:.1f}%)"
@@ -1769,6 +1779,7 @@ with tab_evidencia:
                     cohort_diagnoses.append(matriz_extended[idx, col_idx.get('CIE10_MACRO', -1)])
                     cohort_multimorbidity.append(matriz_extended[idx, col_idx.get('pluripatologico', -1)])
                     
+                    # RESTORED: Original automated dictionary layout architecture
                     datos_gemelo = {
                         "similitud": similitud_pct,
                         "idx_matriz": idx,
@@ -1777,10 +1788,6 @@ with tab_evidencia:
                         "diagsec": matriz_extended[idx, col_idx.get('DIAGNOSTICOS_SEC_ACTIVOS', -1)] if 'DIAGNOSTICOS_SEC_ACTIVOS' in col_idx else "N/A",
                         "datos_comunes": {}
                     }
-                    
-                    prefijos_nlp = ('LLM_', 'ING_', 'EVO_', 'DELTA_', 'rango_', 'pluripatologico', 'dias_', 'CIE10_MACRO', 'sexo', 'IN_COMPLEJIDAD', 'cantidad_interconsultas', 'visitas_', 'EST_', 'IN_ORDENIN', 'Area', 'HIST_condicion_ultimo_egreso')
-                    columnas_comunes_dinamicas = [col for col in nombres_columnas if str(col).startswith(prefijos_nlp)]
-                    
                     for col_comun in columnas_comunes_dinamicas:
                         datos_gemelo["datos_comunes"][col_comun] = matriz_extended[idx, col_idx[col_comun]]
                         
@@ -1818,7 +1825,7 @@ with tab_evidencia:
                 nx.draw_networkx_labels(G, pos, ax=ax, font_size=8, font_weight='bold', font_color='black')
                 ax.axis('off')
                 
-                # --- UI LAYOUT: GRAPH vs (PROFILE / INSPECTOR TABS) ---
+                # --- 3. UI LAYOUT: GRAPH (LEFT) vs COHORT / INSPECTOR (RIGHT) ---
                 col_grafo, col_panel = st.columns([1.5, 1.2])
                 
                 with col_grafo:
@@ -1899,49 +1906,16 @@ with tab_evidencia:
                                     </div>
                                     """, unsafe_allow_html=True)
                                 
-                                # --- RESTAURACIÓN: PERFIL ESTRUCTURADO (DATOS COMUNES) ---
-                                st.markdown("#### 📋 Structured Clinical Profile")
-                                col_dem, col_adm = st.columns(2)
+                                # --- RESTORED: ENTIRELY AUTOMATED PROFILE LOOP USING ORIGINAL DICTIONARY ---
+                                st.markdown("#### 📋 Shared Clinical Profile")
+                                with st.container(height=280):
+                                    for nombre_var_es, valor_var in data["datos_comunes"].items():
+                                        # Translate labels cleanly on the fly using your master translation dictionary
+                                        nombre_en = TRANSLATION_DICT.get(nombre_var_es, nombre_var_es.replace('_', ' ').title())
+                                        valor_en = format_clinical_value(nombre_var_es, valor_var)
+                                        st.markdown(f"**{nombre_en}:** {valor_en}")
                                 
-                                datos_comunes = data.get("datos_comunes", {})
-                                
-                                with col_dem:
-                                    edad_str = format_clinical_value('rango_edad', datos_comunes.get('rango_edad', 'N/A'))
-                                    sexo_str = format_clinical_value('sexo', datos_comunes.get('sexo', 'N/A'))
-                                    pluri_str = 'Yes' if str(datos_comunes.get('pluripatologico', '0')).strip().upper() in ['1', '1.0', 'TRUE', 'YES'] else 'No'
-                                    st.write(f"**Age Range:** {edad_str}")
-                                    st.write(f"**Sex:** {sexo_str}")
-                                    st.write(f"**Multimorbidity:** {pluri_str}")
-                                    
-                                with col_adm:
-                                    area_str = datos_comunes.get('Area', 'N/A')
-                                    dias_str = safe_int(datos_comunes.get('dias_internados', 'N/A'))
-                                    comp_str = safe_int(datos_comunes.get('IN_COMPLEJIDAD', 'N/A'))
-                                    st.write(f"**Area:** {area_str}")
-                                    st.write(f"**Length of Stay:** {dias_str} days")
-                                    st.write(f"**Complexity Level:** {comp_str}")
-                                
-                                # Extraer factores clínicos activos (NLP)
-                                factores_activos = []
-                                for k, v in datos_comunes.items():
-                                    val_str = str(v).strip().upper()
-                                    if k.startswith(('LLM_', 'ING_', 'EVO_')) and val_str in ['1', '1.0', 'TRUE', 'YES']:
-                                        factores_activos.append(TRANSLATION_DICT.get(k, k.replace('_', ' ').title()))
-                                    elif k.startswith('DELTA_'):
-                                        try:
-                                            num_val = float(v)
-                                            if num_val != 0:
-                                                factores_activos.append(f"{TRANSLATION_DICT.get(k, k)}: {num_val:+.0f}")
-                                        except: pass
-
-                                if factores_activos:
-                                    with st.expander(f"🩺 Active Clinical Factors ({len(factores_activos)})", expanded=False):
-                                        for factor in sorted(factores_activos):
-                                            st.markdown(f"- {factor}")
-
                                 st.markdown("---")
-                                # ---------------------------------------------------------
-
                                 diagsec_en = traducir_ninguno(data['diagsec'])
                                 farmacos_raw = data['farmacos']
                                 
@@ -1967,7 +1941,6 @@ with tab_evidencia:
                                 raw_ing = str(matriz_extended[idx_gemelo_matriz, col_idx.get('texto_anamnesis_ingreso', -1)] if 'texto_anamnesis_ingreso' in col_idx else "")
                                 raw_evo = str(matriz_extended[idx_gemelo_matriz, col_idx.get('texto_evolucion_internacion', -1)] if 'texto_evolucion_internacion' in col_idx else "")
                                 
-                                invalid_markers = ["N/A", "MISSING_DATA", "NONE", "NAN", ""]
                                 texto_ing = "" if raw_ing.upper().strip() in invalid_markers else raw_ing
                                 texto_evo = "" if raw_evo.upper().strip() in invalid_markers else raw_evo
                                 
