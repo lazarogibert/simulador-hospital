@@ -1899,6 +1899,49 @@ with tab_evidencia:
                                     </div>
                                     """, unsafe_allow_html=True)
                                 
+                                # --- RESTAURACIÓN: PERFIL ESTRUCTURADO (DATOS COMUNES) ---
+                                st.markdown("#### 📋 Structured Clinical Profile")
+                                col_dem, col_adm = st.columns(2)
+                                
+                                datos_comunes = data.get("datos_comunes", {})
+                                
+                                with col_dem:
+                                    edad_str = format_clinical_value('rango_edad', datos_comunes.get('rango_edad', 'N/A'))
+                                    sexo_str = format_clinical_value('sexo', datos_comunes.get('sexo', 'N/A'))
+                                    pluri_str = 'Yes' if str(datos_comunes.get('pluripatologico', '0')).strip().upper() in ['1', '1.0', 'TRUE', 'YES'] else 'No'
+                                    st.write(f"**Age Range:** {edad_str}")
+                                    st.write(f"**Sex:** {sexo_str}")
+                                    st.write(f"**Multimorbidity:** {pluri_str}")
+                                    
+                                with col_adm:
+                                    area_str = datos_comunes.get('Area', 'N/A')
+                                    dias_str = safe_int(datos_comunes.get('dias_internados', 'N/A'))
+                                    comp_str = safe_int(datos_comunes.get('IN_COMPLEJIDAD', 'N/A'))
+                                    st.write(f"**Area:** {area_str}")
+                                    st.write(f"**Length of Stay:** {dias_str} days")
+                                    st.write(f"**Complexity Level:** {comp_str}")
+                                
+                                # Extraer factores clínicos activos (NLP)
+                                factores_activos = []
+                                for k, v in datos_comunes.items():
+                                    val_str = str(v).strip().upper()
+                                    if k.startswith(('LLM_', 'ING_', 'EVO_')) and val_str in ['1', '1.0', 'TRUE', 'YES']:
+                                        factores_activos.append(TRANSLATION_DICT.get(k, k.replace('_', ' ').title()))
+                                    elif k.startswith('DELTA_'):
+                                        try:
+                                            num_val = float(v)
+                                            if num_val != 0:
+                                                factores_activos.append(f"{TRANSLATION_DICT.get(k, k)}: {num_val:+.0f}")
+                                        except: pass
+
+                                if factores_activos:
+                                    with st.expander(f"🩺 Active Clinical Factors ({len(factores_activos)})", expanded=False):
+                                        for factor in sorted(factores_activos):
+                                            st.markdown(f"- {factor}")
+
+                                st.markdown("---")
+                                # ---------------------------------------------------------
+
                                 diagsec_en = traducir_ninguno(data['diagsec'])
                                 farmacos_raw = data['farmacos']
                                 
