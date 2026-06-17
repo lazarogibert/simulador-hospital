@@ -1529,11 +1529,17 @@ with tab_estrategia:
 with tab_evidencia:
     st.markdown("#### Clinical Similarity Network & Cohort Audit")
     
-    # --- HELPER FUNCTIONS (ORIGINAL ARCHITECTURE) ---
+    # --- HELPER FUNCTIONS (ORIGINAL ARCHITECTURE - FULLY EXPANDED) ---
     def format_clinical_value(key_es, value):
         val_str = str(value).strip().upper()
         if key_es == 'rango_edad':
-            traducciones_edad = {'ADULTO DE MEDIANA EDAD': 'Middle-Aged Adult', 'ADULTO MAYOR': 'Older Adult', 'ADULTO JOVEN': 'Young Adult', 'ANCIANO': 'Elderly', 'MENOR DE EDAD': 'Minor'}
+            traducciones_edad = {
+                'ADULTO DE MEDIANA EDAD': 'Middle-Aged Adult', 
+                'ADULTO MAYOR': 'Older Adult', 
+                'ADULTO JOVEN': 'Young Adult', 
+                'ANCIANO': 'Elderly', 
+                'MENOR DE EDAD': 'Minor'
+            }
             return traducciones_edad.get(val_str, value)
         if key_es == 'sexo':
             return {'MASCULINO': 'Male', 'FEMENINO': 'Female'}.get(val_str, value)
@@ -1573,7 +1579,7 @@ with tab_evidencia:
                 "Otros metabólicos / nutricionales": "Other metabolic / nutritional",
                 "Trastornos mentales orgánicos (Demencias)": "Organic mental disorders (Dementias)", "Trastornos por uso de sustancias": "Substance use disorders", 
                 "Esquizofrenia y trastornos psicóticos": "Schizophrenia and psychotic disorders", "Trastornos del humor (Afectivos)": "Mood (Affective) disorders", 
-                "Trastornos neuróticos and de ansiedad": "Neurotic and anxiety disorders", "Trastornos de la conducta alimentaria / sueño": "Eating / sleep disorders", 
+                "Trastornos neuróticos y de ansiedad": "Neurotic and anxiety disorders", "Trastornos de la conducta alimentaria / sueño": "Eating / sleep disorders", 
                 "Trastornos de la personalidad": "Personality disorders", "Discapacidad intelectual": "Intellectual disability", 
                 "Trastornos del desarrollo psicobiológico (Autismo)": "Psychobiological development disorders (Autism)", "Otros trastornos mentales": "Other mental disorders",
                 "Atrofias sistémicas del SNC": "Systemic atrophies of CNS", "Trastornos extrapiramidales y del movimiento (Parkinson)": "Extrapyramidal and movement disorders (Parkinson's)", 
@@ -1671,6 +1677,35 @@ with tab_evidencia:
         </div>
         """
 
+    # --- MASTER TRANSLATION DICTIONARY (RESTORED IN LOCAL SCOPE) ---
+    TRANSLATION_DICT = {
+        'dias_internados': 'Length of Stay (Days)', 'rango_edad': 'Age Range', 'pluripatologico': 'Multimorbidity',
+        'CIE10_MACRO': 'Primary Diagnosis (ICD-10)', 'LLM_tabaquismo_activo': 'Active Smoking', 'LLM_alcoholismo': 'Alcoholism',
+        'LLM_drogas_ilicitas': 'Illicit Drug Use', 'LLM_fragilidad_geriatrica': 'Geriatric Frailty',
+        'LLM_polifarmacia': 'Polypharmacy', 'LLM_desnutricion_severa': 'Severe Malnutrition', 'LLM_oxigenodependiente': 'Oxygen Dependent',
+        'LLM_historial_caidas': 'History of Falls', 'LLM_abandono_medicacion': 'Medication Abandonment',
+        'LLM_AF_diabetes': 'FHx: Diabetes', 'LLM_AF_hipertension': 'FHx: Hypertension', 'LLM_AF_cardiovascular_otro': 'FHx: Other Cardiovascular',
+        'LLM_AF_oncologico': 'FHx: Oncology', 'LLM_AF_metabolico_otro': 'FHx: Other Metabolic', 'LLM_AF_neurologico': 'FHx: Neurology',
+        'LLM_AF_psiquiatrico': 'FHx: Psychiatry', 'LLM_AF_respiratorio': 'FHx: Respiratory', 'LLM_AF_renal': 'FHx: Renal',
+        'LLM_AF_autoinmune': 'FHx: Autoimmune', 'ING_dolor_eva': 'Admission: Pain (VAS)', 'ING_gravedad_percibida': 'Admission: Perceived Severity',
+        'ING_alteracion_mental': 'Admission: Mental Alteration', 'ING_dependencia_funcional': 'Admission: Functional Dependency',
+        'ING_portador_dispositivos': 'Admission: Device Bearer', 'ING_consultas_reiteradas': 'Admission: Repeated Consultations',
+        'ING_riesgo_hemorragico': 'Admission: Hemorrhagic Risk', 'ING_infeccion_activa': 'Admission: Active Infection',
+        'EVO_dolor_eva': 'Evolution: Pain (VAS)', 'EVO_gravedad_percibida': 'Evolution: Perceived Severity', 
+        'EVO_alteracion_mental': 'Evolution: Mental Alteration', 'EVO_dependencia_funcional': 'Evolution: Functional Dependency', 
+        'EVO_portador_dispositivos': 'Evolution: Device Bearer', 'EVO_complicacion_internacion': 'Evolution: Hospital Complication', 
+        'EVO_fuga_o_alta_irregular': 'Evolution: Regular Discharge / Escape', 'EVO_cuidados_paliativos': 'Evolution: Palliative Care', 
+        'EVO_ulceras_presion': 'Evolution: Pressure Ulcers', 'EVO_aislamiento_infeccioso': 'Evolution: Infectious Isolation', 
+        'EVO_cambio_terapeutico_mayor': 'Evolution: Major Therapeutic Change', 'EVO_intervencion_quirurgica': 'Evolution: Surgical Intervention', 
+        'EVO_soporte_transfusional': 'Evolution: Transfusion Support', 'DELTA_dolor_eva': 'Δ Pain (VAS)',
+        'DELTA_gravedad_percibida': 'Δ Perceived Severity', 'DELTA_alteracion_mental': 'Δ Mental Alteration',
+        'DELTA_dependencia_funcional': 'Δ Functional Dependency', 'DELTA_portador_dispositivos': 'Δ Device Bearer',
+        'sexo': 'Sex', 'Area': 'Admission Area', 'IN_COMPLEJIDAD': 'Complexity Level', 
+        'cantidad_interconsultas': 'Interconsultations', 'visitas_guardia_6meses_previos': 'ER Visits (6m)',
+        'EST_ingreso_ambulancia': 'Ambulance Arrival', 'IN_ORDENIN': 'Scheduled Admission', 
+        'HIST_condicion_ultimo_egreso': 'Previous Discharge Condition'
+    }
+
     @st.cache_resource
     def load_similarity_assets():
         BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1685,7 +1720,7 @@ with tab_evidencia:
         matriz_ext = np.load(ruta_ext, allow_pickle=True)
         nombres_columnas = np.load(ruta_cols, allow_pickle=True)
         
-        # METHODOLOGICAL CALIBRATION: Initial extended pool (100 neighbors) to feed the interactive threshold
+        # EXTENDED DEEP POOL: Pull 100 neighbors to feed the mathematical threshold safely
         knn_engine = NearestNeighbors(n_neighbors=100, metric='cosine')
         knn_engine.fit(X_train_proc)
         
@@ -1697,7 +1732,7 @@ with tab_evidencia:
     plt.close('all') 
     
     try:
-        with st.spinner("Calculating topological metrics and embedding projections..."):
+        with st.spinner("Calculating topological metrics..."):
             knn, matriz_extended, nombres_columnas, X_train_proc, umap_embeddings = load_similarity_assets()
             
             prep = pipeline.named_steps['preprocesador']
@@ -1714,18 +1749,18 @@ with tab_evidencia:
                 umbral_similitud = st.slider(
                     "Minimum Similarity Threshold (%)", 
                     min_value=50, max_value=99, value=70, step=1,
-                    help="Higher values restrict the network to nearly identical admissions. Lower values reveal broader trends."
+                    help="Higher values restrict the network to nearly identical admissions."
                 )
             
             st.markdown("---")
             
-            # Filter the pool dynamically based on user interaction
+            # Filtering the pool based on the interactive slider
             mask_umbral = similitudes_brutas_pool >= umbral_similitud
             vecinos_idx = vecinos_idx_pool[mask_umbral]
             similitudes_brutas = similitudes_brutas_pool[mask_umbral]
             
             if len(vecinos_idx) == 0:
-                st.warning(f"No historical admissions found with a similarity match equal to or greater than {umbral_similitud}%. Please lower the threshold to expand the search radius.")
+                st.warning(f"No historical admissions found with a similarity match equal to or greater than {umbral_similitud}%. Please lower the threshold.")
             else:
                 col_idx = {col: i for i, col in enumerate(nombres_columnas)}
                 
@@ -1749,7 +1784,7 @@ with tab_evidencia:
                 
                 cohort_outcomes, cohort_ages, cohort_sex, cohort_diagnoses, cohort_multimorbidity = [], [], [], [], []
                 
-                # --- ORIGINAL DYNAMIC PREFIJO EXTRACTION LOGIC ---
+                # --- AUTOMATED PHENOTYPE PROPERTY DETECTOR LOOP ---
                 prefijos_nlp = ('LLM_', 'ING_', 'EVO_', 'DELTA_', 'rango_', 'pluripatologico', 'dias_', 'CIE10_MACRO', 'sexo', 'IN_COMPLEJIDAD', 'cantidad_interconsultas', 'visitas_', 'EST_', 'IN_ORDENIN', 'Area', 'HIST_condicion_ultimo_egreso')
                 columnas_comunes_dinamicas = [col for col in nombres_columnas if str(col).startswith(prefijos_nlp)]
                 
@@ -1759,7 +1794,6 @@ with tab_evidencia:
                     cohort_outcomes.append(reingreso_real)
                     
                     color_nodo = COLOR_HIST_READMIT if reingreso_real == 1.0 else COLOR_HIST_SAFE
-                    
                     raw_ing = str(matriz_extended[idx, col_idx.get('texto_anamnesis_ingreso', -1)] if 'texto_anamnesis_ingreso' in col_idx else "")
                     raw_evo = str(matriz_extended[idx, col_idx.get('texto_evolucion_internacion', -1)] if 'texto_evolucion_internacion' in col_idx else "")
                     tiene_texto = (raw_ing.upper().strip() not in invalid_markers) or (raw_evo.upper().strip() not in invalid_markers)
@@ -1779,7 +1813,7 @@ with tab_evidencia:
                     cohort_diagnoses.append(matriz_extended[idx, col_idx.get('CIE10_MACRO', -1)])
                     cohort_multimorbidity.append(matriz_extended[idx, col_idx.get('pluripatologico', -1)])
                     
-                    # RESTORED: Original automated dictionary layout architecture
+                    # Original automated dictionary builder
                     datos_gemelo = {
                         "similitud": similitud_pct,
                         "idx_matriz": idx,
@@ -1825,7 +1859,7 @@ with tab_evidencia:
                 nx.draw_networkx_labels(G, pos, ax=ax, font_size=8, font_weight='bold', font_color='black')
                 ax.axis('off')
                 
-                # --- 3. UI LAYOUT: GRAPH (LEFT) vs COHORT / INSPECTOR (RIGHT) ---
+                # --- 3. UI LAYOUT: GRAPH (LEFT) vs COHORT / INSPECTOR TABS (RIGHT) ---
                 col_grafo, col_panel = st.columns([1.5, 1.2])
                 
                 with col_grafo:
@@ -1906,11 +1940,10 @@ with tab_evidencia:
                                     </div>
                                     """, unsafe_allow_html=True)
                                 
-                                # --- RESTORED: ENTIRELY AUTOMATED PROFILE LOOP USING ORIGINAL DICTIONARY ---
+                                # --- AUTOMATED DYNAMIC INTERFACE LOOPER ---
                                 st.markdown("#### 📋 Shared Clinical Profile")
                                 with st.container(height=280):
                                     for nombre_var_es, valor_var in data["datos_comunes"].items():
-                                        # Translate labels cleanly on the fly using your master translation dictionary
                                         nombre_en = TRANSLATION_DICT.get(nombre_var_es, nombre_var_es.replace('_', ' ').title())
                                         valor_en = format_clinical_value(nombre_var_es, valor_var)
                                         st.markdown(f"**{nombre_en}:** {valor_en}")
