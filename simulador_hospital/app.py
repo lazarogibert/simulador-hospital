@@ -2039,8 +2039,8 @@ with tab_umap:
             borde_marcador = dict(width=0.6, color='rgba(255,255,255,0.6)')
             leyenda_formas = "(⚪ Safe | 🔶 Readmit)" 
             
-            # ROBUSTEZ 1: Desacople de Scope. Aseguramos que col_idx exista independientemente de la tab anterior.
-            if 'col_idx' not in locals():
+            # ROBUSTEZ 1: Desacople de Scope (locals y globals para Streamlit)
+            if 'col_idx' not in locals() and 'col_idx' not in globals():
                 col_idx = {col: i for i, col in enumerate(nombres_columnas)}
             
             # Datos Globales Base
@@ -2053,7 +2053,7 @@ with tab_umap:
             dias_global = matriz_extended[:, col_idx.get('dias_internados', -1)]
             pluri_global = matriz_extended[:, col_idx.get('pluripatologico', -1)]
             
-            # ROBUSTEZ: Métricas globales base
+            # Métricas globales base
             total_internaciones = len(y_hist_global)
             tasa_reingreso_base = (sum(y_hist_global) / total_internaciones) * 100 if total_internaciones > 0 else 0.0
             
@@ -2096,12 +2096,12 @@ with tab_umap:
                     marker=dict(color=color_hex, size=8 if es_activo else 6, opacity=0.9 if es_activo else 0.5, symbol='diamond', line=dict(color='white', width=0.8) if es_activo else borde_marcador)
                 ))
             
-            # --- MOTOR DE RESCATE TOPOLÓGICO PARA LA ESTRELLA Y EL ENTORNO LOCAL ---
-            if 'vecinos_idx_pool' not in locals():
+            # --- MOTOR DE RESCATE TOPOLÓGICO ---
+            if 'vecinos_idx_pool' not in locals() and 'vecinos_idx_pool' not in globals():
                 distancias_rescue, indices_rescue = knn.kneighbors(X_paciente_proc)
                 vecinos_idx_pool = indices_rescue[0]
                 
-            local_idx = vecinos_idx_pool[:20] # Extracción del "barrio" para cálculos dinámicos
+            local_idx = vecinos_idx_pool[:20] 
             
             with col_mapa:
                 if modo_color == "Readmitted vs Safe Discharge":
@@ -2135,7 +2135,6 @@ with tab_umap:
                     agregar_capa_umap(fig_umap, mask_multi_no, '#AAB7B8', 'No Multimorbidity', es_activo=True)
                     agregar_capa_umap(fig_umap, mask_multi_yes, '#D2691E', 'Multimorbidity Present', es_activo=True)
                 
-                # Proyección Estrella de la Internación Actual
                 paciente_umap_coords = np.mean(umap_embeddings[vecinos_idx_pool[:3]], axis=0, keepdims=True)
                 diag_paciente = format_clinical_value('CIE10_MACRO', df_paciente['CIE10_MACRO'].iloc[0] if 'CIE10_MACRO' in df_paciente.columns else 'N/A')
                 edad_paciente_raw = df_paciente['rango_edad'].iloc[0] if 'rango_edad' in df_paciente.columns else 'N/A'
@@ -2164,18 +2163,16 @@ with tab_umap:
                 st.plotly_chart(fig_umap, use_container_width=True)
 
             with col_insights:
-                st.markdown("### 📊 Global Risk Atlas Insights")
+                st.markdown("### 📊 Clinical Decision Support")
                 
-                # Cálculo base para el barrio local
                 outcomes_locales = y_hist_global[local_idx]
                 tasa_reingreso_local = (sum(outcomes_locales) / len(outcomes_locales)) * 100 if len(outcomes_locales) > 0 else tasa_reingreso_base
                 
                 st.markdown(
                     f"""
-                    <div style='padding:10px; background-color:rgba(128,128,128,0.1); border-radius:5px; margin-bottom:15px;'>
-                        <p style='margin:0; font-size:12px; color:gray;'>CENSUS PROJECTION</p>
-                        <h4 style='margin:0;'>N = {total_internaciones:,} historical admissions</h4>
-                        <p style='margin:0; font-size:14px;'>Hospital Base Readmission Rate: <b>{tasa_reingreso_base:.1f}%</b></p>
+                    <div style='padding:10px; background-color:rgba(128,128,128,0.1); border-radius:5px; margin-bottom:15px; border-left: 4px solid #1E90FF;'>
+                        <p style='margin:0; font-size:12px; color:gray;'>CENSUS PROJECTION (N = {total_internaciones:,})</p>
+                        <p style='margin:0; font-size:15px;'>Global Readmission Rate: <b>{tasa_reingreso_base:.1f}%</b></p>
                     </div>
                     """, unsafe_allow_html=True
                 )
@@ -2184,21 +2181,19 @@ with tab_umap:
                     total_readmits = sum(y_hist_global)
                     total_safes = total_internaciones - total_readmits
                     
-                    st.markdown("#### 🔴 Topography of Failure")
-                    st.markdown(f"- **Total Readmissions:** {int(total_readmits):,} admissions.")
-                    st.markdown(f"- **Total Safe Discharges:** {int(total_safes):,} admissions.")
+                    st.markdown("#### 📍 Topography of Failure")
+                    st.markdown(f"**Local Zone Readmission Rate:** `{tasa_reingreso_local:.1f}%`")
                     st.markdown("---")
                     
-                    # INSIGHT DINÁMICO 1: Entropía y Ambigüedad Clínica
-                    ratio_riesgo = tasa_reingreso_local / tasa_reingreso_base if tasa_reingreso_base > 0 else 0
-                    if 30 <= tasa_reingreso_local <= 70:
-                        insight_txt = f"🟡 <b>Maximum Uncertainty Border:</b> The star landed in a highly mixed zone. Historically, admissions mathematically identical to this one have completely divided outcomes ({tasa_reingreso_local:.0f}% failure rate). <b>Requires strict review of mitigable factors.</b>"
-                    elif tasa_reingreso_local > 70:
-                        insight_txt = f"🔴 <b>High Confidence Risk Zone:</b> The structural failure rate in this exact map coordinate is <b>{ratio_riesgo:.1f}x higher</b> than the hospital average."
+                    diferencia_relativa = tasa_reingreso_local - tasa_reingreso_base
+                    if diferencia_relativa < -3:
+                        insight_txt = f"🟢 **Probable Safe Discharge Supported:** The local topology demonstrates an ecosystem of high safety. Proceed with standard hospital protocols."
+                    elif diferencia_relativa > 5:
+                        insight_txt = f"🔴 **Critical Alert:** The phenotypic footprint of this admission falls in a zone with a failure rate of {tasa_reingreso_local:.1f}%. It is strongly recommended to review the case using the Counterfactual Simulator before granting discharge."
                     else:
-                        insight_txt = f"🟢 <b>High Confidence Safe Zone:</b> Local topology around the star shows a strong historical trend of successful discharges."
+                        insight_txt = f"🟡 **Suspended Discharge (Ambiguity):** Maximum uncertainty zone. Historically, identical admissions have highly mixed outcomes. Strictly review dynamic risk factors (vital signs, pain) before signing the discharge."
                         
-                    st.markdown("**Dynamic Topological Reading:**")
+                    st.markdown("**Clinical Imperative:**")
                     st.markdown(f"<div style='font-size:14px; line-height:1.5;'>{insight_txt}</div>", unsafe_allow_html=True)
 
                 elif modo_color == "Age Distribution":
@@ -2206,24 +2201,24 @@ with tab_umap:
                     df_edades = pd.DataFrame({'Age': edades_trad_global, 'Readmit': y_hist_global})
                     tasas_edad = df_edades.groupby('Age')['Readmit'].mean() * 100
                     
-                    edad_max_riesgo = tasas_edad.idxmax() if not tasas_edad.empty else "N/A"
-                    val_max_riesgo = tasas_edad.max() if not tasas_edad.empty else 0.0
-                    
-                    st.markdown("#### ⏳ Generational Risk Gap")
-                    st.markdown(f"- **Highest Risk Group:** {edad_max_riesgo} ({val_max_riesgo:.1f}% base rate).")
-                    st.markdown("---")
-                    
-                    # INSIGHT DINÁMICO 2: Alineación Fenotípica
                     edades_locales = np.array([format_clinical_value('rango_edad', e) for e in edades_global[local_idx]])
                     serie_edades_locales = pd.Series(edades_locales)
                     edad_dominante_local = serie_edades_locales.mode()[0] if not serie_edades_locales.empty else "Unknown"
                     pct_dominante_local = (serie_edades_locales == edad_dominante_local).mean() * 100
                     
-                    st.markdown("**Dynamic Topological Reading:**")
-                    if edad_paciente != edad_dominante_local and edad_paciente != "Unknown":
-                        insight_txt = f"🔴 <b>Phenotypic Misalignment:</b> Although the patient is chronologically a <b>{edad_paciente}</b>, their clinical footprint (diagnoses, drugs, text) places them squarely in the topological territory of the <b>{edad_dominante_local}</b> cohort ({pct_dominante_local:.0f}% of neighbors). Treat with the fragility protocol of the local topology."
+                    tasa_paciente_real = tasas_edad.get(edad_paciente, 0)
+                    tasa_zona_dominante = tasas_edad.get(edad_dominante_local, 0)
+                    
+                    st.markdown("#### ⏳ Generational Risk Mapping")
+                    st.markdown(f"- **Patient's Biological Cohort Rate:** `{tasa_paciente_real:.1f}%`")
+                    st.markdown(f"- **Local Zone Dominant Cohort ({edad_dominante_local}):** `{tasa_zona_dominante:.1f}%`")
+                    st.markdown("---")
+                    
+                    st.markdown("**Clinical Imperative:**")
+                    if edad_paciente != edad_dominante_local and edad_paciente not in ["Unknown", "N/A"]:
+                        insight_txt = f"🔴 **Premature Frailty Detected:** Although chronologically a <b>{edad_paciente}</b>, their complexity places them in a neighborhood dominated by <b>{edad_dominante_local}s</b>. Their expected risk aligns with the local zone ({tasa_reingreso_local:.1f}%), not their age group. Reassess discharge support."
                     else:
-                        insight_txt = f"🟢 <b>Phenotypic Alignment:</b> The admission maps exactly to its chronological cohort. <b>{pct_dominante_local:.0f}%</b> of historical cases in this region also belong to the <b>{edad_dominante_local}</b> group, validating the expected clinical trajectory."
+                        insight_txt = f"🟢 **Expected Biological Evolution:** The admission maps correctly to its chronological cohort. The readmission risk ({tasa_reingreso_local:.1f}%) is driven purely by primary diagnoses rather than premature frailty."
                     
                     st.markdown(f"<div style='font-size:14px; line-height:1.5;'>{insight_txt}</div>", unsafe_allow_html=True)
 
@@ -2231,41 +2226,69 @@ with tab_umap:
                     mask_multi_yes = np.array([str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'] for x in pluri_global])
                     mask_multi_no = ~mask_multi_yes
                     
+                    pluri_local_raw = pluri_global[local_idx]
+                    mask_multi_local = np.array([str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'] for x in pluri_local_raw])
+                    pct_pluri_local = np.mean(mask_multi_local) * 100 if len(mask_multi_local) > 0 else 0
+                    
                     pct_pluri_global = (sum(mask_multi_yes) / total_internaciones) * 100 if total_internaciones > 0 else 0
+                    
                     tasa_multi_yes = (sum(y_hist_global[mask_multi_yes]) / sum(mask_multi_yes)) * 100 if sum(mask_multi_yes) > 0 else 0.0
                     tasa_multi_no = (sum(y_hist_global[mask_multi_no]) / sum(mask_multi_no)) * 100 if sum(mask_multi_no) > 0 else 0.0
                     riesgo_relativo = (tasa_multi_yes / tasa_multi_no) if tasa_multi_no > 0 else 0.0
                     
                     st.markdown("#### ⛓️ The Chronicity Burden")
-                    st.markdown(f"- **Hospital Prevalence:** {pct_pluri_global:.1f}%")
-                    st.markdown(f"- **Relative Risk Multiplier:** **{riesgo_relativo:.1f}x**")
+                    st.markdown(f"- **Global Multimorbidity Rate:** `{pct_pluri_global:.1f}%`")
+                    st.markdown(f"- **Local Zone Multimorbidity Density:** `{pct_pluri_local:.1f}%`")
                     st.markdown("---")
                     
-                    # INSIGHT DINÁMICO 3: Gravedad Aguda vs Saturación Crónica
-                    pluri_paciente_raw = df_paciente['pluripatologico'].iloc[0] if 'pluripatologico' in df_paciente.columns else '0'
-                    is_paciente_pluri = str(pluri_paciente_raw).strip().upper() in ['1', '1.0', 'TRUE', 'YES']
-                    
-                    pluri_local_raw = pluri_global[local_idx]
-                    mask_multi_local = np.array([str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'] for x in pluri_local_raw])
-                    pct_pluri_local = np.mean(mask_multi_local) * 100 if len(mask_multi_local) > 0 else 0
-                    
-                    st.markdown("**Dynamic Topological Reading:**")
-                    if not is_paciente_pluri and pct_pluri_local > 60:
-                        insight_txt = f"🔴 <b>Acute Severity Alert:</b> The patient has no recorded multiple chronic conditions, but their current acute presentation creates a phenotype so complex that it mathematically behaves like a severe pluripathological case (<b>{pct_pluri_local:.0f}%</b> of geometric neighbors here have multimorbidity)."
+                    st.markdown("**Clinical Imperative:**")
+                    if pct_pluri_local < 30:
+                        insight_txt = f"🟡 **Severe Acute Phenotype:** The risk in this zone ({tasa_reingreso_local:.1f}%) is NOT driven by chronicity, but by the severity of the acute event. Safe discharge strictly depends on full resolution of acute vital signs."
+                    elif pct_pluri_local > 70:
+                        insight_txt = f"🔴 **Local Chronic Saturation:** The patient entered a territory of high accumulated frailty. Risk ({tasa_reingreso_local:.1f}%) is due to cascading decompensation. <b>Non-negotiable condition for discharge:</b> secure early outpatient control and strictly review polypharmacy."
                     else:
-                        insight_txt = f"🏥 <b>Local Chronicity Saturation:</b> The star is located in a quadrant where <b>{pct_pluri_local:.0f}%</b> of historical admissions involve multimorbidity, indicating a high dependence on post-discharge resources and structured follow-up."
+                        insight_txt = f"🟠 **Mixed Complexity Phenotype:** The topological zone shows an active crossover between acute severity and chronic deterioration. Standard surveillance is advised."
                         
                     st.markdown(f"<div style='font-size:14px; line-height:1.5;'>{insight_txt}</div>", unsafe_allow_html=True)
 
+                # --- EL VEREDICTO FINAL DE VIGILANCIA ---
                 st.markdown("---")
-                st.markdown("#### ⭐ Current Admission Zone")
                 
-                estado_zona = "Hot Zone (High Risk)" if tasa_reingreso_local > tasa_reingreso_base else "Safe Zone (Low Risk)"
-                color_zona = "red" if tasa_reingreso_local > tasa_reingreso_base else "green"
+                # ROBUSTEZ 2: Cálculo seguro del nivel de vigilancia, evadiendo fallos por arrays vacíos.
+                diferencia_relativa = tasa_reingreso_local - tasa_reingreso_base
                 
+                if len(local_idx) > 0:
+                    local_pluri_vals = [str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'] for x in pluri_global[local_idx]]
+                    pct_pluri_local_verdict = (sum(local_pluri_vals) / len(local_pluri_vals)) * 100
+                    
+                    local_edades = [format_clinical_value('rango_edad', e) for e in edades_global[local_idx]]
+                    serie_edades = pd.Series(local_edades)
+                    edad_dominante_verdict = serie_edades.mode()[0] if not serie_edades.empty else "Unknown"
+                else:
+                    pct_pluri_local_verdict = 0.0
+                    edad_dominante_verdict = "Unknown"
+                
+                is_misaligned = (edad_paciente != edad_dominante_verdict) and (edad_paciente not in ["Unknown", "N/A"])
+                
+                if diferencia_relativa > 7 or pct_pluri_local_verdict > 80 or (is_misaligned and diferencia_relativa > 0):
+                    nivel_vigilancia = "STRICT (High Risk of Failure)"
+                    color_v = "#FF4B4B" # Rojo
+                elif diferencia_relativa < -3 and pct_pluri_local_verdict < 40:
+                    nivel_vigilancia = "STANDARD (Clear to Discharge)"
+                    color_v = "#00C851" # Verde
+                else:
+                    nivel_vigilancia = "MODERATE (Review Mitigable Factors)"
+                    color_v = "#FFBB33" # Naranja
+                
+                st.markdown("#### ⭐ Final Verdict: Current Admission")
                 st.markdown(
-                    f"This admission landed in a **<span style='color:{color_zona}'>{estado_zona}</span>**.<br>"
-                    f"The immediate topological neighborhood surrounding the star has a historical failure rate of **{tasa_reingreso_local:.1f}%**.", 
+                    f"""
+                    <div style='padding: 12px; background-color: {color_v}15; border: 1px solid {color_v}; border-radius: 6px;'>
+                        <p style='margin:0; font-size:13px; color: {color_v};'><strong>RECOMMENDED VIGILANCE LEVEL</strong></p>
+                        <h4 style='margin: 5px 0 0 0; color: {color_v};'>{nivel_vigilancia}</h4>
+                        <p style='margin: 8px 0 0 0; font-size:12px;'>Based on spatial position, cross-referenced age profiling, and local chronic saturation, the expected failure rate for this precise coordinate is <b>{tasa_reingreso_local:.1f}%</b>.</p>
+                    </div>
+                    """, 
                     unsafe_allow_html=True
                 )
 
