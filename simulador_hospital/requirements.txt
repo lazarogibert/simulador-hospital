@@ -15,3 +15,4 @@ json-repair
 plotly
 lime
 umap-learn
+cloudpickle
