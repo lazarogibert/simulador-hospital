@@ -297,6 +297,36 @@ def cargar_entorno():
 
 pipeline, umbral, columnas_modelo = cargar_entorno()
 
+pipeline, umbral, columnas_modelo = cargar_entorno()
+
+# ==========================================
+# PARCHE DE EMERGENCIA PARA EL SELECTOR PICKLED
+# ==========================================
+import types
+import scipy.sparse
+
+# Verificamos si el selector personalizado existe en el pipeline
+if 'feature_selection' in pipeline.named_steps:
+    selector_instancia = pipeline.named_steps['feature_selection']
+    
+    # Creamos un método a prueba de fallos que maneje matrices ralas
+    def parche_transform_seguro(self, X):
+        # 1. Si sklearn envía una matriz rala (común tras OneHotEncoding), la densificamos
+        if scipy.sparse.issparse(X) or hasattr(X, 'toarray'):
+            X_seguro = X.toarray()
+        else:
+            X_seguro = X
+            
+        # 2. Aplicamos la máscara correctamente, ya sea DataFrame o Array
+        if hasattr(X_seguro, 'loc'):
+            return X_seguro.loc[:, self.mascara_final_]
+        else:
+            return X_seguro[:, self.mascara_final_]
+            
+    # 3. Inyectamos y reemplazamos el método roto en la instancia cargada
+    selector_instancia.transform = types.MethodType(parche_transform_seguro, selector_instancia)
+# ==========================================
+
 @st.cache_resource
 def load_similarity_assets():
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
