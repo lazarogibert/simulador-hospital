@@ -16,3 +16,4 @@ plotly
 lime
 umap-learn
 cloudpickle
+scikit-learn>=1.2.2
