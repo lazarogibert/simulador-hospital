@@ -32,7 +32,7 @@ warnings.filterwarnings("ignore")
 # ==========================================
 # Esto asegura que el preprocesador devuelva un DataFrame de Pandas
 # en lugar de un array de NumPy, evitando que el Selector colapse.
-sklearn.set_config(transform="pandas")
+sklearn.set_config(transform_output="pandas")
 
 # ==========================================
 # CLASE CUSTOM SELECTOR
