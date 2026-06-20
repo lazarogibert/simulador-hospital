@@ -19,7 +19,67 @@ from sklearn.inspection import PartialDependenceDisplay
 import lime
 import lime.lime_tabular
 import umap
+
+# 1. NUEVOS IMPORTS REQUERIDOS PARA EL SELECTOR Y LA CONFIGURACIÓN
+import sklearn
+from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.feature_selection import SelectFromModel
+
 warnings.filterwarnings("ignore")
+
+# ==========================================
+# 0. CONFIGURACIÓN PANDAS PARA SKLEARN (CRÍTICO)
+# ==========================================
+# Esto asegura que el preprocesador devuelva un DataFrame de Pandas
+# en lugar de un array de NumPy, evitando que el Selector colapse.
+sklearn.set_config(transform="pandas")
+
+# ==========================================
+# CLASE CUSTOM SELECTOR
+# (Debe estar declarada aquí para que cloudpickle la parchee al cargar)
+# ==========================================
+class SelectorConConocimientoMedico(BaseEstimator, TransformerMixin):
+    def __init__(self, estimator, threshold='median', variables_obligatorias=None):
+        self.estimator = estimator
+        self.threshold = threshold
+        self.variables_obligatorias = variables_obligatorias if variables_obligatorias else []
+        self.selector_base = SelectFromModel(estimator=self.estimator, threshold=self.threshold)
+        
+    def fit(self, X, y=None):
+        self.selector_base.fit(X, y)
+        self.mascara_final_ = self.selector_base.get_support().copy()
+        
+        if hasattr(X, 'columns'):
+            self.nombres_columnas_ = X.columns
+        else:
+            raise ValueError("El input debe ser un DataFrame. Activa set_output(transform='pandas').")
+            
+        for i, col in enumerate(self.nombres_columnas_):
+            col_str = str(col)
+            col_limpia = col_str.replace('num__', '').replace('cat__', '')
+            
+            if col_limpia.startswith(('LLM_', 'ING_', 'EVO_', 'Riesgo_')):
+                es_intocable = any(var_obl in col_limpia for var_obl in self.variables_obligatorias)
+                if es_intocable:
+                    self.mascara_final_[i] = True 
+            else:
+                self.mascara_final_[i] = True
+                
+        self.variables_descartadas_ = self.nombres_columnas_[~self.mascara_final_].tolist()
+        self.variables_mantenidas_ = self.nombres_columnas_[self.mascara_final_].tolist()
+                
+        return self
+        
+    def transform(self, X):
+        # BLINDAJE: Maneja tanto DataFrames como Arrays con seguridad
+        if hasattr(X, 'loc'):
+            return X.loc[:, self.mascara_final_]
+        else:
+            return X[:, self.mascara_final_]
+            
+    def get_support(self):
+        return self.mascara_final_
+
 
 # ==========================================
 # VARIABLES GLOBALES DE CONFIGURACIÓN
