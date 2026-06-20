@@ -3,7 +3,7 @@ import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
 from translations import FARMACOS_TRANSLATION_DICT
-import cloudpickle
+import joblib
 import shap
 import dice_ml
 import matplotlib.pyplot as plt
@@ -20,23 +20,20 @@ import lime
 import lime.lime_tabular
 import umap
 
-# 1. NUEVOS IMPORTS REQUERIDOS PARA EL SELECTOR Y LA CONFIGURACIÓN
+# --- BLINDAJE ESTRUCTURAL SKLEARN ---
 import sklearn
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.feature_selection import SelectFromModel
 
+try:
+    sklearn.set_config(transform_output="pandas")
+except Exception:
+    pass
+
 warnings.filterwarnings("ignore")
 
 # ==========================================
-# 0. CONFIGURACIÓN PANDAS PARA SKLEARN (CRÍTICO)
-# ==========================================
-# Esto asegura que el preprocesador devuelva un DataFrame de Pandas
-# en lugar de un array de NumPy, evitando que el Selector colapse.
-sklearn.set_config(transform_output="pandas")
-
-# ==========================================
-# CLASE CUSTOM SELECTOR
-# (Debe estar declarada aquí para que cloudpickle la parchee al cargar)
+# CLASE SELECTORA MÉDICA (OVERRIDE PARA PICKLE/JOBLIB)
 # ==========================================
 class SelectorConConocimientoMedico(BaseEstimator, TransformerMixin):
     def __init__(self, estimator, threshold='median', variables_obligatorias=None):
@@ -71,26 +68,19 @@ class SelectorConConocimientoMedico(BaseEstimator, TransformerMixin):
         return self
         
     def transform(self, X):
-        # BLINDAJE: Maneja tanto DataFrames como Arrays con seguridad
-        if hasattr(X, 'loc'):
-            return X.loc[:, self.mascara_final_]
+        import scipy.sparse
+        if scipy.sparse.issparse(X) or hasattr(X, 'toarray'):
+            X_seguro = X.toarray()
         else:
-            return X[:, self.mascara_final_]
+            X_seguro = X
+            
+        if hasattr(X_seguro, 'loc'):
+            return X_seguro.loc[:, self.mascara_final_]
+        else:
+            return X_seguro[:, self.mascara_final_]
             
     def get_support(self):
         return self.mascara_final_
-
-
-# ==========================================
-# VARIABLES GLOBALES DE CONFIGURACIÓN
-# ==========================================
-# Definir categóricas estrictas EXACTAMENTE como en el entrenamiento.
-VARIABLES_CATEGORICAS_TRAIN = [
-    'rango_edad', 'PA_NIVEL', 'PA_SITLABO', 'Area', 
-    'TR_Prioridad', 'IN_COMPLEJIDAD', 'sexo', 
-    'CIE10_MACRO', 'CIE10_SUBMACRO', 'HIST_condicion_ultimo_egreso',
-    'perfil_clinico_ingreso'
-]
 
 # ==========================================
 # 0. FUNCIONES DE PROCESAMIENTO CLÍNICO (CIE-10)
@@ -286,9 +276,7 @@ def cargar_entorno():
     directorio_actual = os.path.dirname(os.path.abspath(__file__))
     ruta_modelo = os.path.join(directorio_actual, 'modelo_reingreso_nlp_41vars_v2.pkl')
     
-    with open(ruta_modelo, 'rb') as f:
-        paquete = cloudpickle.load(f)
-        
+    paquete = joblib.load(ruta_modelo)
     pipeline = paquete['pipeline']
     umbral = paquete['umbral']
     cols_modelo = paquete['nombres_columnas']
@@ -297,68 +285,29 @@ def cargar_entorno():
 
 pipeline, umbral, columnas_modelo = cargar_entorno()
 
-pipeline, umbral, columnas_modelo = cargar_entorno()
-
-# ==========================================
-# PARCHE DE EMERGENCIA PARA EL SELECTOR PICKLED
-# ==========================================
-import types
-import scipy.sparse
-
-# Verificamos si el selector personalizado existe en el pipeline
-if 'feature_selection' in pipeline.named_steps:
-    selector_instancia = pipeline.named_steps['feature_selection']
-    
-    # Creamos un método a prueba de fallos que maneje matrices ralas
-    def parche_transform_seguro(self, X):
-        # 1. Si sklearn envía una matriz rala (común tras OneHotEncoding), la densificamos
-        if scipy.sparse.issparse(X) or hasattr(X, 'toarray'):
-            X_seguro = X.toarray()
-        else:
-            X_seguro = X
-            
-        # 2. Aplicamos la máscara correctamente, ya sea DataFrame o Array
-        if hasattr(X_seguro, 'loc'):
-            return X_seguro.loc[:, self.mascara_final_]
-        else:
-            return X_seguro[:, self.mascara_final_]
-            
-    # 3. Inyectamos y reemplazamos el método roto en la instancia cargada
-    selector_instancia.transform = types.MethodType(parche_transform_seguro, selector_instancia)
-# ==========================================
-
-@st.cache_resource
-def load_similarity_assets():
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    ruta_x = os.path.join(BASE_DIR, 'X_train_proc_llm.npy')
-    ruta_ext = os.path.join(BASE_DIR, 'matriz_extended_display_llm.npy')
-    ruta_cols = os.path.join(BASE_DIR, 'columnas_display_llm.npy')
-    
-    if not all(os.path.exists(p) for p in [ruta_x, ruta_ext, ruta_cols]):
-        raise FileNotFoundError("Similarity assets missing. Ensure matrices are in the server volume.")
-        
-    X_train_proc = np.load(ruta_x)
-    matriz_ext = np.load(ruta_ext, allow_pickle=True)
-    nombres_columnas = np.load(ruta_cols, allow_pickle=True)
-    
-    knn_engine = NearestNeighbors(n_neighbors=100, metric='cosine')
-    knn_engine.fit(X_train_proc)
-    
-    umap_reducer = umap.UMAP(n_neighbors=15, min_dist=0.1, metric='cosine', random_state=42)
-    umap_embeddings = umap_reducer.fit_transform(X_train_proc)
-    
-    return knn_engine, matriz_ext, nombres_columnas, X_train_proc, umap_embeddings
-
 # ==========================================
 # 3. INTERFACE CAPTURE (MANUAL CORE & NLP AUTOMATION)
 # ==========================================
 st.sidebar.header("🩺 Phenotype Loading")
 
-# --- DICCIONARIOS ACTUALIZADOS (PURGADOS DE VARIABLES EXCLUIDAS) ---
+# --- REFINED DICTIONARIES ---
 opciones_edad_dict = {
     "Young Adult": "Adulto joven", 
     "Middle-aged Adult": "Adulto de mediana edad", 
     "Older Adult": "Adulto mayor"
+}
+
+area_map = {
+    "Internal Medicine": "Clinica_Medica",
+    "ER (Emergency Room)": "Emerg_Guardias"
+}
+
+perfil_clinico_map = {
+    "Initial Admission": "Internacion inicial",
+    "Admission-Associated Complication": "Complicacion asociada a la internecion",
+    "Multimorbidity Decompensation": "Descompensacion de pluripatologia",
+    "Same Cause": "Misma causa",
+    "Unrelated Readmission": "Reinternacion no asociada"
 }
 
 cro_dict = {
@@ -388,20 +337,7 @@ evo_dict = {
     'Transfusion Support': 'soporte_transfusional'
 }
 
-perfil_clinico_map = {
-    "Initial Admission": "Internacion inicial",
-    "Admission-Associated Complication": "Complicacion asociada a la internecion",
-    "Multimorbidity Decompensation": "Descompensacion de pluripatologia",
-    "Same Cause": "Misma causa",
-    "Unrelated Readmission": "Reinternacion no asociada"
-}
-
-area_map = {
-    "Internal Medicine": "Clinica_Medica",
-    "ER (Emergency Room)": "Emerg_Guardias"
-}
-
-# Inicialización de estado
+# State Initialization
 for key in ["ui_cro_sel", "ui_ing_sel", "ui_evo_sel"]:
     if key not in st.session_state: st.session_state[key] = []
 for key in ["ui_ing_dolor", "ui_ing_grav", "ui_evo_dolor", "ui_evo_grav"]:
@@ -415,7 +351,7 @@ cie10_input = st.sidebar.text_input("Reason for admission (ICD-10 Code):", value
 dias_internados = st.sidebar.number_input("Number of days hospitalized:", min_value=0, max_value=150, value=5)
 
 rango_edad_ui = st.sidebar.selectbox("Patient Age Range:", list(opciones_edad_dict.keys()))
-rango_edad = opciones_edad_dict[rango_edad_ui]
+rango_edad = opciones_edad_dict[rango_edad_ui].upper()
 
 sexo_map = {"Male": "MASCULINO", "Female": "FEMENINO"}
 sexo_ui = st.sidebar.selectbox("Sex:", list(sexo_map.keys()))
@@ -425,15 +361,15 @@ area_ui = st.sidebar.selectbox("Admission Area:", list(area_map.keys()))
 area_input = area_map[area_ui]
 
 perfil_ui = st.sidebar.selectbox("Admission Clinical Profile:", list(perfil_clinico_map.keys()))
-perfil_input = perfil_clinico_map[perfil_ui]
+perfil_input = perfil_clinico_map[perfil_ui].upper()
 
-complejidad_input = st.sidebar.number_input("Complexity Level (IN_COMPLEJIDAD):", min_value=1, step=1, value=1, help="Administrative classification level")
+complejidad_input = st.sidebar.number_input("Complexity Level (IN_COMPLEJIDAD):", min_value=1, step=1, value=1)
 interconsultas_input = st.sidebar.number_input("Interconsultations:", min_value=0, value=0)
 visitas_guardia_input = st.sidebar.number_input("ER Visits (Previous 6 months):", min_value=0, value=0)
 
 es_pluripatologico = st.sidebar.checkbox("Has Multimorbidity (Pluripathological)?", value=False)
-ingreso_ambulancia = st.sidebar.checkbox("Arrived by Ambulance (EST_ingreso_ambulancia)?", value=False)
-paso_por_uti = st.sidebar.checkbox("ICU Stay during admission (Paso por UTI)?", value=False)
+ingreso_ambulancia = st.sidebar.checkbox("Arrived by Ambulance?", value=False)
+paso_por_uti = st.sidebar.checkbox("ICU Stay during admission?", value=False)
 
 st.sidebar.markdown("#### High-Risk Medications")
 med_cardio = st.sidebar.checkbox("Cardiovascular / Inotropes", value=False)
@@ -457,7 +393,7 @@ api_key = st.sidebar.text_input(
     "Gemini API Key (Live Triage):", 
     value=api_key_default,
     type="password", 
-    help="Automatically loaded from Streamlit Secrets. Paste here if not configured."
+    help="Automatically loaded from Streamlit Secrets."
 )
 
 ing_text = st.sidebar.text_area("Admission Notes:", height=100)
@@ -465,7 +401,7 @@ evo_text = st.sidebar.text_area("Evolution Notes:", height=100)
 
 if st.sidebar.button("🧠 Run NLP Extraction", use_container_width=True):
     if not api_key:
-        st.sidebar.error("API Key required. Please configure st.secrets or paste it above.")
+        st.sidebar.error("API Key required.")
     elif not ing_text and not evo_text:
         st.sidebar.warning("Please provide clinical notes.")
     else:
@@ -498,7 +434,7 @@ DICCIONARIO DE VARIABLES Y CRITERIOS CLÍNICOS EXACTOS:
 - LLM_abandono_medicacion: El paciente/familia dejó de tomar la medicación por decisión propia, mala adherencia o razones socioeconómicas. (NO aplica si la suspensión fue indicación médica).
 
 -- B. Dinámicas (Prefijo ING_ para Ingreso, EVO_ para Evolución):
-- dolor_eva (entero 0-10): Extrae el valor numérico SOLO si se asocia explícitamente a la intensidad del dolor (ej. "EVA 7", "dolor 8/10"). Si usa palabras, mapea: "sin dolor"=0, "leve"=2, "moderado"=5, "intenso"=8, "insoportable"=10. Si NO se menciona el dolor, usa el primitivo null estricto (sin comillas).
+- dolor_eva (entero 0-10): Extrae el valor numérico SOLO si se asocia explícitamente a la intensidad del dolor (ej. "EVA 7", "dolor 8/10"). Si usa palabras, mapea: "sin dolor"=0, "leve"=2, "moderado"=5, "intenso"=8, "insoportable"=10. Si NO se menciona el dolor, usa el null estricto (sin comillas).
 - gravedad_percibida (entero 1-10): Mapea el contexto clínico: 1-3 (Ambulatorio/Leve), 4-6 (Sala general estable), 7-8 (Cuidados Intermedios/Descompensado), 9-10 (UTI/Shock/Reanimación/Asistencia Respiratoria). Si no hay datos suficientes, usa null.
 - alteracion_mental (bool): Mención de delirium, excitación, desorientación, confusión, obnubilación, letargo, sopor, coma, somnolencia excesiva o Glasgow < 15.
 - dependencia_funcional (bool): Requiere asistencia para actividades básicas, paciente postrado, hemiplejía, cuadriplejía, paresia severa, o ACV secuelar motor.
@@ -510,15 +446,15 @@ DICCIONARIO DE VARIABLES Y CRITERIOS CLÍNICOS EXACTOS:
 - ING_infeccion_activa (bool): Mención de fiebre al ingreso, sospecha de sepsis, uso empírico de antibióticos desde la guardia o foco infeccioso claro (neumonía, ITU, celulitis).
 
 -- D. Exclusivas de Evolución (Solo eventos del curso de la internación):
-- EVO_complicacion_internacion (bool): Infección intrahospitalaria, nueva caída, flebitis, intercurrencia nueva, shock, sepsis, descompensación hemodinámica.
+- EVO_complicacion_internacion (bool): Infección intrahospitalaria, nueva caída, flebitis, intercurrencia nueva, shock, sepsis, descompensación hemodinámica, o necesidad de pase a UTI.
 - EVO_aislamiento_infeccioso (bool): Aislamiento de contacto o respiratorio.
 - EVO_cambio_terapeutico_mayor (bool): Inicio de insulina, anticoagulación, inotrópicos, o anticonvulsivantes durante la internación.
-- EVO_intervencion_quirurgica (bool): Mención de paso por quirófano, cirugía, o procedimiento invasivo mayor (endoscopía, cateterismo).
+- EVO_intervencion_quirurgica (bool): Mención de paso por quirófano, cirugía, o procedimiento invasivo mayor.
 - EVO_soporte_transfusional (bool): Requirió transfusión de hemoderivados durante su estadía.
 
 FORMATO DE SALIDA OBLIGATORIO:
 Devuelve un JSON válido donde CADA CLAVE es un objeto con 'valor' y 'cita'. Claves esperadas:
-LLM_tabaquismo_activo, LLM_polifarmacia, LLM_historial_caidas, LLM_abandono_medicacion, ING_dolor_eva (0-10), ING_gravedad_percibida (1-10), ING_alteracion_mental, ING_dependencia_funcional, ING_portador_dispositivos, ING_consultas_reiteradas, ING_riesgo_hemorragico, ING_infeccion_activa, EVO_dolor_eva (0-10), EVO_gravedad_percibida (1-10), EVO_alteracion_mental, EVO_dependencia_funcional, EVO_portador_dispositivos, EVO_complicacion_internacion, EVO_aislamiento_infeccioso, EVO_cambio_terapeutico_mayor, EVO_intervencion_quirurgica, EVO_soporte_transfusional.
+LLM_tabaquismo_activo, LLM_polifarmacia, LLM_historial_caidas, LLM_abandono_medicacion, ING_dolor_eva, ING_gravedad_percibida, ING_alteracion_mental, ING_dependencia_funcional, ING_portador_dispositivos, ING_consultas_reiteradas, ING_riesgo_hemorragico, ING_infeccion_activa, EVO_dolor_eva, EVO_gravedad_percibida, EVO_alteracion_mental, EVO_dependencia_funcional, EVO_portador_dispositivos, EVO_complicacion_internacion, EVO_aislamiento_infeccioso, EVO_cambio_terapeutico_mayor, EVO_intervencion_quirurgica, EVO_soporte_transfusional.
 
 Ejemplo: {"LLM_tabaquismo_activo": {"valor": true, "cita": "fuma 10 cigarrillos al día"}, ...}
 A continuación la historia clínica para auditar:
@@ -546,7 +482,7 @@ A continuación la historia clínica para auditar:
                                     if k == 'ING_gravedad_percibida': st.session_state.ui_ing_grav = num_val
                                     if k == 'EVO_dolor_eva': st.session_state.ui_evo_dolor = num_val
                                     if k == 'EVO_gravedad_percibida': st.session_state.ui_evo_grav = num_val
-                                except Exception: pass
+                                except: pass
                             elif val in [True, 1, 'true', 'yes']:
                                 base_k = k.replace('LLM_', '').replace('ING_', '').replace('EVO_', '')
                                 if "LLM_" in k: cro_activos.append(base_k)
@@ -626,33 +562,47 @@ with c_evo:
 # ==========================================
 paciente_data = {}
 
-if 'rango_edad' in columnas_modelo: paciente_data['rango_edad'] = rango_edad
-if 'dias_internados' in columnas_modelo: paciente_data['dias_internados'] = float(dias_internados)
-if 'pluripatologico' in columnas_modelo: paciente_data['pluripatologico'] = 1.0 if es_pluripatologico else 0.0
+variables_categoricas_train = [
+    'rango_edad', 'PA_NIVEL', 'PA_SITLABO', 'Area', 
+    'TR_Prioridad', 'IN_COMPLEJIDAD', 'sexo', 
+    'CIE10_MACRO', 'CIE10_SUBMACRO', 'HIST_condicion_ultimo_egreso',
+    'perfil_clinico_ingreso'
+]
+
+# Inicialización segura
+for col in columnas_modelo:
+    if col in variables_categoricas_train:
+        paciente_data[col] = "DESCONOCIDO"
+    else:
+        paciente_data[col] = 0.0
+
+if 'rango_edad' in paciente_data: paciente_data['rango_edad'] = rango_edad
+if 'dias_internados' in paciente_data: paciente_data['dias_internados'] = float(dias_internados)
+if 'pluripatologico' in paciente_data: paciente_data['pluripatologico'] = 1.0 if es_pluripatologico else 0.0
 
 codigo_normalizado = normalizar_cie10(cie10_input)
 categoria_cie10 = mapear_cie10_macro(codigo_normalizado)
-if 'CIE10_MACRO' in columnas_modelo: paciente_data['CIE10_MACRO'] = categoria_cie10
+if 'CIE10_MACRO' in paciente_data: paciente_data['CIE10_MACRO'] = categoria_cie10
 
 for cro in cronicos_seleccionados: 
-    if f"LLM_{cro}" in columnas_modelo: paciente_data[f"LLM_{cro}"] = 1.0
+    if f"LLM_{cro}" in paciente_data: paciente_data[f"LLM_{cro}"] = 1.0
 
 ing_dolor_val = float(ing_dolor)
 ing_grav_val = float(ing_grav)
-if 'ING_dolor_eva' in columnas_modelo: paciente_data['ING_dolor_eva'] = ing_dolor_val
-if 'ING_gravedad_percibida' in columnas_modelo: paciente_data['ING_gravedad_percibida'] = ing_grav_val
+if 'ING_dolor_eva' in paciente_data: paciente_data['ING_dolor_eva'] = ing_dolor_val
+if 'ING_gravedad_percibida' in paciente_data: paciente_data['ING_gravedad_percibida'] = ing_grav_val
 for ing in ing_sel:
-    if f"ING_{ing}" in columnas_modelo: paciente_data[f"ING_{ing}"] = 1.0
+    if f"ING_{ing}" in paciente_data: paciente_data[f"ING_{ing}"] = 1.0
 
 evo_dolor_val = float(evo_dolor)
 evo_grav_val = float(evo_grav)
-if 'EVO_dolor_eva' in columnas_modelo: paciente_data['EVO_dolor_eva'] = evo_dolor_val
-if 'EVO_gravedad_percibida' in columnas_modelo: paciente_data['EVO_gravedad_percibida'] = evo_grav_val
+if 'EVO_dolor_eva' in paciente_data: paciente_data['EVO_dolor_eva'] = evo_dolor_val
+if 'EVO_gravedad_percibida' in paciente_data: paciente_data['EVO_gravedad_percibida'] = evo_grav_val
 for evo in evo_sel:
-    if f"EVO_{evo}" in columnas_modelo: paciente_data[f"EVO_{evo}"] = 1.0
+    if f"EVO_{evo}" in paciente_data: paciente_data[f"EVO_{evo}"] = 1.0
 
 def calcular_delta_seguro(col_delta, col_evo, col_ing):
-    if col_delta in columnas_modelo:
+    if col_delta in paciente_data:
         val_evo = paciente_data.get(col_evo, 0.0)
         val_ing = paciente_data.get(col_ing, 0.0)
         paciente_data[col_delta] = val_evo - val_ing
@@ -663,35 +613,28 @@ calcular_delta_seguro('DELTA_alteracion_mental', 'EVO_alteracion_mental', 'ING_a
 calcular_delta_seguro('DELTA_dependencia_funcional', 'EVO_dependencia_funcional', 'ING_dependencia_funcional')
 calcular_delta_seguro('DELTA_portador_dispositivos', 'EVO_portador_dispositivos', 'ING_portador_dispositivos')
 
-# Inserción de variables operativas y nuevas variables binarias/categóricas
-if 'sexo' in columnas_modelo: paciente_data['sexo'] = sexo_input
-if 'Area' in columnas_modelo: paciente_data['Area'] = area_input
-if 'perfil_clinico_ingreso' in columnas_modelo: paciente_data['perfil_clinico_ingreso'] = perfil_input
-if 'IN_COMPLEJIDAD' in columnas_modelo: paciente_data['IN_COMPLEJIDAD'] = str(int(complejidad_input))
-if 'cantidad_interconsultas' in columnas_modelo: paciente_data['cantidad_interconsultas'] = float(interconsultas_input)
-if 'visitas_guardia_6meses_previos' in columnas_modelo: paciente_data['visitas_guardia_6meses_previos'] = float(visitas_guardia_input)
-if 'EST_ingreso_ambulancia' in columnas_modelo: paciente_data['EST_ingreso_ambulancia'] = 1.0 if ingreso_ambulancia else 0.0
-if 'EST_paso_por_uti' in columnas_modelo: paciente_data['EST_paso_por_uti'] = 1.0 if paso_por_uti else 0.0
-if 'Riesgo_Cardiovasculares_Inotropicos' in columnas_modelo: paciente_data['Riesgo_Cardiovasculares_Inotropicos'] = 1.0 if med_cardio else 0.0
-if 'Riesgo_Psicofarmacos_Neurologicos' in columnas_modelo: paciente_data['Riesgo_Psicofarmacos_Neurologicos'] = 1.0 if med_psico else 0.0
+# Inserción de variables administrativas y de riesgo
+if 'sexo' in paciente_data: paciente_data['sexo'] = sexo_input
+if 'Area' in paciente_data: paciente_data['Area'] = area_input
+if 'perfil_clinico_ingreso' in paciente_data: paciente_data['perfil_clinico_ingreso'] = perfil_input
+if 'IN_COMPLEJIDAD' in paciente_data: paciente_data['IN_COMPLEJIDAD'] = str(int(complejidad_input))
+if 'cantidad_interconsultas' in paciente_data: paciente_data['cantidad_interconsultas'] = float(interconsultas_input)
+if 'visitas_guardia_6meses_previos' in paciente_data: paciente_data['visitas_guardia_6meses_previos'] = float(visitas_guardia_input)
+if 'EST_ingreso_ambulancia' in paciente_data: paciente_data['EST_ingreso_ambulancia'] = 1.0 if ingreso_ambulancia else 0.0
+if 'EST_paso_por_uti' in paciente_data: paciente_data['EST_paso_por_uti'] = 1.0 if paso_por_uti else 0.0
+if 'Riesgo_Cardiovasculares_Inotropicos' in paciente_data: paciente_data['Riesgo_Cardiovasculares_Inotropicos'] = 1.0 if med_cardio else 0.0
+if 'Riesgo_Psicofarmacos_Neurologicos' in paciente_data: paciente_data['Riesgo_Psicofarmacos_Neurologicos'] = 1.0 if med_psico else 0.0
 
-# --- EL BLINDAJE FINAL: REPLICAR PREPROCESO EXACTO ---
-for col in VARIABLES_CATEGORICAS_TRAIN:
+# Blindaje Final (Mayúsculas)
+for col in variables_categoricas_train:
     if col in paciente_data:
         paciente_data[col] = str(paciente_data[col]).strip().upper()
 
-# Aseguramos que todas las columnas del modelo existan, con el tipo inferido correcto
-for col in columnas_modelo:
-    if col not in paciente_data:
-        if col in VARIABLES_CATEGORICAS_TRAIN:
-            paciente_data[col] = "DESCONOCIDO"
-        else:
-            paciente_data[col] = 0.0
-
-# Al crearlo desde diccionario nativo, Pandas infiere limpiamente ints y floats, evitando errores
 df_paciente = pd.DataFrame([paciente_data])[columnas_modelo]
-# ---------------------------------------------------
 
+# ==========================================
+# TABS & DASHBOARD
+# ==========================================
 tab_diagnostico, tab_estrategia, tab_evidencia, tab_umap = st.tabs([
     "📊 1. Current Risk & Audit", 
     "🧭 2. Stabilization & Simulation", 
@@ -700,12 +643,8 @@ tab_diagnostico, tab_estrategia, tab_evidencia, tab_umap = st.tabs([
 ])
 
 with tab_diagnostico:
-    # ==========================================
-    # 5. INFERENCE & MAIN DASHBOARD (COCKPIT LAYOUT)
-    # ==========================================
     riesgo = pipeline.predict_proba(df_paciente)[0][1]
     
-    # --- FILA SUPERIOR: MÉTRICAS Y ALERTAS A LO ANCHO ---
     col_kpi1, col_kpi2, col_kpi3 = st.columns([1, 1.2, 1.5])
     
     with col_kpi1:
@@ -720,7 +659,7 @@ with tab_diagnostico:
             st.success(f"✅ **SAFE DISCHARGE**\n\nWithin permitted threshold")
             
     with col_kpi3:
-        st.write("") 
+        st.write("")
         cie10_ui_dict = {
             "Tuberculosis": "Tuberculosis", "Lepra": "Leprosy", "Sífilis": "Syphilis", 
             "Otras infecciosas (A)": "Other infectious (A)", "Hepatitis viral": "Viral hepatitis", 
@@ -795,14 +734,12 @@ with tab_diagnostico:
     st.markdown("---")
     st.subheader("Decision Audit & Clinical Context")
     
-    # --- FILA INFERIOR: GRÁFICOS LADO A LADO ---
     col_shap, col_trayectoria = st.columns(2)
     
     with col_shap:
-        # --- BLOQUE 1: EXPLICABILIDAD (SHAP) ---
         with st.container():
-            st.markdown("#### 🔍 1. Prescriptive Explanability (SHAP)")
-            filtrar_activos = st.checkbox("🎯 Show only the impact of present conditions (Hide protective factors due to absence)", value=False)
+            st.markdown("#### 🔍 1. Prescriptive Explainability (SHAP)")
+            filtrar_activos = st.checkbox("🎯 Show only the impact of present conditions", value=False)
             
             try:
                 clf = pipeline.named_steps['clasificador']
@@ -811,15 +748,11 @@ with tab_diagnostico:
                 selector = pipeline.named_steps['feature_selection'] if has_selector else None
                 
                 X_proc = prep.transform(df_paciente)
-                
-                # --- NUEVO BLINDAJE: Transformación con selector si existe ---
                 if selector:
                     X_proc = selector.transform(X_proc)
-                
+                    
                 X_proc_dense = X_proc.toarray() if hasattr(X_proc, 'toarray') else np.array(X_proc)
-                X_paciente_1d = X_proc_dense[0] 
                 
-                # Extracción segura de nombres considerando si hay selector
                 if selector:
                     try:
                         nombres_crudos = selector.get_feature_names_out()
@@ -847,18 +780,12 @@ with tab_diagnostico:
                     'EVO_soporte_transfusional': 'Current Transfusion Support',
                     'LLM_abandono_medicacion': 'Chronic: Med. Abandonment',
                     'LLM_historial_caidas': 'Chronic: History of Falls',
-                    'LLM_polifarmacia': 'Chronic: Polypharmacy',
-                    'LLM_tabaquismo_activo': 'Chronic: Active Smoking',
-                    'sexo': 'Sex',
-                    'Area': 'Admission Area',
-                    'IN_COMPLEJIDAD': 'Complexity Level',
-                    'cantidad_interconsultas': 'Interconsultations',
-                    'visitas_guardia_6meses_previos': 'ER Visits (6m)',
-                    'EST_ingreso_ambulancia': 'Ambulance Arrival',
-                    'EST_paso_por_uti': 'ICU Stay (UTI)',
-                    'Riesgo_Cardiovasculares_Inotropicos': 'Meds: Cardiovascular/Inotropes',
-                    'Riesgo_Psicofarmacos_Neurologicos': 'Meds: Psychotropics/Neurological',
-                    'perfil_clinico_ingreso': 'Admission Profile'
+                    'LLM_polifarmacia': 'Chronic: Polypharmacy', 'LLM_tabaquismo_activo': 'Chronic: Active Smoking',
+                    'sexo': 'Sex', 'Area': 'Admission Area', 'IN_COMPLEJIDAD': 'Complexity Level',
+                    'cantidad_interconsultas': 'Interconsultations', 'visitas_guardia_6meses_previos': 'ER Visits (6m)',
+                    'EST_ingreso_ambulancia': 'Ambulance Arrival', 'perfil_clinico_ingreso': 'Admission Profile',
+                    'EST_paso_por_uti': 'ICU Stay', 'Riesgo_Cardiovasculares_Inotropicos': 'High-Risk Med: Cardiovascular',
+                    'Riesgo_Psicofarmacos_Neurologicos': 'High-Risk Med: Neuro/Psycho'
                 }
                 
                 nombres_limpios_traducidos = []
@@ -889,7 +816,7 @@ with tab_diagnostico:
                         traducido = f"Age: {match_en}"
                     elif "perfil_clinico_ingreso" in nombre_crudo:
                         cat_es = traducido.replace("perfil_clinico_ingreso_", "")
-                        match_en = cat_es
+                        match_en = "Unknown Profile"
                         for en_k, es_v in perfil_clinico_map.items():
                             if es_v.upper().replace(' ', '_') == cat_es.upper() or es_v.upper() == cat_es.upper():
                                 match_en = en_k
@@ -912,7 +839,7 @@ with tab_diagnostico:
                         try:
                             val = float(val)
                             if val.is_integer(): val = int(val)
-                        except Exception:
+                        except:
                             pass
                         human_data.append(val)
                     else:
@@ -935,24 +862,19 @@ with tab_diagnostico:
                     explainer = shap.LinearExplainer(clf, X_proc_dense) if hasattr(clf, 'coef_') else shap.Explainer(clf, X_proc_dense)
                     shap_vals = explainer(X_proc_dense)
                 
-                # --- NUEVO BLINDAJE DE DIMENSIONES SHAP (Adaptado de tu script de evaluación) ---
                 shap_array = shap_vals.values if hasattr(shap_vals, 'values') else shap_vals
-                
                 if isinstance(shap_array, list): 
                     shap_array = shap_array[1] if len(shap_array) > 1 else shap_array[0]
-                
                 if len(shap_array.shape) > 2: 
                     shap_array = shap_array[:, :, 1]
                 
                 exp_val = explainer.expected_value
-                if hasattr(exp_val, 'values'): 
-                    exp_val = exp_val.values
+                if hasattr(exp_val, 'values'): exp_val = exp_val.values
                 if isinstance(exp_val, (list, np.ndarray)):
                     exp_val = exp_val[1] if len(exp_val) > 1 else exp_val[0]
                 
                 shap_vals_pct = shap_array[0] * 100
                 exp_val_pct = exp_val * 100
-                # --------------------------------------------------------------------------------
     
                 if not filtrar_activos:
                     explicacion_completa = shap.Explanation(
@@ -1010,7 +932,6 @@ with tab_diagnostico:
                             xaxis=dict(showgrid=True, gridcolor='rgba(128,128,128,0.2)', zeroline=True, zerolinecolor='rgba(128,128,128,0.6)', showticklabels=False),
                             yaxis=dict(showgrid=False)
                         )
-                        
                         st.plotly_chart(fig_bar, use_container_width=True)
     
             except Exception as e:
@@ -1018,7 +939,6 @@ with tab_diagnostico:
                 st.warning(str(e))
 
     with col_trayectoria:
-        # --- BLOQUE 2: TRAYECTORIA DINÁMICA (PLOTLY) ---
         with st.container():
             st.markdown("#### 📉 2. Dynamic Trajectory")
             try:
@@ -1032,7 +952,6 @@ with tab_diagnostico:
                 }
                 
                 fig_slope = go.Figure()
-                
                 y_ing_coords = []
                 y_evo_coords = []
                 
@@ -1081,7 +1000,6 @@ with tab_diagnostico:
                         showarrow=False, xanchor='right', xshift=-15,
                         font=dict(size=12) 
                     )
-                    
                     fig_slope.add_annotation(
                         x='Current', y=textos_evo_y[i], text=f"({val_evo:.1f}) {label}",
                         showarrow=False, xanchor='left', xshift=15,
@@ -1098,21 +1016,16 @@ with tab_diagnostico:
                     xaxis=dict(showgrid=False, zeroline=False, showline=False, tickfont=dict(size=14, weight='bold')),
                     yaxis=dict(showgrid=False, zeroline=False, showline=False, showticklabels=False)
                 )
-    
                 st.plotly_chart(fig_slope, use_container_width=True)
                 
             except Exception as e:
                 st.error("Trajectory unavailable.")
                 st.warning(str(e))
 
-
 with tab_estrategia:
     col_simulador, col_rutas = st.columns([1, 1.2]) 
     
     with col_simulador:
-        # ==========================================
-        # 7. INTERACTIVE CLINICAL SANDBOX (CONTROLES)
-        # ==========================================
         st.markdown("---")
         st.markdown("#### 🧪 Clinical Hypothesis Simulator (SandBox)")
         
@@ -1126,7 +1039,6 @@ with tab_estrategia:
                 key=f"sim_dias_base_{dias_base}",
                 help="Drag left to simulate premature discharge or right to project extended stay impacts."
             )
-            
             st.markdown("---")
             
             st.markdown("**Continuous Evolution Metrics** - *Simulate symptom progression*")
@@ -1135,25 +1047,14 @@ with tab_estrategia:
             with col_dolor:
                 dolor_crudo = df_paciente['EVO_dolor_eva'].iloc[0] if 'EVO_dolor_eva' in df_paciente.columns else 0.0
                 dolor_base = int(float(dolor_crudo))
-                
-                dolor_sim = st.slider(
-                    label="Current Pain Level (VAS 0-10):", 
-                    min_value=0, max_value=10, value=dolor_base, step=1,
-                    key=f"sim_dolor_base_{dolor_base}"
-                )
+                dolor_sim = st.slider("Current Pain Level (VAS 0-10):", min_value=0, max_value=10, value=dolor_base, step=1, key=f"sim_dolor_base_{dolor_base}")
                 
             with col_severidad:
                 sev_crudo = df_paciente['EVO_gravedad_percibida'].iloc[0] if 'EVO_gravedad_percibida' in df_paciente.columns else 0.0
                 sev_base = int(float(sev_crudo))
-                
-                severidad_sim = st.slider(
-                    label="Current Perceived Severity (0-10):", 
-                    min_value=0, max_value=10, value=sev_base, step=1,
-                    key=f"sim_sev_base_{sev_base}"
-                )
+                severidad_sim = st.slider("Current Perceived Severity (0-10):", min_value=0, max_value=10, value=sev_base, step=1, key=f"sim_sev_base_{sev_base}")
             
             st.markdown("---")
-            
             st.markdown("**Evolution Status (EVO)** - *Toggle acquired complications or resolved states*")
             sim_evo_map = {
                 'Mental Alteration': 'EVO_alteracion_mental',
@@ -1177,10 +1078,6 @@ with tab_estrategia:
                     status_evo_sim[col] = st.toggle(label, value=val_init, key=f"sim_{col}_base_{val_init}")
 
     with col_rutas:
-        
-        # ==========================================
-        # 6. THERAPEUTIC NAVIGATOR (DiCE - DUAL COORDINATED XAI)
-        # ==========================================
         st.markdown("---")
         st.markdown("#### Clinical Stabilization Routes")
         
@@ -1207,7 +1104,6 @@ with tab_estrategia:
                 sync_delta(X_sync, 'DELTA_portador_dispositivos', 'EVO_portador_dispositivos', 'ING_portador_dispositivos')
                 
                 probas_originales = self.pipeline.predict_proba(X_sync)
-                
                 probas_calibradas = np.zeros_like(probas_originales)
                 p1 = probas_originales[:, 1]
                 
@@ -1243,6 +1139,10 @@ with tab_estrategia:
                     df_background_raw = pd.DataFrame(matriz_extended, columns=nombres_columnas)
                     columnas_modelo = df_paciente.columns.tolist()
                     
+                    for col in columnas_modelo:
+                        if col not in df_background_raw.columns:
+                            df_background_raw[col] = 0.0
+                            
                     df_dice_train = df_background_raw[columnas_modelo].copy()
                     df_dice_train['target'] = df_background_raw['target'].astype(int)
                     
@@ -1276,8 +1176,6 @@ with tab_estrategia:
                     
                     for col in variables_accionables:
                         val_actual = df_paciente[col].iloc[0]
-                        if 'cuidados_paliativos' in col or 'fuga' in col: 
-                            continue
                         
                         if 'gravedad' in col:
                             if val_actual > 1.0:
@@ -1330,7 +1228,6 @@ with tab_estrategia:
                                 pass
                         
                         if cf_df is not None and not cf_df.empty:
-                            
                             for col in vars_a_variar:
                                 if col not in ['EVO_dolor_eva', 'EVO_gravedad_percibida', 'dias_internados']:
                                     cf_df[col] = (cf_df[col] >= 0.5).astype(int)
@@ -1479,9 +1376,6 @@ with tab_estrategia:
                     st.error("Counterfactual engine is currently unavailable.")
                     st.warning(f"Technical Context: {str(e)}")
 
-    # ==========================================
-    # --- MOTOR DE CÁLCULO DINÁMICO (LIME - ANCHO COMPLETO) ---
-    # ==========================================
     st.markdown("---")
     try:
         with st.spinner("Analyzing combinatorial impacts of simulated trajectory..."):
@@ -1515,18 +1409,19 @@ with tab_estrategia:
             selector = pipeline.named_steps['feature_selection'] if has_selector else None
             
             X_p_proc = prep.transform(df_sim)
-            
-            # --- NUEVO BLINDAJE LIME: Transformación con selector si existe ---
             if selector:
                 X_p_proc = selector.transform(X_p_proc)
                 
             X_p_dense = X_p_proc.toarray()[0] if hasattr(X_p_proc, 'toarray') else np.array(X_p_proc)[0]
             
-            # --- REEMPLAZO DE CSV POR .NPY PARA LIME ---
-            _, _, _, X_train_proc_lime, _ = load_similarity_assets()
-            X_t_dense = X_train_proc_lime[:500] 
+            BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+            ruta_x = os.path.join(BASE_DIR, 'X_train_proc_llm.npy')
+            X_train_proc_lime = np.load(ruta_x)
             
-            # Extracción segura de nombres considerando si hay selector
+            X_t_dense = X_train_proc_lime[:500] 
+            if selector:
+                X_t_dense = selector.transform(X_t_dense)
+            
             if selector:
                 try:
                     nombres_crudos = selector.get_feature_names_out()
@@ -1612,10 +1507,6 @@ with tab_estrategia:
         st.error("Simulation engine failed to initialize.")
         st.warning(str(e))
 
-
-# ==========================================
-# 8. DYNAMIC CLINICAL COHORT EXPLORER (KNN + AUTOMATED INSPECTOR)
-# ==========================================
 with tab_evidencia:
     st.markdown("#### Clinical Similarity Network & Cohort Audit")
     
@@ -1662,7 +1553,7 @@ with tab_evidencia:
                 "Cáncer de vías urinarias": "Urinary tract cancer", "Cáncer de sistema nervioso central": "Central nervous system cancer", 
                 "Cáncer linfoide / hematopoyético": "Lymphoid / hematopoietic cancer", "Otros tumores malignos": "Other malignant tumors", 
                 "Tumores in situ o benignos": "In situ or benign tumors", "Anemias nutricionales": "Nutritional anemias", 
-                "Anemias hemolíticas": "Hemolytic anemias", "Aplasias y   otras anemias": "Aplasias and other anemias", 
+                "Anemias hemolíticas": "Hemolytic anemias", "Aplasias y otras anemias": "Aplasias and other anemias", 
                 "Defectos de coagulación / púrpura": "Coagulation defects / purpura", "Trastornos de inmunodeficiencia": "Immunodeficiency disorders", 
                 "Otros trastornos de la sangre": "Other blood disorders",
                 "Tiroides": "Thyroid", "Diabetes": "Diabetes", "Glucosa / hipoglucemia": "Glucose / hypoglycemia", 
@@ -1771,7 +1662,7 @@ with tab_evidencia:
 
     TRANSLATION_DICT = {
         'dias_internados': 'Length of Stay (Days)', 'rango_edad': 'Age Range', 'pluripatologico': 'Multimorbidity',
-        'CIE10_MACRO': 'Primary Diagnosis (ICD-10)', 'LLM_tabaquismo_activo': 'Active Smoking',
+        'CIE10_MACRO': 'Primary Diagnosis (ICD-10)', 'LLM_tabaquismo_activo': 'Active Smoking', 
         'LLM_polifarmacia': 'Polypharmacy',
         'LLM_historial_caidas': 'History of Falls', 'LLM_abandono_medicacion': 'Medication Abandonment',
         'ING_dolor_eva': 'Admission: Pain (VAS)', 'ING_gravedad_percibida': 'Admission: Perceived Severity',
@@ -1788,7 +1679,7 @@ with tab_evidencia:
         'DELTA_dependencia_funcional': 'Δ Functional Dependency', 'DELTA_portador_dispositivos': 'Δ Device Bearer',
         'sexo': 'Sex', 'Area': 'Admission Area', 'IN_COMPLEJIDAD': 'Complexity Level', 
         'cantidad_interconsultas': 'Interconsultations', 'visitas_guardia_6meses_previos': 'ER Visits (6m)',
-        'EST_ingreso_ambulancia': 'Ambulance Arrival',
+        'EST_ingreso_ambulancia': 'Ambulance Arrival', 
         'HIST_condicion_ultimo_egreso': 'Previous Discharge Condition',
         'perfil_clinico_ingreso': 'Admission Profile',
         'EST_paso_por_uti': 'ICU Stay (UTI)',
@@ -1796,19 +1687,36 @@ with tab_evidencia:
         'Riesgo_Psicofarmacos_Neurologicos': 'High-Risk Meds: Psychotropics/Neurological'
     }
 
+    @st.cache_resource
+    def load_similarity_assets():
+        BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+        ruta_x = os.path.join(BASE_DIR, 'X_train_proc_llm.npy')
+        ruta_ext = os.path.join(BASE_DIR, 'matriz_extended_display_llm.npy')
+        ruta_cols = os.path.join(BASE_DIR, 'columnas_display_llm.npy')
+        
+        if not all(os.path.exists(p) for p in [ruta_x, ruta_ext, ruta_cols]):
+            raise FileNotFoundError("Similarity assets missing. Ensure matrices are in the server volume.")
+            
+        X_train_proc = np.load(ruta_x)
+        matriz_ext = np.load(ruta_ext, allow_pickle=True)
+        nombres_columnas = np.load(ruta_cols, allow_pickle=True)
+        
+        knn_engine = NearestNeighbors(n_neighbors=100, metric='cosine')
+        knn_engine.fit(X_train_proc)
+        
+        umap_reducer = umap.UMAP(n_neighbors=15, min_dist=0.1, metric='cosine', random_state=42)
+        umap_embeddings = umap_reducer.fit_transform(X_train_proc)
+        
+        return knn_engine, matriz_ext, nombres_columnas, X_train_proc, umap_embeddings
+
+    plt.close('all') 
+    
     try:
         with st.spinner("Calculating topological metrics..."):
             knn, matriz_extended, nombres_columnas, X_train_proc, umap_embeddings = load_similarity_assets()
             
             prep = pipeline.named_steps['preprocesador']
-            has_selector = 'feature_selection' in pipeline.named_steps
-            selector = pipeline.named_steps['feature_selection'] if has_selector else None
-            
             X_paciente_proc = prep.transform(df_paciente)
-            
-            # --- NUEVO BLINDAJE KNN: Transformación con selector si existe ---
-            if selector:
-                X_paciente_proc = selector.transform(X_paciente_proc)
             
             distancias, indices = knn.kneighbors(X_paciente_proc)
             vecinos_idx_pool = indices[0]
@@ -1854,7 +1762,6 @@ with tab_evidencia:
                 
                 cohort_outcomes, cohort_ages, cohort_sex, cohort_diagnoses, cohort_multimorbidity = [], [], [], [], []
                 
-                # --- AUTOMATED PHENOTYPE PROPERTY DETECTOR LOOP ---
                 prefijos_nlp = ('LLM_', 'ING_', 'EVO_', 'DELTA_', 'rango_', 'pluripatologico', 'dias_', 'CIE10_MACRO', 'sexo', 'IN_COMPLEJIDAD', 'cantidad_interconsultas', 'visitas_', 'EST_', 'Area', 'HIST_condicion_ultimo_egreso', 'perfil_clinico_ingreso', 'Riesgo_')
                 columnas_comunes_dinamicas = [col for col in nombres_columnas if str(col).startswith(prefijos_nlp)]
                 
@@ -2104,10 +2011,6 @@ with tab_umap:
             borde_marcador = dict(width=0.6, color='rgba(255,255,255,0.6)')
             leyenda_formas = "(⚪ Safe | 🔶 Readmit)" 
             
-            # BLINDAJE: Cargar explícitamente los assets aquí para evitar NameErrors 
-            # si la pestaña anterior falla o no se renderiza. Toma 0ms por estar en caché.
-            knn, matriz_extended, nombres_columnas, X_train_proc, umap_embeddings = load_similarity_assets()
-            
             col_idx = {col: i for i, col in enumerate(nombres_columnas)}
             
             y_hist_global = matriz_extended[:, col_idx['target']].astype(float)
@@ -2176,16 +2079,6 @@ with tab_umap:
                 ))
             
             if 'vecinos_idx_pool' not in locals() and 'vecinos_idx_pool' not in globals():
-                prep = pipeline.named_steps['preprocesador']
-                has_selector = 'feature_selection' in pipeline.named_steps
-                selector = pipeline.named_steps['feature_selection'] if has_selector else None
-                
-                X_paciente_proc = prep.transform(df_paciente)
-                
-                # --- NUEVO BLINDAJE UMAP: Transformación con selector si existe ---
-                if selector:
-                    X_paciente_proc = selector.transform(X_paciente_proc)
-                    
                 distancias_rescue, indices_rescue = knn.kneighbors(X_paciente_proc)
                 vecinos_idx_pool = indices_rescue[0]
                 
@@ -2326,7 +2219,6 @@ with tab_umap:
                         
                     st.markdown(f"<div style='font-size:14px; line-height:1.5;'>{insight_txt}</div>", unsafe_allow_html=True)
 
-                # --- SUMMARY CARD (DESCRIPTIVE AND MULTI-DIMENSIONAL) ---
                 st.markdown("---")
                 
                 if tasa_reingreso_local > tasa_reingreso_base + 5:
