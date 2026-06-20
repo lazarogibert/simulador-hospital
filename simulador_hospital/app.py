@@ -25,7 +25,6 @@ warnings.filterwarnings("ignore")
 # VARIABLES GLOBALES DE CONFIGURACIÓN
 # ==========================================
 # Definir categóricas estrictas EXACTAMENTE como en el entrenamiento.
-# Se mueve aquí arriba para que la función de caché pueda usarla en el rescate.
 VARIABLES_CATEGORICAS_TRAIN = [
     'rango_edad', 'PA_NIVEL', 'PA_SITLABO', 'Area', 
     'TR_Prioridad', 'IN_COMPLEJIDAD', 'sexo', 
@@ -312,7 +311,7 @@ area_map = {
     "ER (Emergency Room)": "Emerg_Guardias"
 }
 
-# Inicialización de estado (Purga de ui_af_sel)
+# Inicialización de estado
 for key in ["ui_cro_sel", "ui_ing_sel", "ui_evo_sel"]:
     if key not in st.session_state: st.session_state[key] = []
 for key in ["ui_ing_dolor", "ui_ing_grav", "ui_evo_dolor", "ui_evo_grav"]:
@@ -537,40 +536,33 @@ with c_evo:
 # ==========================================
 paciente_data = {}
 
-# Inicialización segura
-for col in columnas_modelo:
-    if col in VARIABLES_CATEGORICAS_TRAIN:
-        paciente_data[col] = "DESCONOCIDO"
-    else:
-        paciente_data[col] = 0.0
-
-if 'rango_edad' in paciente_data: paciente_data['rango_edad'] = rango_edad
-if 'dias_internados' in paciente_data: paciente_data['dias_internados'] = float(dias_internados)
-if 'pluripatologico' in paciente_data: paciente_data['pluripatologico'] = 1.0 if es_pluripatologico else 0.0
+if 'rango_edad' in columnas_modelo: paciente_data['rango_edad'] = rango_edad
+if 'dias_internados' in columnas_modelo: paciente_data['dias_internados'] = float(dias_internados)
+if 'pluripatologico' in columnas_modelo: paciente_data['pluripatologico'] = 1.0 if es_pluripatologico else 0.0
 
 codigo_normalizado = normalizar_cie10(cie10_input)
 categoria_cie10 = mapear_cie10_macro(codigo_normalizado)
-if 'CIE10_MACRO' in paciente_data: paciente_data['CIE10_MACRO'] = categoria_cie10
+if 'CIE10_MACRO' in columnas_modelo: paciente_data['CIE10_MACRO'] = categoria_cie10
 
 for cro in cronicos_seleccionados: 
-    if f"LLM_{cro}" in paciente_data: paciente_data[f"LLM_{cro}"] = 1.0
+    if f"LLM_{cro}" in columnas_modelo: paciente_data[f"LLM_{cro}"] = 1.0
 
 ing_dolor_val = float(ing_dolor)
 ing_grav_val = float(ing_grav)
-if 'ING_dolor_eva' in paciente_data: paciente_data['ING_dolor_eva'] = ing_dolor_val
-if 'ING_gravedad_percibida' in paciente_data: paciente_data['ING_gravedad_percibida'] = ing_grav_val
+if 'ING_dolor_eva' in columnas_modelo: paciente_data['ING_dolor_eva'] = ing_dolor_val
+if 'ING_gravedad_percibida' in columnas_modelo: paciente_data['ING_gravedad_percibida'] = ing_grav_val
 for ing in ing_sel:
-    if f"ING_{ing}" in paciente_data: paciente_data[f"ING_{ing}"] = 1.0
+    if f"ING_{ing}" in columnas_modelo: paciente_data[f"ING_{ing}"] = 1.0
 
 evo_dolor_val = float(evo_dolor)
 evo_grav_val = float(evo_grav)
-if 'EVO_dolor_eva' in paciente_data: paciente_data['EVO_dolor_eva'] = evo_dolor_val
-if 'EVO_gravedad_percibida' in paciente_data: paciente_data['EVO_gravedad_percibida'] = evo_grav_val
+if 'EVO_dolor_eva' in columnas_modelo: paciente_data['EVO_dolor_eva'] = evo_dolor_val
+if 'EVO_gravedad_percibida' in columnas_modelo: paciente_data['EVO_gravedad_percibida'] = evo_grav_val
 for evo in evo_sel:
-    if f"EVO_{evo}" in paciente_data: paciente_data[f"EVO_{evo}"] = 1.0
+    if f"EVO_{evo}" in columnas_modelo: paciente_data[f"EVO_{evo}"] = 1.0
 
 def calcular_delta_seguro(col_delta, col_evo, col_ing):
-    if col_delta in paciente_data:
+    if col_delta in columnas_modelo:
         val_evo = paciente_data.get(col_evo, 0.0)
         val_ing = paciente_data.get(col_ing, 0.0)
         paciente_data[col_delta] = val_evo - val_ing
@@ -582,26 +574,32 @@ calcular_delta_seguro('DELTA_dependencia_funcional', 'EVO_dependencia_funcional'
 calcular_delta_seguro('DELTA_portador_dispositivos', 'EVO_portador_dispositivos', 'ING_portador_dispositivos')
 
 # Inserción de variables operativas y nuevas variables binarias/categóricas
-if 'sexo' in paciente_data: paciente_data['sexo'] = sexo_input
-if 'Area' in paciente_data: paciente_data['Area'] = area_input
-if 'perfil_clinico_ingreso' in paciente_data: paciente_data['perfil_clinico_ingreso'] = perfil_input
-if 'IN_COMPLEJIDAD' in paciente_data: paciente_data['IN_COMPLEJIDAD'] = str(int(complejidad_input))
-if 'cantidad_interconsultas' in paciente_data: paciente_data['cantidad_interconsultas'] = float(interconsultas_input)
-if 'visitas_guardia_6meses_previos' in paciente_data: paciente_data['visitas_guardia_6meses_previos'] = float(visitas_guardia_input)
-if 'EST_ingreso_ambulancia' in paciente_data: paciente_data['EST_ingreso_ambulancia'] = 1.0 if ingreso_ambulancia else 0.0
-if 'EST_paso_por_uti' in paciente_data: paciente_data['EST_paso_por_uti'] = 1.0 if paso_por_uti else 0.0
-if 'Riesgo_Cardiovasculares_Inotropicos' in paciente_data: paciente_data['Riesgo_Cardiovasculares_Inotropicos'] = 1.0 if med_cardio else 0.0
-if 'Riesgo_Psicofarmacos_Neurologicos' in paciente_data: paciente_data['Riesgo_Psicofarmacos_Neurologicos'] = 1.0 if med_psico else 0.0
+if 'sexo' in columnas_modelo: paciente_data['sexo'] = sexo_input
+if 'Area' in columnas_modelo: paciente_data['Area'] = area_input
+if 'perfil_clinico_ingreso' in columnas_modelo: paciente_data['perfil_clinico_ingreso'] = perfil_input
+if 'IN_COMPLEJIDAD' in columnas_modelo: paciente_data['IN_COMPLEJIDAD'] = str(int(complejidad_input))
+if 'cantidad_interconsultas' in columnas_modelo: paciente_data['cantidad_interconsultas'] = float(interconsultas_input)
+if 'visitas_guardia_6meses_previos' in columnas_modelo: paciente_data['visitas_guardia_6meses_previos'] = float(visitas_guardia_input)
+if 'EST_ingreso_ambulancia' in columnas_modelo: paciente_data['EST_ingreso_ambulancia'] = 1.0 if ingreso_ambulancia else 0.0
+if 'EST_paso_por_uti' in columnas_modelo: paciente_data['EST_paso_por_uti'] = 1.0 if paso_por_uti else 0.0
+if 'Riesgo_Cardiovasculares_Inotropicos' in columnas_modelo: paciente_data['Riesgo_Cardiovasculares_Inotropicos'] = 1.0 if med_cardio else 0.0
+if 'Riesgo_Psicofarmacos_Neurologicos' in columnas_modelo: paciente_data['Riesgo_Psicofarmacos_Neurologicos'] = 1.0 if med_psico else 0.0
 
-# --- EL BLINDAJE FINAL (STRICT TYPE ENFORCEMENT) ---
-df_paciente = pd.DataFrame(columns=columnas_modelo)
-df_paciente.loc[0] = [paciente_data.get(col, 0.0) if col not in VARIABLES_CATEGORICAS_TRAIN else paciente_data.get(col, "DESCONOCIDO") for col in columnas_modelo]
+# --- EL BLINDAJE FINAL: REPLICAR PREPROCESO EXACTO ---
+for col in VARIABLES_CATEGORICAS_TRAIN:
+    if col in paciente_data:
+        paciente_data[col] = str(paciente_data[col]).strip().upper()
 
+# Aseguramos que todas las columnas del modelo existan, con el tipo inferido correcto
 for col in columnas_modelo:
-    if col in VARIABLES_CATEGORICAS_TRAIN:
-        df_paciente[col] = df_paciente[col].astype(str).str.strip().str.upper()
-    else:
-        df_paciente[col] = pd.to_numeric(df_paciente[col], errors='coerce').fillna(0.0).astype(float)
+    if col not in paciente_data:
+        if col in VARIABLES_CATEGORICAS_TRAIN:
+            paciente_data[col] = "DESCONOCIDO"
+        else:
+            paciente_data[col] = 0.0
+
+# Al crearlo desde diccionario nativo, Pandas infiere limpiamente ints y floats, evitando errores
+df_paciente = pd.DataFrame([paciente_data])[columnas_modelo]
 # ---------------------------------------------------
 
 tab_diagnostico, tab_estrategia, tab_evidencia, tab_umap = st.tabs([
