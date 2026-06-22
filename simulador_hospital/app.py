@@ -2529,13 +2529,14 @@ with tab_eda:
         
         id_grafico = mapa_graficos[tipo_grafico]
         
-        # Filtro condicional que solo aparece si se selecciona la curva de incidencia
+        # --- NUEVO ENRUTADOR DE FILTROS ---
         if id_grafico == "curva":
             with col_selec2:
                 filtro_curva = st.selectbox(
                     "Select Segmentation Variable:",
                     options=[
                         "ICU Stay",
+                        "Triage Priority", # <-- AÑADIDO
                         "Multimorbidity",
                         "ER Visits (Previous 6 months)",
                         "Social Work Intervention",
@@ -2545,14 +2546,28 @@ with tab_eda:
                 
             mapa_filtros = {
                 "ICU Stay": "EST_paso_por_uti",
+                "Triage Priority": "TR_Prioridad",
                 "Multimorbidity": "pluripatologico",
                 "ER Visits (Previous 6 months)": "visitas_guardia_6meses_previos",
                 "Social Work Intervention": "SOCIO_intervencion_ts",
                 "Employment Status": "PA_SITLABO_x"
             }
             filtro_seleccionado = mapa_filtros[filtro_curva]
+            
+        elif id_grafico == "gravedad":
+            with col_selec2:
+                filtro_gravedad = st.selectbox(
+                    "Select Severity Metric:",
+                    options=["ICU Stay", "Triage Priority"] # <-- NUEVAS OPCIONES
+                )
+            mapa_filtros_gravedad = {
+                "ICU Stay": "EST_paso_por_uti",
+                "Triage Priority": "TR_Prioridad"
+            }
+            filtro_seleccionado = mapa_filtros_gravedad[filtro_gravedad]
+            
         else:
-            filtro_seleccionado = 'EST_paso_por_uti' # Valor por defecto seguro
+            filtro_seleccionado = 'EST_paso_por_uti' # Valor por defecto para el resto
             
         st.markdown("---")
         
