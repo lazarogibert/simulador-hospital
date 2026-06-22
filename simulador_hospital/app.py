@@ -1264,38 +1264,94 @@ with tab_diagnostico:
                 st.error("Trajectory unavailable.")
                 st.warning(str(e))
 
+# ==========================================================================
+# tab_estrategia — VERSIÓN CORREGIDA
+# --------------------------------------------------------------------------
+# Requiere las mismas variables externas que tu script original:
+#   st, pd, np, go, os, dice_ml, shap, pipeline, df_paciente, umbral, riesgo
+#
+# Cambios respecto a la versión original:
+#   1. Las variables EVO_ binarias se declaran CATEGÓRICAS para DiCE
+#      (no se incluyen en continuous_features) -> DiCE ya no genera 0.42,
+#      solo muestrea 0/1.
+#   2. Se fija continuous_features_precision=0 para las variables que en
+#      la práctica clínica son enteras (dias_internados, dolor, gravedad).
+#      Esto alinea la validación INTERNA de DiCE con el redondeo que
+#      mostramos después -> elimina el "salto" de precisión.
+#   3. El umbral de búsqueda y el de mitigación ya NO son una constante
+#      absoluta (0.5): son siempre relativos al umbral clínico real,
+#      con escalado graduado (varios intentos cada vez más permisivos).
+#   4. VALIDACIÓN FINAL: cada ruta candidata, ya redondeada, se vuelve a
+#      pasar por el pipeline REAL (no el calibrado) antes de mostrarse.
+#      Si no supera la validación, se descarta. Lo que el médico ve en
+#      pantalla es el mismo cálculo que el Sandbox de abajo.
+#   5. La sincronización de deltas (EVO - ING) vive en UNA sola función
+#      (sincronizar_deltas) reusada por ModeloSincronizado, por la
+#      validación de rutas y por el motor SHAP -> una sola fuente de verdad.
+# ==========================================================================
+
 with tab_estrategia:
-    col_simulador, col_rutas = st.columns([1, 1.2]) 
-    
+
+    # ----------------------------------------------------------------
+    # HELPERS COMPARTIDOS (una sola fuente de verdad para los deltas)
+    # ----------------------------------------------------------------
+    PARES_DELTA = {
+        'DELTA_dolor_eva': ('EVO_dolor_eva', 'ING_dolor_eva'),
+        'DELTA_gravedad_percibida': ('EVO_gravedad_percibida', 'ING_gravedad_percibida'),
+        'DELTA_alteracion_mental': ('EVO_alteracion_mental', 'ING_alteracion_mental'),
+        'DELTA_dependencia_funcional': ('EVO_dependencia_funcional', 'ING_dependencia_funcional'),
+        'DELTA_portador_dispositivos': ('EVO_portador_dispositivos', 'ING_portador_dispositivos'),
+    }
+
+    def sincronizar_deltas(df):
+        """Recalcula las columnas DELTA_* in-place a partir de EVO_ - ING_."""
+        for col_delta, (col_evo, col_ing) in PARES_DELTA.items():
+            if col_evo in df.columns and col_ing in df.columns:
+                df[col_delta] = df[col_evo] - df[col_ing]
+        return df
+
+    def construir_fila_simulada(df_base, overrides=None):
+        """Clona la fila base del paciente, aplica overrides y resincroniza deltas."""
+        fila = df_base.copy()
+        if overrides:
+            for col, val in overrides.items():
+                fila[col] = val
+        return sincronizar_deltas(fila)
+
+    col_simulador, col_rutas = st.columns([1, 1.2])
+
+    # ==================================================================
+    # COLUMNA IZQUIERDA: SANDBOX (sin cambios funcionales)
+    # ==================================================================
     with col_simulador:
         st.markdown("---")
         st.markdown("#### 🧪 Clinical Hypothesis Simulator (SandBox)")
-        
+
         with st.expander("🛠️ Configure Stabilization Scenario", expanded=True):
             dias_base = int(float(df_paciente['dias_internados'].iloc[0] if 'dias_internados' in df_paciente.columns else 1.0))
-            max_permitido = max(dias_base + 20, 30) 
-            
+            max_permitido = max(dias_base + 20, 30)
+
             dias_sim = st.slider(
-                label="Hospitalization Stay (Days):", 
+                label="Hospitalization Stay (Days):",
                 min_value=0, max_value=max_permitido, value=dias_base, step=1,
                 key=f"sim_dias_base_{dias_base}",
                 help="Drag left to simulate premature discharge or right to project extended stay impacts."
             )
             st.markdown("---")
-            
+
             st.markdown("**Continuous Evolution Metrics** - *Simulate symptom progression*")
             col_dolor, col_severidad = st.columns(2)
-            
+
             with col_dolor:
                 dolor_crudo = df_paciente['EVO_dolor_eva'].iloc[0] if 'EVO_dolor_eva' in df_paciente.columns else 0.0
                 dolor_base = int(float(dolor_crudo))
                 dolor_sim = st.slider("Current Pain Level (VAS 0-10):", min_value=0, max_value=10, value=dolor_base, step=1, key=f"sim_dolor_base_{dolor_base}")
-                
+
             with col_severidad:
                 sev_crudo = df_paciente['EVO_gravedad_percibida'].iloc[0] if 'EVO_gravedad_percibida' in df_paciente.columns else 0.0
                 sev_base = int(float(sev_crudo))
                 severidad_sim = st.slider("Current Perceived Severity (0-10):", min_value=0, max_value=10, value=sev_base, step=1, key=f"sim_sev_base_{sev_base}")
-            
+
             st.markdown("---")
             st.markdown("**Evolution Status (EVO)** - *Toggle acquired complications or resolved states*")
             sim_evo_map = {
@@ -1308,10 +1364,10 @@ with tab_estrategia:
                 'Surgical Interv.': 'EVO_intervencion_quirurgica',
                 'Transfusion Support': 'EVO_soporte_transfusional'
             }
-            
+
             cols_evo = st.columns(4)
             status_evo_sim = {}
-            
+
             for i, (label, col) in enumerate(sim_evo_map.items()):
                 with cols_evo[i % 4]:
                     val_raw = df_paciente[col].iloc[0] if col in df_paciente.columns else 0
@@ -1319,50 +1375,48 @@ with tab_estrategia:
                     val_init = True if val_str in ['1', '1.0', 'TRUE', 'YES'] else False
                     status_evo_sim[col] = st.toggle(label, value=val_init, key=f"sim_{col}_base_{val_init}")
 
+    # ==================================================================
+    # COLUMNA DERECHA: RUTAS DE ESTABILIZACIÓN (DiCE) — CORREGIDO
+    # ==================================================================
     with col_rutas:
         st.markdown("---")
         st.markdown("#### Clinical Stabilization Routes")
-        
+
         class ModeloSincronizado:
+            """Recalibra la probabilidad real para que el corte 'umbral' quede en 0.5,
+            como exige el criterio desired_class='opposite' de DiCE."""
+
             def __init__(self, pipeline_original, columnas_modelo, umbral_real):
                 self.pipeline = pipeline_original
                 self.columnas_modelo = columnas_modelo
                 self.umbral = umbral_real
-                
+
             def predict_proba(self, X):
                 if isinstance(X, np.ndarray):
                     X_sync = pd.DataFrame(X, columns=self.columnas_modelo)
                 else:
                     X_sync = X.copy()
-                
-                def sync_delta(df, col_delta, col_evo, col_ing):
-                    if col_delta in df.columns and col_evo in df.columns and col_ing in df.columns:
-                        df[col_delta] = df[col_evo] - df[col_ing]
-                        
-                sync_delta(X_sync, 'DELTA_dolor_eva', 'EVO_dolor_eva', 'ING_dolor_eva')
-                sync_delta(X_sync, 'DELTA_gravedad_percibida', 'EVO_gravedad_percibida', 'ING_gravedad_percibida')
-                sync_delta(X_sync, 'DELTA_alteracion_mental', 'EVO_alteracion_mental', 'ING_alteracion_mental')
-                sync_delta(X_sync, 'DELTA_dependencia_funcional', 'EVO_dependencia_funcional', 'ING_dependencia_funcional')
-                sync_delta(X_sync, 'DELTA_portador_dispositivos', 'EVO_portador_dispositivos', 'ING_portador_dispositivos')
-                
+
+                sincronizar_deltas(X_sync)  # única fuente de verdad
+
                 probas_originales = self.pipeline.predict_proba(X_sync)
                 probas_calibradas = np.zeros_like(probas_originales)
                 p1 = probas_originales[:, 1]
-                
+
                 mask_low = p1 <= self.umbral
                 mask_high = p1 > self.umbral
-                
+
                 p1_calib = np.zeros_like(p1)
                 if np.any(mask_low):
                     p1_calib[mask_low] = p1[mask_low] * (0.5 / self.umbral)
                 if np.any(mask_high):
                     p1_calib[mask_high] = 0.5 + ((p1[mask_high] - self.umbral) * (0.5 / (1.0 - self.umbral)))
-                    
+
                 probas_calibradas[:, 1] = p1_calib
                 probas_calibradas[:, 0] = 1.0 - p1_calib
-                
+
                 return probas_calibradas
-        
+
         if riesgo <= umbral:
             st.info("The patient is in optimal condition for discharge. No stabilization targets required.")
         else:
@@ -1371,54 +1425,74 @@ with tab_estrategia:
                     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
                     ruta_ext = os.path.join(BASE_DIR, 'matriz_extended_display_llm.npy')
                     ruta_cols = os.path.join(BASE_DIR, 'columnas_display_llm.npy')
-                    
+
                     if not os.path.exists(ruta_ext) or not os.path.exists(ruta_cols):
                         raise FileNotFoundError("Historical data matrices are missing from the server volume.")
-                    
+
                     matriz_extended = np.load(ruta_ext, allow_pickle=True)
                     nombres_columnas = np.load(ruta_cols, allow_pickle=True)
-                    
+
                     df_background_raw = pd.DataFrame(matriz_extended, columns=nombres_columnas)
                     columnas_modelo = df_paciente.columns.tolist()
-                    
+
                     for col in columnas_modelo:
                         if col not in df_background_raw.columns:
                             df_background_raw[col] = 0.0
-                            
+
                     df_dice_train = df_background_raw[columnas_modelo].copy()
                     df_dice_train['target'] = df_background_raw['target'].astype(int)
-                    
+
                     for col in columnas_modelo:
                         if df_paciente[col].dtype == object:
                             df_dice_train[col] = df_background_raw[col].astype(str).str.strip().str.upper()
                         else:
                             df_dice_train[col] = pd.to_numeric(df_background_raw[col], errors='coerce')
-                    
+
                     df_dice_train = df_dice_train.sample(n=min(1000, len(df_dice_train)), random_state=42)
-                    
+
                     df_paciente_para_dice = df_paciente.copy()
-                    df_paciente_para_dice['target'] = 1 
+                    df_paciente_para_dice['target'] = 1
                     df_dice_train = pd.concat([df_dice_train, df_paciente_para_dice], ignore_index=True)
-                    
-                    features_continuas = df_paciente.select_dtypes(include=[np.number]).columns.tolist()
-                    
-                    d = dice_ml.Data(
-                        dataframe=df_dice_train, 
-                        continuous_features=features_continuas, 
-                        outcome_name='target'
-                    )
-                    
-                    modelo_sincronizado = ModeloSincronizado(pipeline, columnas_modelo, umbral)
-                    m = dice_ml.Model(model=modelo_sincronizado, backend="sklearn")
-                    exp = dice_ml.Dice(d, m, method="random")
-                    
+
+                    # ----------------------------------------------------------------
+                    # FIX 1: separar correctamente continuas vs categóricas + precisión
+                    # ----------------------------------------------------------------
                     variables_accionables = [col for col in columnas_modelo if col.startswith('EVO_')]
+
+                    features_binarias_evo = [
+                        col for col in variables_accionables
+                        if 'dolor' not in col and 'gravedad' not in col
+                    ]
+
+                    features_continuas = [
+                        col for col in df_paciente.select_dtypes(include=[np.number]).columns.tolist()
+                        if col not in features_binarias_evo
+                    ]
+
+                    precisiones_enteras = {
+                        'dias_internados': 0,
+                        'EVO_dolor_eva': 0,
+                        'EVO_gravedad_percibida': 0,
+                        'ING_dolor_eva': 0,
+                        'ING_gravedad_percibida': 0,
+                    }
+                    precisiones_aplicables = {
+                        k: v for k, v in precisiones_enteras.items() if k in features_continuas
+                    }
+
+                    d = dice_ml.Data(
+                        dataframe=df_dice_train,
+                        continuous_features=features_continuas,
+                        outcome_name='target',
+                        continuous_features_precision=precisiones_aplicables
+                    )
+
                     rangos_permitidos = {}
                     vars_a_variar = []
-                    
+
                     for col in variables_accionables:
                         val_actual = df_paciente[col].iloc[0]
-                        
+
                         if 'gravedad' in col:
                             if val_actual > 1.0:
                                 rangos_permitidos[col] = [1.0, float(val_actual)]
@@ -1431,60 +1505,77 @@ with tab_estrategia:
                             if val_actual == 1.0:
                                 rangos_permitidos[col] = [0, 1]
                                 vars_a_variar.append(col)
-        
+
                     if 'dias_internados' in df_paciente.columns:
                         val_dias = float(df_paciente['dias_internados'].iloc[0])
                         rangos_permitidos['dias_internados'] = [val_dias, val_dias + 7.0]
                         vars_a_variar.append('dias_internados')
-                    
+
                     if not vars_a_variar:
                         st.error("There are no modifiable clinical targets in the patient's current evolution that can improve their condition.")
                     else:
-                        cf_df = None
-                        modo_mitigacion = False
-                        
-                        try:
-                            dice_exp = exp.generate_counterfactuals(
-                                df_paciente, total_CFs=5, desired_class="opposite", 
-                                features_to_vary=vars_a_variar, permitted_range=rangos_permitidos, random_seed=42
-                            )
-                            if dice_exp.cf_examples_list[0].final_cfs_df is not None:
-                                cf_df = dice_exp.cf_examples_list[0].final_cfs_df
-                        except Exception:
-                            pass
-                            
-                        if cf_df is None or cf_df.empty:
-                            modo_mitigacion = True
-                            modelo_sincronizado_mit = ModeloSincronizado(pipeline, columnas_modelo, 0.5)
-                            m_mit = dice_ml.Model(model=modelo_sincronizado_mit, backend="sklearn")
-                            exp_mit = dice_ml.Dice(d, m_mit, method="random")
-                            
+                        # ----------------------------------------------------------------
+                        # FIX 2 + 3: umbrales relativos (no 0.5 fijo) + validación final
+                        # ----------------------------------------------------------------
+                        MARGEN_BUSQUEDA = 0.03          # colchón para que la búsqueda no quede al filo
+                        PASOS_MITIGACION = [0.05, 0.10, 0.15]  # cuánto por encima del umbral real se relaja
+
+                        def generar_y_validar(umbral_calibracion, umbral_validacion, total_cfs=12):
+                            """Genera CFs con DiCE calibrado a 'umbral_calibracion' y valida
+                            cada candidato redondeado contra el pipeline REAL exigiendo
+                            riesgo_real < umbral_validacion. Devuelve un DataFrame ya
+                            redondeado, deduplicado y validado, o None si no hay nada viable."""
+                            modelo_sinc = ModeloSincronizado(pipeline, columnas_modelo, umbral_calibracion)
+                            m_local = dice_ml.Model(model=modelo_sinc, backend="sklearn")
+                            exp_local = dice_ml.Dice(d, m_local, method="random")
+
                             try:
-                                dice_exp_mit = exp_mit.generate_counterfactuals(
-                                    df_paciente, total_CFs=5, desired_class="opposite", 
-                                    features_to_vary=vars_a_variar, permitted_range=rangos_permitidos, random_seed=42
+                                dice_exp_local = exp_local.generate_counterfactuals(
+                                    df_paciente, total_CFs=total_cfs, desired_class="opposite",
+                                    features_to_vary=vars_a_variar, permitted_range=rangos_permitidos,
+                                    random_seed=42
                                 )
-                                if dice_exp_mit.cf_examples_list[0].final_cfs_df is not None:
-                                    cf_df = dice_exp_mit.cf_examples_list[0].final_cfs_df
+                                cf_local = dice_exp_local.cf_examples_list[0].final_cfs_df
                             except Exception:
-                                pass
-                        
-                        if cf_df is not None and not cf_df.empty:
+                                cf_local = None
+
+                            if cf_local is None or cf_local.empty:
+                                return None
+
+                            cf_local = cf_local.copy()
+
+                            # Redondeo a unidades clínicas (ya debería venir casi exacto
+                            # gracias a continuous_features_precision, esto es solo blindaje)
                             for col in vars_a_variar:
                                 if col not in ['EVO_dolor_eva', 'EVO_gravedad_percibida', 'dias_internados']:
-                                    cf_df[col] = (cf_df[col] >= 0.5).astype(int)
+                                    cf_local[col] = (cf_local[col] >= 0.5).astype(int)
                                 else:
-                                    cf_df[col] = cf_df[col].round()
-                                    
-                            cf_df = cf_df.drop_duplicates(subset=vars_a_variar).reset_index(drop=True)
-                                    
-                            rutas_unicas = []
+                                    cf_local[col] = cf_local[col].round()
+
+                            cf_local = cf_local.drop_duplicates(subset=vars_a_variar).reset_index(drop=True)
+
+                            # --- VALIDACIÓN FINAL: recalcular con el pipeline REAL ---
+                            riesgos_reales = []
+                            es_valida = []
+                            for idx_row in range(len(cf_local)):
+                                overrides = {col: cf_local.iloc[idx_row][col] for col in vars_a_variar}
+                                fila_sim = construir_fila_simulada(df_paciente, overrides)
+                                riesgo_real_ruta = pipeline.predict_proba(fila_sim)[0][1]
+                                riesgos_reales.append(riesgo_real_ruta)
+                                es_valida.append(riesgo_real_ruta < umbral_validacion)
+
+                            cf_local['riesgo_real_post_redondeo'] = riesgos_reales
+                            cf_local = cf_local[es_valida].reset_index(drop=True)
+
+                            if cf_local.empty:
+                                return None
+
+                            # Deduplicar por firma cualitativa, priorizando menor esfuerzo clínico
                             firmas_vistas = {}
-                            
-                            for idx_row, row in cf_df.iterrows():
+                            rutas_unicas = []
+                            for idx_row, row in cf_local.iterrows():
                                 firma_cualitativa = []
                                 esfuerzo_clinico = 0
-                                
                                 for col in vars_a_variar:
                                     val_orig = df_paciente.iloc[0][col]
                                     val_cf = row[col]
@@ -1492,9 +1583,8 @@ with tab_estrategia:
                                         firma_cualitativa.append(col)
                                         if 'dolor' in col or 'gravedad' in col:
                                             esfuerzo_clinico += abs(val_orig - val_cf)
-                                            
+
                                 firma_str = str(sorted(firma_cualitativa))
-                                
                                 if firma_str not in firmas_vistas:
                                     firmas_vistas[firma_str] = (idx_row, esfuerzo_clinico)
                                     rutas_unicas.append(idx_row)
@@ -1504,20 +1594,49 @@ with tab_estrategia:
                                         firmas_vistas[firma_str] = (idx_row, esfuerzo_clinico)
                                         rutas_unicas.remove(idx_previo)
                                         rutas_unicas.append(idx_row)
-                                        
-                            cf_df = cf_df.loc[rutas_unicas].reset_index(drop=True)
-                                    
-                            cf_df['DELTA_dolor_eva'] = cf_df['EVO_dolor_eva'] - df_paciente.iloc[0]['ING_dolor_eva']
-                            cf_df['DELTA_gravedad_percibida'] = cf_df['EVO_gravedad_percibida'] - df_paciente.iloc[0]['ING_gravedad_percibida']
-                            cf_df['DELTA_alteracion_mental'] = cf_df['EVO_alteracion_mental'] - df_paciente.iloc[0]['ING_alteracion_mental']
-                            cf_df['DELTA_dependencia_funcional'] = cf_df['EVO_dependencia_funcional'] - df_paciente.iloc[0]['ING_dependencia_funcional']
-                            cf_df['DELTA_portador_dispositivos'] = cf_df['EVO_portador_dispositivos'] - df_paciente.iloc[0]['ING_portador_dispositivos']
-        
+
+                            cf_local = cf_local.loc[rutas_unicas].reset_index(drop=True)
+
+                            cf_local['DELTA_dolor_eva'] = cf_local['EVO_dolor_eva'] - df_paciente.iloc[0]['ING_dolor_eva']
+                            cf_local['DELTA_gravedad_percibida'] = cf_local['EVO_gravedad_percibida'] - df_paciente.iloc[0]['ING_gravedad_percibida']
+                            cf_local['DELTA_alteracion_mental'] = cf_local['EVO_alteracion_mental'] - df_paciente.iloc[0]['ING_alteracion_mental']
+                            cf_local['DELTA_dependencia_funcional'] = cf_local['EVO_dependencia_funcional'] - df_paciente.iloc[0]['ING_dependencia_funcional']
+                            cf_local['DELTA_portador_dispositivos'] = cf_local['EVO_portador_dispositivos'] - df_paciente.iloc[0]['ING_portador_dispositivos']
+
+                            return cf_local
+
+                        # --- Construir la escalera de etapas: alta segura -> mitigación graduada ---
+                        etapas = [(umbral - MARGEN_BUSQUEDA, umbral, True)]
+                        for paso in PASOS_MITIGACION:
+                            objetivo = umbral + paso
+                            if objetivo < riesgo - 0.01:  # solo tiene sentido si mejora el riesgo actual
+                                etapas.append((objetivo - MARGEN_BUSQUEDA, objetivo, False))
+
+                        cf_df = None
+                        modo_mitigacion = False
+                        umbral_logrado = None
+
+                        for umbral_calib, umbral_valid, es_alta_segura in etapas:
+                            resultado = generar_y_validar(umbral_calib, umbral_valid, total_cfs=12)
+                            if resultado is not None and not resultado.empty:
+                                cf_df = resultado
+                                modo_mitigacion = not es_alta_segura
+                                umbral_logrado = umbral_valid
+                                break
+
+                        if cf_df is None or cf_df.empty:
+                            st.error("No mathematically viable target routes were found for discharge or mitigation, even after relaxing the clinical target.")
+                        else:
                             if modo_mitigacion:
-                                st.warning(f"⚠️ **{len(cf_df)} HARM REDUCTION ROUTES FOUND:**\nSafe discharge threshold (< {umbral*100:.1f}%) is not mathematically viable in one step. Showing intermediate targets to mitigate critical risk.")
+                                st.warning(
+                                    f"⚠️ **{len(cf_df)} HARM REDUCTION ROUTES FOUND:**\n"
+                                    f"Safe discharge threshold (< {umbral*100:.1f}%) is not mathematically viable in one step. "
+                                    f"Showing intermediate targets that bring real risk below {umbral_logrado*100:.1f}% "
+                                    f"(still above the safe-discharge threshold)."
+                                )
                             else:
-                                st.success(f"✅ **{len(cf_df)} UNIQUE CLINICAL STABILIZATION TARGETS FOUND:**")
-                            
+                                st.success(f"✅ **{len(cf_df)} UNIQUE CLINICAL STABILIZATION TARGETS FOUND (verified < {umbral*100:.1f}%):**")
+
                             evo_output_dict = {
                                 'EVO_dolor_eva': 'Current Pain', 'EVO_gravedad_percibida': 'Current Severity',
                                 'EVO_aislamiento_infeccioso': 'Infectious Isolation', 'EVO_alteracion_mental': 'Mental Alteration',
@@ -1529,21 +1648,21 @@ with tab_estrategia:
                                 'EVO_soporte_transfusional': 'Transfusion Support',
                                 'dias_internados': 'Additional Hospitalization Days'
                             }
-                            
+
                             with st.container(height=500):
                                 for r_idx in range(len(cf_df)):
                                     with st.expander(f"➔ 🛤️ Alternative Target Route {r_idx + 1}", expanded=(r_idx == 0)):
                                         cambios_detectados = 0
                                         st.markdown("##### 🎯 Stabilization Actions:")
-                                        
+
                                         for col in vars_a_variar:
                                             val_orig = df_paciente.iloc[0][col]
-                                            val_cf = cf_df.iloc[r_idx][col] 
-                                            
+                                            val_cf = cf_df.iloc[r_idx][col]
+
                                             if val_orig != val_cf:
                                                 cambios_detectados += 1
                                                 col_en = evo_output_dict.get(col, col)
-                                                
+
                                                 if 'dolor' in col or 'gravedad' in col:
                                                     st.write(f"- 💊 **{col_en}**: Target reduction ➔ **[{val_cf:.0f}]** (Currently: {val_orig:.0f})")
                                                 elif col == 'dias_internados':
@@ -1552,7 +1671,13 @@ with tab_estrategia:
                                                 else:
                                                     status_en = "Resolved/Absent" if val_cf == 0 else "Present"
                                                     st.write(f"- 🛡️ **{col_en}**: Target status ➔ **[{status_en}]**")
-                                                    
+
+                                        riesgo_ruta = cf_df.iloc[r_idx]['riesgo_real_post_redondeo']
+                                        st.markdown(
+                                            f"📉 **Verified real risk after this route (recomputed on the actual pipeline): "
+                                            f"{riesgo_ruta*100:.1f}%** &nbsp; (safe-discharge threshold: {umbral*100:.1f}%)"
+                                        )
+
                                         if cambios_detectados == 0:
                                             st.write("This alternative suggests maintaining current parameters based on marginal risk stability.")
                                         else:
@@ -1563,57 +1688,54 @@ with tab_estrategia:
                                                 'Δ Func. Dep.': ('EVO_dependencia_funcional', 'ING_dependencia_funcional'),
                                                 'Δ Devices': ('EVO_portador_dispositivos', 'ING_portador_dispositivos')
                                             }
-                                            
+
                                             categorias_radar = list(radar_map.keys())
                                             valores_actuales_radar = []
                                             valores_meta_radar = []
-                                            
+
                                             for cat, (col_evo, col_ing) in radar_map.items():
                                                 v_ing = df_paciente.iloc[0].get(col_ing, 0)
                                                 v_evo_act = df_paciente.iloc[0].get(col_evo, 0)
                                                 valores_actuales_radar.append(v_evo_act - v_ing)
-                                                
+
                                                 v_evo_meta = cf_df.iloc[r_idx].get(col_evo, v_evo_act)
                                                 valores_meta_radar.append(v_evo_meta - v_ing)
-                                                
+
                                             cat_cerradas = categorias_radar + [categorias_radar[0]]
                                             val_act_cerrados = valores_actuales_radar + [valores_actuales_radar[0]]
                                             val_meta_cerrados = valores_meta_radar + [valores_meta_radar[0]]
-                                            
+
                                             fig_radar = go.Figure()
-                                            
+
                                             fig_radar.add_trace(go.Scatterpolar(
                                                 r=val_act_cerrados, theta=cat_cerradas,
-                                                fill='toself', fillcolor='rgba(214, 39, 40, 0.25)', 
+                                                fill='toself', fillcolor='rgba(214, 39, 40, 0.25)',
                                                 line=dict(color='#D62728', width=2.5), name='Current State'
                                             ))
-                                            
+
                                             color_target = '#FF8C00' if modo_mitigacion else '#2CA02C'
                                             fill_target = 'rgba(255, 140, 0, 0.25)' if modo_mitigacion else 'rgba(44, 160, 44, 0.25)'
-                                            
+
                                             fig_radar.add_trace(go.Scatterpolar(
                                                 r=val_meta_cerrados, theta=cat_cerradas,
-                                                fill='toself', fillcolor=fill_target, 
+                                                fill='toself', fillcolor=fill_target,
                                                 line=dict(color=color_target, width=2.5), name='DiCE Target'
                                             ))
-                                            
+
                                             fig_radar.update_layout(
                                                 polar=dict(
                                                     radialaxis=dict(visible=True, range=[-2, 8]),
-                                                    bgcolor='rgba(0,0,0,0)' 
+                                                    bgcolor='rgba(0,0,0,0)'
                                                 ),
-                                                paper_bgcolor='rgba(0,0,0,0)', 
+                                                paper_bgcolor='rgba(0,0,0,0)',
                                                 plot_bgcolor='rgba(0,0,0,0)',
-                                                margin=dict(l=40, r=40, t=40, b=40), 
+                                                margin=dict(l=40, r=40, t=40, b=40),
                                                 height=450,
                                                 legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="center", x=0.5)
                                             )
-                                            
+
                                             st.plotly_chart(fig_radar, use_container_width=True, key=f"dice_radar_ruta_cf_{r_idx}")
-                                            
-                        else:
-                            st.error("No mathematically viable target routes were found for discharge or mitigation.")
-                            
+
                 except Exception as e:
                     st.error("Counterfactual engine is currently unavailable.")
                     st.warning(f"Technical Context: {str(e)}")
@@ -1624,27 +1746,16 @@ with tab_estrategia:
     st.markdown("---")
     try:
         with st.spinner("Analyzing precise clinical impacts of simulated trajectory..."):
-            df_sim = df_paciente.copy()
-            
-            # Inyección de valores simulados desde los controles del Sandbox
-            df_sim['dias_internados'] = float(dias_sim)
-            df_sim['EVO_dolor_eva'] = float(dolor_sim)
-            df_sim['EVO_gravedad_percibida'] = float(severidad_sim)
-            
-            for col, val in status_evo_sim.items(): 
-                df_sim[col] = 1.0 if val else 0.0
-            
-            # Sincronización causal inmediata de Deltas matemáticos
-            pares_delta = {
-                'DELTA_alteracion_mental': ('EVO_alteracion_mental', 'ING_alteracion_mental'),
-                'DELTA_dependencia_funcional': ('EVO_dependencia_funcional', 'ING_dependencia_funcional'),
-                'DELTA_portador_dispositivos': ('EVO_portador_dispositivos', 'ING_portador_dispositivos'),
-                'DELTA_dolor_eva': ('EVO_dolor_eva', 'ING_dolor_eva'),
-                'DELTA_gravedad_percibida': ('EVO_gravedad_percibida', 'ING_gravedad_percibida')
+            overrides_sandbox = {
+                'dias_internados': float(dias_sim),
+                'EVO_dolor_eva': float(dolor_sim),
+                'EVO_gravedad_percibida': float(severidad_sim),
             }
-            for col_delta, (col_evo, col_ing) in pares_delta.items():
-                if col_evo in df_sim.columns and col_ing in df_sim.columns:
-                    df_sim[col_delta] = df_sim[col_evo] - df_sim[col_ing]
+            for col, val in status_evo_sim.items():
+                overrides_sandbox[col] = 1.0 if val else 0.0
+
+            # Misma función usada para validar las rutas de DiCE -> consistencia garantizada
+            df_sim = construir_fila_simulada(df_paciente, overrides_sandbox)
 
             # Cálculo de riesgos marginales
             riesgo_base = pipeline.predict_proba(df_paciente)[0][1]
@@ -1654,23 +1765,20 @@ with tab_estrategia:
             # Extracción del pipeline
             prep = pipeline.named_steps['preprocesador']
             clf = pipeline.named_steps['clasificador']
-            
-            # Transformar el clon simulado al espacio denso final
+
             X_sim_proc = prep.transform(df_sim)
             X_sim_dense = X_sim_proc.toarray() if hasattr(X_sim_proc, 'toarray') else np.array(X_sim_proc)
-            
-            # Obtener nombres de las características vectorizadas
+
             columnas_modelo_final = list(prep.get_feature_names_out())
-            
-            # Diccionario clínico estructurado en inglés
+
             ui_dict = {
                 'dias_internados': 'Hospitalization Length of Stay',
-                'DELTA_dolor_eva': 'Δ Pain Progression (Discharge - Admission)', 
+                'DELTA_dolor_eva': 'Δ Pain Progression (Discharge - Admission)',
                 'DELTA_gravedad_percibida': 'Δ Severity Progression (Discharge - Admission)',
-                'DELTA_alteracion_mental': 'Δ Mental State Progression', 
+                'DELTA_alteracion_mental': 'Δ Mental State Progression',
                 'DELTA_dependencia_funcional': 'Δ Functional Dependency Progression',
                 'DELTA_portador_dispositivos': 'Δ Invasive Devices Progression',
-                'EVO_dolor_eva': 'Current Discharge Pain (VAS)', 
+                'EVO_dolor_eva': 'Current Discharge Pain (VAS)',
                 'EVO_gravedad_percibida': 'Current Discharge Severity Score',
                 'EVO_aislamiento_infeccioso': 'Infectious Isolation Status',
                 'EVO_complicacion_internacion': 'Acquired Hospital Complication',
@@ -1682,7 +1790,6 @@ with tab_estrategia:
                 'EVO_soporte_transfusional': 'Transfusion Support Required'
             }
 
-            # Extracción segura del Booster para SHAP (Evita error de SKLearn wrapper)
             nombre_modelo = type(clf).__name__
             if 'XGB' in nombre_modelo:
                 explainer = shap.TreeExplainer(clf.get_booster())
@@ -1694,7 +1801,6 @@ with tab_estrategia:
                 explainer = shap.LinearExplainer(clf, np.zeros((1, X_sim_dense.shape[1])))
                 shap_sim = explainer.shap_values(X_sim_dense)
 
-            # Estandarización dimensional del tensor de SHAP
             if isinstance(shap_sim, list):
                 shap_sim = shap_sim[1][0] if len(shap_sim) > 1 else shap_sim[0][0]
             elif len(shap_sim.shape) == 3:
@@ -1702,62 +1808,59 @@ with tab_estrategia:
             elif len(shap_sim.shape) == 2:
                 shap_sim = shap_sim[0]
 
-            # Filtrado selectivo: Solo variables de evolución y accionables por el médico
             cambios_impacto = []
             for i, feat_name in enumerate(columnas_modelo_final):
                 n_clean = str(feat_name).replace('num__', '').replace('cat__', '').split('_1')[0].split('_TRUE')[0].split('_1.0')[0]
-                
+
                 if n_clean.startswith(('EVO_', 'DELTA_')) or n_clean == 'dias_internados':
                     peso_pct = shap_sim[i] * 100
-                    
-                    # Blindaje OHE: Si es categórica, solo mostrarla si el atributo está activo en la simulación
+
                     es_valido = True
                     if 'cat__' in str(feat_name) and X_sim_dense[0, i] == 0:
                         es_valido = False
-                        
+
                     if es_valido and abs(peso_pct) > 0.01:
                         label_display = ui_dict.get(n_clean, n_clean.replace('_', ' ').title())
                         cambios_impacto.append((label_display, peso_pct))
 
             if not cambios_impacto:
-                 st.info("The current configuration of evolutionary variables has a neutral impact on risk.")
+                st.info("The current configuration of evolutionary variables has a neutral impact on risk.")
             else:
-                # Ordenamiento de impacto para lectura de cascada
                 cambios_impacto = sorted(cambios_impacto, key=lambda x: x[1])
-                
+
                 fig_delta = go.Figure(go.Bar(
-                    x=[x[1] for x in cambios_impacto], 
+                    x=[x[1] for x in cambios_impacto],
                     y=[x[0] for x in cambios_impacto],
-                    orientation='h', 
+                    orientation='h',
                     marker_color=['#FF4444' if x[1] > 0 else '#00C851' for x in cambios_impacto],
                     text=[f"+{x[1]:.1f}%" if x[1] > 0 else f"{x[1]:.1f}%" for x in cambios_impacto],
-                    textposition='outside', 
+                    textposition='outside',
                     textfont=dict(size=12)
                 ))
-                
+
                 fig_delta.update_layout(
                     title="Actionable Phenotype Risk Contributions",
                     xaxis_title="Impact on Readmission Probability (%)",
-                    plot_bgcolor='rgba(0,0,0,0)', 
+                    plot_bgcolor='rgba(0,0,0,0)',
                     paper_bgcolor='rgba(0,0,0,0)',
                     margin=dict(l=10, r=50, t=40, b=10),
-                    height=max(320, len(cambios_impacto) * 42), 
+                    height=max(320, len(cambios_impacto) * 42),
                     xaxis=dict(
-                        showgrid=True, gridcolor='rgba(128,128,128,0.2)', 
+                        showgrid=True, gridcolor='rgba(128,128,128,0.2)',
                         zeroline=True, zerolinecolor='rgba(128,128,128,0.6)', zerolinewidth=1.5
                     )
                 )
-                
+
                 col_l1, col_l2 = st.columns([1, 3])
-                
-                with col_l2: 
+
+                with col_l2:
                     st.plotly_chart(fig_delta, use_container_width=True)
-                    
+
                 with col_l1:
                     st.markdown("### 📊 Target Risk")
                     st.metric(
-                        label="Hypothetical 15-Day Prob.", 
-                        value=f"{riesgo_simulado*100:.1f}%", 
+                        label="Hypothetical 15-Day Prob.",
+                        value=f"{riesgo_simulado*100:.1f}%",
                         delta=f"{variacion_riesgo:+.1f}% vs Admission",
                         delta_color="inverse"
                     )
