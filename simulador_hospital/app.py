@@ -508,22 +508,18 @@ st.markdown("<h2 style='font-size: 32px; font-weight: 600; margin-bottom: 20px;'
 def cargar_entorno():
     directorio_actual = os.path.dirname(os.path.abspath(__file__))
     ruta_modelo = os.path.join(directorio_actual, 'modelo_reingreso_nlp_41vars_v2.pkl')
-    ruta_quimera = os.path.join(directorio_actual, 'train_sample_quimera_v2.csv') # <-- ARCHIVO QUIMERA
     
     paquete = joblib.load(ruta_modelo)
     pipeline = paquete['pipeline']
     umbral = paquete['umbral']
     cols_modelo = paquete['nombres_columnas']
     
-    try:
-        df_train_sample = pd.read_csv(ruta_quimera)
-    except FileNotFoundError:
-        st.error(f"⚠️ Missing background file: {ruta_quimera}. LIME will use zeros.")
-        df_train_sample = pd.DataFrame(np.zeros((50, len(cols_modelo))), columns=cols_modelo)
-    
-    return pipeline, umbral, cols_modelo, df_train_sample
+    return pipeline, umbral, cols_modelo
 
-pipeline, umbral, columnas_modelo, df_train_sample = cargar_entorno()
+
+pipeline, umbral, columnas_modelo = cargar_entorno()
+
+
 
 # ==========================================
 # 3. INTERFACE CAPTURE (MANUAL CORE & NLP AUTOMATION)
@@ -1700,16 +1696,20 @@ with tab_estrategia:
                 n_clean = str(n).replace('num__', '').replace('cat__', '').split('_1')[0].split('_TRUE')[0]
                 nombres_shap.append(ui_dict.get(n_clean, n_clean.replace('_', ' ').title()))
 
-            # 4. Calcular SHAP Exacto para ambos mundos
-            if 'Forest' in type(clf).__name__ or 'Boost' in type(clf).__name__:
+            # 4. Calcular SHAP Exacto para ambos mundos (BLINDAJE XGBOOST)
+            nombre_modelo = type(clf).__name__
+            
+            if 'XGB' in nombre_modelo:
+                motor_puro = clf.get_booster() # <-- LA MAGIA: Desnudamos el modelo
+                explainer = shap.TreeExplainer(motor_puro)
+            elif 'Forest' in nombre_modelo or 'Boost' in nombre_modelo:
                 explainer = shap.TreeExplainer(clf)
-                shap_orig = explainer.shap_values(X_orig_dense.reshape(1, -1), check_additivity=False)
-                shap_sim = explainer.shap_values(X_sim_dense.reshape(1, -1), check_additivity=False)
             else:
-                # Para modelos lineales (usamos una matriz vacía rápida como background local)
                 explainer = shap.LinearExplainer(clf, np.zeros((1, len(X_orig_dense))))
-                shap_orig = explainer.shap_values(X_orig_dense.reshape(1, -1))
-                shap_sim = explainer.shap_values(X_sim_dense.reshape(1, -1))
+                
+            # Calculamos los valores (Funciona igual para XGBoost puro o Sklearn wrappers)
+            shap_orig = explainer.shap_values(X_orig_dense.reshape(1, -1), check_additivity=False)
+            shap_sim = explainer.shap_values(X_sim_dense.reshape(1, -1), check_additivity=False)
                 
             # Manejo de dimensionalidad multidimensional de SHAP
             if isinstance(shap_orig, list): 
@@ -1767,7 +1767,7 @@ with tab_estrategia:
                         label="Hypothetical 15-Day Prob.", 
                         value=f"{riesgo_simulado*100:.1f}%", 
                         delta=f"{variacion_riesgo:+.1f}% vs Admission",
-                        delta_color="inverse" # Automáticamente pone rojo si sube, verde si baja
+                        delta_color="inverse"
                     )
                     st.markdown("---")
 
