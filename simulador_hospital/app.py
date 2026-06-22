@@ -305,6 +305,17 @@ class MotorEDADinamico:
         if variable_segmentacion == 'EST_paso_por_uti':
             df_plot['Grupo'] = df_plot[variable_segmentacion].astype(str).map({'1': 'ICU Stay', '1.0': 'ICU Stay', '0': 'General Ward', '0.0': 'General Ward'}).fillna('No Data')
             titulo_var = "Clinical Severity (ICU)"
+        # --- NUEVO BLOQUE: TRIAGE ---
+        elif variable_segmentacion == 'TR_Prioridad':
+            mapeo_prioridad = {
+                '0': '0: Non-Urgent', '0.0': '0: Non-Urgent',
+                '1': '1: Standard', '1.0': '1: Standard',
+                '2': '2: Urgent', '2.0': '2: Urgent',
+                '3': '3: Emergency', '3.0': '3: Emergency'
+            }
+            df_plot['Grupo'] = df_plot[variable_segmentacion].astype(str).map(mapeo_prioridad).fillna('No Data')
+            titulo_var = "Triage Priority"
+        # ----------------------------
         elif variable_segmentacion == 'pluripatologico':
             df_plot['Grupo'] = df_plot[variable_segmentacion].astype(str).map({'1': 'Multimorbidity', '1.0': 'Multimorbidity', '0': 'Single Pathology', '0.0': 'Single Pathology'}).fillna('No Data')
             titulo_var = "Multimorbidity"
@@ -382,18 +393,33 @@ class MotorEDADinamico:
         fig.update_layout(yaxis_title="Number of Patients", xaxis={'categoryorder':'category ascending'}, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
         return fig
 
-    def plot_gravedad_hospitalaria(self):
-        if 'dias_internados' not in self.df.columns or 'EST_paso_por_uti' not in self.df.columns: return None
+    # Modificada para aceptar segmentación dinámica
+    def plot_gravedad_hospitalaria(self, variable_segmentacion='EST_paso_por_uti'):
+        if 'dias_internados' not in self.df.columns or variable_segmentacion not in self.df.columns: return None
             
-        self.df['UTI_Label'] = self.df['EST_paso_por_uti'].astype(str).map({'1': 'ICU Stay', '1.0': 'ICU Stay', '0': 'General Ward', '0.0': 'General Ward'}).fillna('No Data')
-        df_plot = self.df[self.df['UTI_Label'] != 'No Data'].copy()
+        if variable_segmentacion == 'EST_paso_por_uti':
+            self.df['Severity_Label'] = self.df[variable_segmentacion].astype(str).map({'1': 'ICU Stay', '1.0': 'ICU Stay', '0': 'General Ward', '0.0': 'General Ward'}).fillna('No Data')
+            titulo_eje = 'Severity (ICU)'
+        elif variable_segmentacion == 'TR_Prioridad':
+            mapeo_prioridad = {
+                '0': '0: Non-Urgent', '0.0': '0: Non-Urgent',
+                '1': '1: Standard', '1.0': '1: Standard',
+                '2': '2: Urgent', '2.0': '2: Urgent',
+                '3': '3: Emergency', '3.0': '3: Emergency'
+            }
+            self.df['Severity_Label'] = self.df[variable_segmentacion].astype(str).map(mapeo_prioridad).fillna('No Data')
+            titulo_eje = 'Triage Priority'
+        else:
+            return None
+
+        df_plot = self.df[self.df['Severity_Label'] != 'No Data'].copy()
         
-        df_grouped = df_plot.groupby(['Periodo_Reingreso', 'UTI_Label'])['dias_internados'].median().reset_index()
+        df_grouped = df_plot.groupby(['Periodo_Reingreso', 'Severity_Label'])['dias_internados'].median().reset_index()
             
         fig = px.bar(
-            df_grouped, x="Periodo_Reingreso", y="dias_internados", color="UTI_Label", barmode="group", text_auto=True,
-            title="Hospital Attrition: Median Original Length of Stay",
-            labels={'dias_internados': 'Length of Stay (Median Days)', 'Periodo_Reingreso': 'Period', 'UTI_Label': 'Severity'}
+            df_grouped, x="Periodo_Reingreso", y="dias_internados", color="Severity_Label", barmode="group", text_auto=True,
+            title=f"Hospital Attrition: Median Length of Stay by {titulo_eje}",
+            labels={'dias_internados': 'Length of Stay (Median Days)', 'Periodo_Reingreso': 'Period', 'Severity_Label': titulo_eje}
         )
         fig.update_layout(xaxis={'categoryorder':'category ascending'}, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
         return fig
@@ -438,7 +464,7 @@ class MotorEDADinamico:
         opciones = {
             'curva': lambda: self.plot_incidencia_acumulada(variable_segmentacion), 
             'clinico': self.plot_perfil_clinico,
-            'gravedad': self.plot_gravedad_hospitalaria,
+            'gravedad': lambda: self.plot_gravedad_hospitalaria(variable_segmentacion), # Ahora soporta parámetros
             'social': self.plot_contexto_social,
             'historial': self.plot_historial_paciente,
             'cie10': self.plot_motivo_ingreso
