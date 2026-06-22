@@ -414,13 +414,35 @@ class MotorEDADinamico:
 
         df_plot = self.df[self.df['Severity_Label'] != 'No Data'].copy()
         
-        df_grouped = df_plot.groupby(['Periodo_Reingreso', 'Severity_Label'])['dias_internados'].median().reset_index()
-            
+        # 1. Agrupación matemática avanzada (Mediana + Cuartiles)
+        df_grouped = df_plot.groupby(['Periodo_Reingreso', 'Severity_Label'])['dias_internados'].agg(
+            Mediana='median',
+            Q25=lambda x: x.quantile(0.25),
+            Q75=lambda x: x.quantile(0.75)
+        ).reset_index()
+
+        # Redondeo para limpieza visual
+        df_grouped['Mediana'] = df_grouped['Mediana'].round(1)
+        df_grouped['Q25'] = df_grouped['Q25'].round(1)
+        df_grouped['Q75'] = df_grouped['Q75'].round(1)
+
+        # 2. Generación del gráfico base
         fig = px.bar(
-            df_grouped, x="Periodo_Reingreso", y="dias_internados", color="Severity_Label", barmode="group", text_auto=True,
+            df_grouped, x="Periodo_Reingreso", y="Mediana", color="Severity_Label", barmode="group",
+            text="Mediana", # Mantiene el número centrado en la barra
+            custom_data=["Q25", "Q75"], # Inyecta los cuartiles en el backend de la figura
             title=f"Hospital Attrition: Median Length of Stay by {titulo_eje}",
-            labels={'dias_internados': 'Length of Stay (Median Days)', 'Periodo_Reingreso': 'Period', 'Severity_Label': titulo_eje}
+            labels={'Mediana': 'Length of Stay (Median Days)', 'Periodo_Reingreso': 'Period', 'Severity_Label': titulo_eje}
         )
+        
+        # 3. Formateo del Tooltip Inteligente (Hover)
+        fig.update_traces(
+            hovertemplate="<b>%{x}</b><br>" +
+                          titulo_eje + ": <b>%{series_name}</b><br>" +
+                          "Typical Stay (Median): <b>%{y} days</b><br>" +
+                          "Expected Range (IQR): <b>%{customdata[0]} to %{customdata[1]} days</b><extra></extra>"
+        )
+
         fig.update_layout(xaxis={'categoryorder':'category ascending'}, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
         return fig
         
