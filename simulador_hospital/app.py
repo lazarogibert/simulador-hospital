@@ -508,15 +508,22 @@ st.markdown("<h2 style='font-size: 32px; font-weight: 600; margin-bottom: 20px;'
 def cargar_entorno():
     directorio_actual = os.path.dirname(os.path.abspath(__file__))
     ruta_modelo = os.path.join(directorio_actual, 'modelo_reingreso_nlp_41vars_v2.pkl')
+    ruta_quimera = os.path.join(directorio_actual, 'train_sample_quimera_v2.csv') # <-- ARCHIVO QUIMERA
     
     paquete = joblib.load(ruta_modelo)
     pipeline = paquete['pipeline']
     umbral = paquete['umbral']
     cols_modelo = paquete['nombres_columnas']
     
-    return pipeline, umbral, cols_modelo
+    try:
+        df_train_sample = pd.read_csv(ruta_quimera)
+    except FileNotFoundError:
+        st.error(f"⚠️ Missing background file: {ruta_quimera}. LIME will use zeros.")
+        df_train_sample = pd.DataFrame(np.zeros((50, len(cols_modelo))), columns=cols_modelo)
+    
+    return pipeline, umbral, cols_modelo, df_train_sample
 
-pipeline, umbral, columnas_modelo = cargar_entorno()
+pipeline, umbral, columnas_modelo, df_train_sample = cargar_entorno()
 
 # ==========================================
 # 3. INTERFACE CAPTURE (MANUAL CORE & NLP AUTOMATION)
@@ -1645,25 +1652,31 @@ with tab_estrategia:
             riesgo_simulado = pipeline.predict_proba(df_sim)[0][1]
             variacion_riesgo = (riesgo_simulado - riesgo_base) * 100
 
-            # Desarmamos el pipeline para hablar directo con el clasificador final
             prep = pipeline.named_steps['preprocesador']
             clf = pipeline.named_steps['clasificador']
+            has_selector = 'feature_selection' in pipeline.named_steps
+            selector = pipeline.named_steps['feature_selection'] if has_selector else None
             
-            # 1. Extraer los nombres reales y exactos de la matriz expandida
-            columnas_modelo_final = list(prep.get_feature_names_out())
-            
-            # 2. Transformar el clon del paciente simulado a espacio denso
+            # 1. Transformación Dinámica del Paciente
             X_p_proc = prep.transform(df_sim)
-            X_p_dense = X_p_proc.values[0] if hasattr(X_p_proc, 'values') else np.array(X_p_proc)[0]
-                
-            # 3. Cargar las filas de la matriz de entrenamiento procesada (.npy)
-            BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-            ruta_x = os.path.join(BASE_DIR, 'X_train_proc_llm.npy')
-            X_train_proc_lime = np.load(ruta_x)
+            if selector: X_p_proc = selector.transform(X_p_proc)
+            X_p_dense = X_p_proc.values[0] if hasattr(X_p_proc, 'values') else (X_p_proc.toarray()[0] if hasattr(X_p_proc, 'toarray') else np.array(X_p_proc)[0])
             
-            X_t_dense = np.array(X_train_proc_lime[:500]) # Muestra segura de 500 casos
-                
-            # 4. Traducir las etiquetas para mostrarlas limpias en la interfaz gráfica
+            # 2. Transformación Dinámica del CSV (Alineación Dimensional Perfecta)
+            X_t_proc = prep.transform(df_train_sample)
+            if selector: X_t_proc = selector.transform(X_t_proc)
+            X_t_dense = X_t_proc.values if hasattr(X_t_proc, 'values') else (X_t_proc.toarray() if hasattr(X_t_proc, 'toarray') else np.array(X_t_proc))
+            
+            # 3. Extracción Estricta de Nombres
+            if selector and hasattr(selector, 'variables_mantenidas_'):
+                columnas_modelo_final = selector.variables_mantenidas_
+            elif selector:
+                try: columnas_modelo_final = selector.get_feature_names_out()
+                except Exception: columnas_modelo_final = [f"Feature_{i}" for i in range(X_t_dense.shape[1])]
+            else:
+                columnas_modelo_final = list(prep.get_feature_names_out())
+            
+            # 4. Diccionario UX
             ui_dict = {
                 'DELTA_dolor_eva': 'Δ Pain', 'DELTA_gravedad_percibida': 'Δ Severity',
                 'DELTA_alteracion_mental': 'Δ Mental Alt.', 'DELTA_dependencia_funcional': 'Δ Func. Dep.',
@@ -1678,16 +1691,15 @@ with tab_estrategia:
             
             nombres_lime = []
             for n in columnas_modelo_final:
-                # Removemos prefijos num__ y cat__ para buscar coincidencias limpias en el diccionario
                 n_clean = str(n).replace('num__', '').replace('cat__', '').split('_1')[0].split('_TRUE')[0]
                 nombres_lime.append(ui_dict.get(n_clean, n_clean.replace('_', ' ').title()))
 
-            # 5. EL ENVOLTORIO PROTECTOR: Convierte las perturbaciones numpy de LIME en DataFrames válidos
+            # 5. Envoltorio Protector
             def predict_fn_segura(X_array):
                 df_temporal = pd.DataFrame(X_array, columns=columnas_modelo_final)
                 return clf.predict_proba(df_temporal)
 
-            # 6. Inicializar y ejecutar LIME
+            # 6. Ejecución LIME
             explainer = lime.lime_tabular.LimeTabularExplainer(
                 training_data=X_t_dense,
                 feature_names=nombres_lime, 
