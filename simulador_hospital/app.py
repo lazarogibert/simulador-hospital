@@ -549,6 +549,9 @@ perfil_ui = st.sidebar.selectbox("Admission Clinical Profile:", list(perfil_clin
 perfil_input = perfil_clinico_map[perfil_ui].upper()
 
 complejidad_input = st.sidebar.number_input("Complexity Level (IN_COMPLEJIDAD):", min_value=1, step=1, value=1)
+# --- NUEVA LÍNEA ---
+prioridad_input = st.sidebar.selectbox("Triage Priority (TR_Prioridad):", options=[0, 1, 2, 3], index=0, help="0: Non-urgent, 3: Resuscitation/Emergency")
+
 interconsultas_input = st.sidebar.number_input("Interconsultations:", min_value=0, value=0)
 visitas_guardia_input = st.sidebar.number_input("ER Visits (Previous 6 months):", min_value=0, value=0)
 
@@ -803,6 +806,8 @@ if 'sexo' in paciente_data: paciente_data['sexo'] = sexo_input
 if 'Area' in paciente_data: paciente_data['Area'] = area_input
 if 'perfil_clinico_ingreso' in paciente_data: paciente_data['perfil_clinico_ingreso'] = perfil_input
 if 'IN_COMPLEJIDAD' in paciente_data: paciente_data['IN_COMPLEJIDAD'] = str(int(complejidad_input))
+# --- NUEVA LÍNEA ---
+if 'TR_Prioridad' in paciente_data: paciente_data['TR_Prioridad'] = prioridad_input
 if 'cantidad_interconsultas' in paciente_data: paciente_data['cantidad_interconsultas'] = float(interconsultas_input)
 if 'visitas_guardia_6meses_previos' in paciente_data: paciente_data['visitas_guardia_6meses_previos'] = float(visitas_guardia_input)
 if 'EST_ingreso_ambulancia' in paciente_data: paciente_data['EST_ingreso_ambulancia'] = 1.0 if ingreso_ambulancia else 0.0
@@ -967,7 +972,7 @@ with tab_diagnostico:
                     'LLM_abandono_medicacion': 'Chronic: Med. Abandonment',
                     'LLM_historial_caidas': 'Chronic: History of Falls',
                     'LLM_polifarmacia': 'Chronic: Polypharmacy', 'LLM_tabaquismo_activo': 'Chronic: Active Smoking',
-                    'sexo': 'Sex', 'Area': 'Admission Area', 'IN_COMPLEJIDAD': 'Complexity Level',
+                    'sexo': 'Sex', 'Area': 'Admission Area', 'IN_COMPLEJIDAD': 'Complexity Level','TR_Prioridad': 'Triage Priority',
                     'cantidad_interconsultas': 'Interconsultations', 'visitas_guardia_6meses_previos': 'ER Visits (6m)',
                     'EST_ingreso_ambulancia': 'Ambulance Arrival', 'perfil_clinico_ingreso': 'Admission Profile',
                     'EST_paso_por_uti': 'ICU Stay', 'Riesgo_Cardiovasculares_Inotropicos': 'High-Risk Med: Cardiovascular',
@@ -1863,7 +1868,7 @@ with tab_evidencia:
         'EVO_soporte_transfusional': 'Evolution: Transfusion Support', 'DELTA_dolor_eva': 'Δ Pain (VAS)',
         'DELTA_gravedad_percibida': 'Δ Perceived Severity', 'DELTA_alteracion_mental': 'Δ Mental Alteration',
         'DELTA_dependencia_funcional': 'Δ Functional Dependency', 'DELTA_portador_dispositivos': 'Δ Device Bearer',
-        'sexo': 'Sex', 'Area': 'Admission Area', 'IN_COMPLEJIDAD': 'Complexity Level', 
+        'sexo': 'Sex', 'Area': 'Admission Area', 'IN_COMPLEJIDAD': 'Complexity Level', 'TR_Prioridad': 'Triage Priority',
         'cantidad_interconsultas': 'Interconsultations', 'visitas_guardia_6meses_previos': 'ER Visits (6m)',
         'EST_ingreso_ambulancia': 'Ambulance Arrival', 
         'HIST_condicion_ultimo_egreso': 'Previous Discharge Condition',
