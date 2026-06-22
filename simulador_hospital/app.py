@@ -1291,7 +1291,6 @@ with tab_diagnostico:
 # ==========================================================================
 
 with tab_estrategia:
-
     # ----------------------------------------------------------------
     # HELPERS COMPARTIDOS (una sola fuente de verdad para los deltas)
     # ----------------------------------------------------------------
@@ -1646,7 +1645,9 @@ with tab_estrategia:
                                 'EVO_cambio_terapeutico_mayor': 'Major Therapeutic Change',
                                 'EVO_intervencion_quirurgica': 'Surgical Intervention',
                                 'EVO_soporte_transfusional': 'Transfusion Support',
-                                'dias_internados': 'Additional Hospitalization Days'
+                                'dias_internados': 'Additional Hospitalization Days',
+                                'EVO_terapia_endovenosa_prolongada': 'Prolonged IV Therapy', 
+                                'EVO_inestabilidad_residual': 'Residual Instability'
                             }
 
                             with st.container(height=500):
@@ -1771,6 +1772,7 @@ with tab_estrategia:
 
             columnas_modelo_final = list(prep.get_feature_names_out())
 
+            # --- DICCIONARIO ACTUALIZADO ---
             ui_dict = {
                 'dias_internados': 'Hospitalization Length of Stay',
                 'DELTA_dolor_eva': 'Δ Pain Progression (Discharge - Admission)',
@@ -1787,7 +1789,9 @@ with tab_estrategia:
                 'EVO_portador_dispositivos': 'Active Medical Device Bearer',
                 'EVO_cambio_terapeutico_mayor': 'Major Therapeutic Change',
                 'EVO_intervencion_quirurgica': 'Surgical Intervention Performed',
-                'EVO_soporte_transfusional': 'Transfusion Support Required'
+                'EVO_soporte_transfusional': 'Transfusion Support Required',
+                'EVO_terapia_endovenosa_prolongada': 'Prolonged IV Therapy', 
+                'EVO_inestabilidad_residual': 'Residual Instability'
             }
 
             nombre_modelo = type(clf).__name__
@@ -1815,8 +1819,14 @@ with tab_estrategia:
                 if n_clean.startswith(('EVO_', 'DELTA_')) or n_clean == 'dias_internados':
                     peso_pct = shap_sim[i] * 100
 
+                    # --- CORRECCIÓN DE VISIBILIDAD: OCULTAR LO INACTIVO ---
                     es_valido = True
-                    if 'cat__' in str(feat_name) and X_sim_dense[0, i] == 0:
+                    
+                    val_orig = float(df_paciente.get(n_clean, pd.Series([0.0])).iloc[0])
+                    val_sim = float(df_sim.get(n_clean, pd.Series([0.0])).iloc[0])
+                    
+                    # Si el paciente nunca tuvo el síntoma (ni al ingreso ni en la simulación), se oculta
+                    if val_orig == 0.0 and val_sim == 0.0:
                         es_valido = False
 
                     if es_valido and abs(peso_pct) > 0.01:
