@@ -1619,13 +1619,14 @@ with tab_estrategia:
                     st.warning(f"Technical Context: {str(e)}")
 
     # ==========================================
-    # --- MOTOR DE IMPACTO SIMULADO (SHAP DELTA ENGINE) ---
+    # --- MOTOR DE IMPACTO CLÍNICO ACCIONABLE (SHAP ENGINE) ---
     # ==========================================
     st.markdown("---")
     try:
         with st.spinner("Analyzing precise clinical impacts of simulated trajectory..."):
             df_sim = df_paciente.copy()
             
+            # Inyección de valores simulados desde los controles del Sandbox
             df_sim['dias_internados'] = float(dias_sim)
             df_sim['EVO_dolor_eva'] = float(dolor_sim)
             df_sim['EVO_gravedad_percibida'] = float(severidad_sim)
@@ -1633,6 +1634,7 @@ with tab_estrategia:
             for col, val in status_evo_sim.items(): 
                 df_sim[col] = 1.0 if val else 0.0
             
+            # Sincronización causal inmediata de Deltas matemáticos
             pares_delta = {
                 'DELTA_alteracion_mental': ('EVO_alteracion_mental', 'ING_alteracion_mental'),
                 'DELTA_dependencia_funcional': ('EVO_dependencia_funcional', 'ING_dependencia_funcional'),
@@ -1644,115 +1646,105 @@ with tab_estrategia:
                 if col_evo in df_sim.columns and col_ing in df_sim.columns:
                     df_sim[col_delta] = df_sim[col_evo] - df_sim[col_ing]
 
+            # Cálculo de riesgos marginales
             riesgo_base = pipeline.predict_proba(df_paciente)[0][1]
             riesgo_simulado = pipeline.predict_proba(df_sim)[0][1]
             variacion_riesgo = (riesgo_simulado - riesgo_base) * 100
 
-            # 1. Extraer los componentes del pipeline
+            # Extracción del pipeline
             prep = pipeline.named_steps['preprocesador']
             clf = pipeline.named_steps['clasificador']
-            has_selector = 'feature_selection' in pipeline.named_steps
-            selector = pipeline.named_steps['feature_selection'] if has_selector else None
             
-            # 2. Transformar ambos estados (Original y Simulado) al espacio matemático final
-            X_orig_proc = prep.transform(df_paciente)
+            # Transformar el clon simulado al espacio denso final
             X_sim_proc = prep.transform(df_sim)
+            X_sim_dense = X_sim_proc.toarray() if hasattr(X_sim_proc, 'toarray') else np.array(X_sim_proc)
             
-            if selector:
-                X_orig_proc = selector.transform(X_orig_proc)
-                X_sim_proc = selector.transform(X_sim_proc)
-                
-            X_orig_dense = X_orig_proc.toarray()[0] if hasattr(X_orig_proc, 'toarray') else np.array(X_orig_proc)[0]
-            X_sim_dense = X_sim_proc.toarray()[0] if hasattr(X_sim_proc, 'toarray') else np.array(X_sim_proc)[0]
-
-            # 3. Extraer Nombres Clínicos Limpios
-            if selector and hasattr(selector, 'variables_mantenidas_'):
-                columnas_modelo_final = selector.variables_mantenidas_
-            else:
-                try: columnas_modelo_final = selector.get_feature_names_out()
-                except Exception: columnas_modelo_final = prep.get_feature_names_out()
+            # Obtener nombres de las características vectorizadas
+            columnas_modelo_final = list(prep.get_feature_names_out())
             
+            # Diccionario clínico estructurado en inglés
             ui_dict = {
-                'dias_internados': 'Hospitalization Days',
-                'DELTA_dolor_eva': 'Δ Pain', 'DELTA_gravedad_percibida': 'Δ Severity',
-                'DELTA_alteracion_mental': 'Δ Mental Alt.', 'DELTA_dependencia_funcional': 'Δ Func. Dep.',
-                'DELTA_portador_dispositivos': 'Δ Medical Devices',
-                'EVO_dolor_eva': 'Current Pain', 'EVO_gravedad_percibida': 'Current Severity',
-                'EVO_aislamiento_infeccioso': 'Infectious Isolation',
-                'EVO_complicacion_internacion': 'Hospital Complication',
-                'EVO_cuidados_paliativos': 'Palliative Care',
-                'EVO_fuga_o_alta_irregular': 'Irregular Discharge',
-                'EVO_ulceras_presion': 'Pressure Ulcers',
-                'EVO_alteracion_mental': 'Mental Alteration',
-                'EVO_dependencia_funcional': 'Functional Dependency',
-                'EVO_portador_dispositivos': 'Device Bearer',
+                'dias_internados': 'Hospitalization Length of Stay',
+                'DELTA_dolor_eva': 'Δ Pain Progression (Discharge - Admission)', 
+                'DELTA_gravedad_percibida': 'Δ Severity Progression (Discharge - Admission)',
+                'DELTA_alteracion_mental': 'Δ Mental State Progression', 
+                'DELTA_dependencia_funcional': 'Δ Functional Dependency Progression',
+                'DELTA_portador_dispositivos': 'Δ Invasive Devices Progression',
+                'EVO_dolor_eva': 'Current Discharge Pain (VAS)', 
+                'EVO_gravedad_percibida': 'Current Discharge Severity Score',
+                'EVO_aislamiento_infeccioso': 'Infectious Isolation Status',
+                'EVO_complicacion_internacion': 'Acquired Hospital Complication',
+                'EVO_alteracion_mental': 'Active Delirium / Mental Alteration',
+                'EVO_dependencia_funcional': 'Severe Functional Dependency',
+                'EVO_portador_dispositivos': 'Active Medical Device Bearer',
                 'EVO_cambio_terapeutico_mayor': 'Major Therapeutic Change',
-                'EVO_intervencion_quirurgica': 'Surgical Intervention',
-                'EVO_soporte_transfusional': 'Transfusion Support'
+                'EVO_intervencion_quirurgica': 'Surgical Intervention Performed',
+                'EVO_soporte_transfusional': 'Transfusion Support Required'
             }
-            
-            nombres_shap = []
-            for n in columnas_modelo_final:
-                n_clean = str(n).replace('num__', '').replace('cat__', '').split('_1')[0].split('_TRUE')[0]
-                nombres_shap.append(ui_dict.get(n_clean, n_clean.replace('_', ' ').title()))
 
-            # 4. Calcular SHAP Exacto para ambos mundos (BLINDAJE XGBOOST)
+            # Extracción segura del Booster para SHAP (Evita error de SKLearn wrapper)
             nombre_modelo = type(clf).__name__
-            
             if 'XGB' in nombre_modelo:
-                motor_puro = clf.get_booster() # <-- LA MAGIA: Desnudamos el modelo
-                explainer = shap.TreeExplainer(motor_puro)
+                explainer = shap.TreeExplainer(clf.get_booster())
+                shap_sim = explainer.shap_values(X_sim_dense, check_additivity=False)
             elif 'Forest' in nombre_modelo or 'Boost' in nombre_modelo:
                 explainer = shap.TreeExplainer(clf)
+                shap_sim = explainer.shap_values(X_sim_dense, check_additivity=False)
             else:
-                explainer = shap.LinearExplainer(clf, np.zeros((1, len(X_orig_dense))))
-                
-            # Calculamos los valores (Funciona igual para XGBoost puro o Sklearn wrappers)
-            shap_orig = explainer.shap_values(X_orig_dense.reshape(1, -1), check_additivity=False)
-            shap_sim = explainer.shap_values(X_sim_dense.reshape(1, -1), check_additivity=False)
-                
-            # Manejo de dimensionalidad multidimensional de SHAP
-            if isinstance(shap_orig, list): 
-                shap_orig = shap_orig[1][0]; shap_sim = shap_sim[1][0]
-            elif len(shap_orig.shape) > 2:
-                shap_orig = shap_orig[0, :, 1]; shap_sim = shap_sim[0, :, 1]
-            else:
-                shap_orig = shap_orig[0]; shap_sim = shap_sim[0]
+                explainer = shap.LinearExplainer(clf, np.zeros((1, X_sim_dense.shape[1])))
+                shap_sim = explainer.shap_values(X_sim_dense)
 
-            # 5. EL CÁLCULO DELTA (Magia Clínica: Acción vs Reacción)
-            shap_deltas = (shap_sim - shap_orig) * 100
-            
-            # Filtramos solo las variables que tuvieron un impacto de cambio real (> 0.05%)
+            # Estandarización dimensional del tensor de SHAP
+            if isinstance(shap_sim, list):
+                shap_sim = shap_sim[1][0] if len(shap_sim) > 1 else shap_sim[0][0]
+            elif len(shap_sim.shape) == 3:
+                shap_sim = shap_sim[0, :, 1]
+            elif len(shap_sim.shape) == 2:
+                shap_sim = shap_sim[0]
+
+            # Filtrado selectivo: Solo variables de evolución y accionables por el médico
             cambios_impacto = []
-            for i, delta in enumerate(shap_deltas):
-                if abs(delta) > 0.05:
-                    cambios_impacto.append((nombres_shap[i], delta))
-            
+            for i, feat_name in enumerate(columnas_modelo_final):
+                n_clean = str(feat_name).replace('num__', '').replace('cat__', '').split('_1')[0].split('_TRUE')[0].split('_1.0')[0]
+                
+                if n_clean.startswith(('EVO_', 'DELTA_')) or n_clean == 'dias_internados':
+                    peso_pct = shap_sim[i] * 100
+                    
+                    # Blindaje OHE: Si es categórica, solo mostrarla si el atributo está activo en la simulación
+                    es_valido = True
+                    if 'cat__' in str(feat_name) and X_sim_dense[0, i] == 0:
+                        es_valido = False
+                        
+                    if es_valido and abs(peso_pct) > 0.01:
+                        label_display = ui_dict.get(n_clean, n_clean.replace('_', ' ').title())
+                        cambios_impacto.append((label_display, peso_pct))
+
             if not cambios_impacto:
-                 st.info("The selected clinical changes do not have a statistically significant impact on the readmission probability.")
+                 st.info("The current configuration of evolutionary variables has a neutral impact on risk.")
             else:
-                cambios_impacto = sorted(cambios_impacto, key=lambda x: abs(x[1]))
+                # Ordenamiento de impacto para lectura de cascada
+                cambios_impacto = sorted(cambios_impacto, key=lambda x: x[1])
                 
                 fig_delta = go.Figure(go.Bar(
                     x=[x[1] for x in cambios_impacto], 
                     y=[x[0] for x in cambios_impacto],
                     orientation='h', 
-                    marker_color=['#FF4444' if x[1]>0 else '#00C851' for x in cambios_impacto], # Rojo si empeora, Verde si mejora
-                    text=[f"+{x[1]:.1f}% Risk" if x[1]>0 else f"{x[1]:.1f}% Risk" for x in cambios_impacto],
+                    marker_color=['#FF4444' if x[1] > 0 else '#00C851' for x in cambios_impacto],
+                    text=[f"+{x[1]:.1f}%" if x[1] > 0 else f"{x[1]:.1f}%" for x in cambios_impacto],
                     textposition='outside', 
-                    textfont=dict(size=12, color='white' if st.get_option("theme.base") == "dark" else 'black')
+                    textfont=dict(size=12)
                 ))
                 
                 fig_delta.update_layout(
-                    title="Direct Impact of Simulated Interventions",
-                    xaxis_title="Change in Readmission Probability (%)",
+                    title="Actionable Phenotype Risk Contributions",
+                    xaxis_title="Impact on Readmission Probability (%)",
                     plot_bgcolor='rgba(0,0,0,0)', 
                     paper_bgcolor='rgba(0,0,0,0)',
-                    margin=dict(l=10, r=40, t=40, b=10),
-                    height=max(300, len(cambios_impacto) * 45), 
+                    margin=dict(l=10, r=50, t=40, b=10),
+                    height=max(320, len(cambios_impacto) * 42), 
                     xaxis=dict(
                         showgrid=True, gridcolor='rgba(128,128,128,0.2)', 
-                        zeroline=True, zerolinecolor='rgba(128,128,128,0.8)', zerolinewidth=2
+                        zeroline=True, zerolinecolor='rgba(128,128,128,0.6)', zerolinewidth=1.5
                     )
                 )
                 
