@@ -1517,7 +1517,7 @@ with tab_estrategia:
                         # ----------------------------------------------------------------
                         # FIX 2 + 3: umbrales relativos (no 0.5 fijo) + validación final
                         # ----------------------------------------------------------------
-                        MARGEN_BUSQUEDA = 0.03          # colchón para que la búsqueda no quede al filo
+                        MARGEN_BUSQUEDA = 0.01          # colchón para que la búsqueda no quede al filo
                         PASOS_MITIGACION = [0.05, 0.10, 0.15]  # cuánto por encima del umbral real se relaja
 
                         def generar_y_validar(umbral_calibracion, umbral_validacion, total_cfs=12):
