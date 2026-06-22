@@ -423,7 +423,7 @@ class MotorEDADinamico:
         )
         fig.update_layout(xaxis={'categoryorder':'category ascending'}, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
         return fig
-
+        
     def plot_contexto_social(self):
         if 'PA_SITLABO_x' not in self.df.columns: return None
             
@@ -464,7 +464,7 @@ class MotorEDADinamico:
         opciones = {
             'curva': lambda: self.plot_incidencia_acumulada(variable_segmentacion), 
             'clinico': self.plot_perfil_clinico,
-            'gravedad': lambda: self.plot_gravedad_hospitalaria(variable_segmentacion), # Ahora soporta parámetros
+            'gravedad': lambda: self.plot_gravedad_hospitalaria(variable_segmentacion), # <--- CAMBIO AQUÍ
             'social': self.plot_contexto_social,
             'historial': self.plot_historial_paciente,
             'cie10': self.plot_motivo_ingreso
@@ -2499,9 +2499,9 @@ with tab_eda:
     datos_cargados = eda_engine.cargar_datos()
     
     if not datos_cargados:
-        st.error(f"Please ensure '{ruta_npy_eda}' is uploaded to the application directory to view the EDA.")
+        st.error(f"Please ensure 'dataset_optimizado_eda.npy' is uploaded to the application directory to view the EDA.")
     else:
-        # Menú de selección interactivo
+        # Menú de selección interactivo principal
         col_selec1, col_selec2 = st.columns(2)
         
         with col_selec1:
@@ -2529,14 +2529,14 @@ with tab_eda:
         
         id_grafico = mapa_graficos[tipo_grafico]
         
-        # --- NUEVO ENRUTADOR DE FILTROS ---
+        # --- ENRUTADOR DE FILTROS DINÁMICO ---
         if id_grafico == "curva":
             with col_selec2:
                 filtro_curva = st.selectbox(
                     "Select Segmentation Variable:",
                     options=[
                         "ICU Stay",
-                        "Triage Priority", # <-- AÑADIDO
+                        "Triage Priority", 
                         "Multimorbidity",
                         "ER Visits (Previous 6 months)",
                         "Social Work Intervention",
@@ -2558,8 +2558,9 @@ with tab_eda:
             with col_selec2:
                 filtro_gravedad = st.selectbox(
                     "Select Severity Metric:",
-                    options=["ICU Stay", "Triage Priority"] # <-- NUEVAS OPCIONES
+                    options=["ICU Stay", "Triage Priority"] 
                 )
+                
             mapa_filtros_gravedad = {
                 "ICU Stay": "EST_paso_por_uti",
                 "Triage Priority": "TR_Prioridad"
@@ -2567,15 +2568,16 @@ with tab_eda:
             filtro_seleccionado = mapa_filtros_gravedad[filtro_gravedad]
             
         else:
-            filtro_seleccionado = 'EST_paso_por_uti' # Valor por defecto para el resto
+            # Valor por defecto seguro para los gráficos que no usan filtro
+            filtro_seleccionado = 'EST_paso_por_uti' 
             
         st.markdown("---")
         
-        # Generar y mostrar el gráfico
+        # Generar y renderizar el gráfico seleccionado
         with st.spinner("Generating Insights..."):
             fig_eda = eda_engine.analizar(id_grafico, variable_segmentacion=filtro_seleccionado)
             
             if fig_eda:
                 st.plotly_chart(fig_eda, use_container_width=True)
             else:
-                st.warning("Insufficient data or missing columns in the dataset to render this specific chart.")        
+                st.warning("Insufficient data or missing columns in the dataset to render this specific chart.")
