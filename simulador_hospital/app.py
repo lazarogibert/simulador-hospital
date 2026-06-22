@@ -262,6 +262,190 @@ def mapear_cie10_macro(cod):
 
     return "Desconocido"
 
+
+class MotorEDADinamico:
+    def __init__(self, ruta_npy):
+        self.ruta_npy = ruta_npy
+        self.df = None
+        
+        self.mapa_periodos = {
+            1: '1. Premature (≤ 24h)',
+            2: '2. Early (1 - 7 days)',
+            3: '3. Late (8 - 15 days)'
+        }
+
+    def cargar_datos(self):
+        if not os.path.exists(self.ruta_npy):
+            return False
+            
+        arreglo_numpy = np.load(self.ruta_npy, allow_pickle=True)
+        self.df = pd.DataFrame.from_records(arreglo_numpy)
+        self.df['Periodo_Reingreso'] = self.df['target_15d_desde_alta_cat'].map(self.mapa_periodos)
+        
+        if 'IN_MOTING' in self.df.columns:
+            self.df['CIE10_Agrupado'] = self.agrupar_cie10(self.df['IN_MOTING'])
+        return True
+
+    def agrupar_cie10(self, serie):
+        primera_letra = serie.fillna('X').astype(str).str.strip().str.upper().str[0]
+        mapeo = {
+            'A': 'Infectious', 'B': 'Infectious', 'C': 'Oncology', 'D': 'Blood/Immunity',
+            'E': 'Endocrine', 'F': 'Mental Health', 'G': 'Neurology', 'I': 'Cardiovascular',
+            'J': 'Respiratory', 'K': 'Digestive', 'M': 'Musculoskeletal', 'N': 'Genitourinary',
+            'S': 'Trauma', 'T': 'Trauma', 'Z': 'Health Service Contact'
+        }
+        return primera_letra.map(mapeo).fillna('Other Pathologies')
+
+    def plot_incidencia_acumulada(self, variable_segmentacion='EST_paso_por_uti'):
+        if 'tiempo_exacto_reingreso_horas_alta' not in self.df.columns or variable_segmentacion not in self.df.columns: return None
+
+        df_plot = self.df.dropna(subset=['tiempo_exacto_reingreso_horas_alta']).copy()
+        
+        if variable_segmentacion == 'EST_paso_por_uti':
+            df_plot['Grupo'] = df_plot[variable_segmentacion].astype(str).map({'1': 'ICU Stay', '1.0': 'ICU Stay', '0': 'General Ward', '0.0': 'General Ward'}).fillna('No Data')
+            titulo_var = "Clinical Severity (ICU)"
+        elif variable_segmentacion == 'pluripatologico':
+            df_plot['Grupo'] = df_plot[variable_segmentacion].astype(str).map({'1': 'Multimorbidity', '1.0': 'Multimorbidity', '0': 'Single Pathology', '0.0': 'Single Pathology'}).fillna('No Data')
+            titulo_var = "Multimorbidity"
+        elif variable_segmentacion == 'SOCIO_intervencion_ts':
+            df_plot['Grupo'] = df_plot[variable_segmentacion].astype(str).map({'1': 'With SW Intervention', '1.0': 'With SW Intervention', '0': 'No Intervention', '0.0': 'No Intervention'}).fillna('No Data')
+            titulo_var = "Social Work Intervention"
+        elif variable_segmentacion == 'visitas_guardia_6meses_previos':
+            condiciones = [
+                df_plot[variable_segmentacion] == 0,
+                df_plot[variable_segmentacion].isin([1, 2]),
+                df_plot[variable_segmentacion] >= 3
+            ]
+            df_plot['Grupo'] = np.select(condiciones, ['A: 0 visits', 'B: 1-2 visits', 'C: 3+ visits (Hyper-frequenters)'], default='No Data')
+            titulo_var = "ER History"
+        elif variable_segmentacion == 'PA_SITLABO_x':
+            df_plot['Grupo'] = df_plot[variable_segmentacion].astype(str).str.title()
+            df_plot = df_plot[~df_plot['Grupo'].isin(['Sin_Dato', 'S/D', '', 'No Data'])]
+            titulo_var = "Employment Status"
+        else:
+            df_plot['Grupo'] = df_plot[variable_segmentacion].astype(str)
+            titulo_var = str(variable_segmentacion)
+
+        df_plot = df_plot[df_plot['Grupo'] != 'No Data']
+
+        fig = px.ecdf(
+            df_plot,
+            x="tiempo_exacto_reingreso_horas_alta",
+            color="Grupo",
+            title=f"Failure Velocity: Cumulative Incidence Curve by {titulo_var}",
+            labels={'tiempo_exacto_reingreso_horas_alta': 'Continuous Hours Since Discharge', 'Grupo': titulo_var},
+            lines=True,
+            markers=False
+        )
+        
+        fig.add_vline(x=24, line_dash="dash", line_color="#e74c3c", annotation_text="Premature (24h)")
+        fig.add_vline(x=168, line_dash="dash", line_color="#f39c12", annotation_text="Early (7d)")
+        fig.add_vline(x=360, line_dash="dash", line_color="#2ecc71", annotation_text="Late (15d)")
+        
+        fig.update_xaxes(range=[-5, 380])
+        fig.update_layout(yaxis_title="Cumulative Proportion of Readmitted Patients", plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
+        
+        return fig
+
+    def plot_motivo_ingreso(self):
+        if 'CIE10_Agrupado' not in self.df.columns: return None
+            
+        df_plot = self.df[~self.df['CIE10_Agrupado'].isin(['Other Pathologies', 'Health Service Contact'])].copy()
+        matriz = pd.crosstab(df_plot['CIE10_Agrupado'], df_plot['Periodo_Reingreso'], normalize='columns') * 100
+        matriz = matriz.fillna(0)
+        
+        col_prematuro = [c for c in matriz.columns if 'Premature' in c]
+        if col_prematuro: matriz = matriz.sort_values(by=col_prematuro[0], ascending=False)
+            
+        fig = px.imshow(
+            matriz, text_auto=".1f", aspect="auto", color_continuous_scale="Reds",
+            title="Clinical Signature: ICD-10 Distribution by Period (%)",
+            labels=dict(x="Readmission Period", y="ICD-10 Chapter", color="% of Patients")
+        )
+        fig.update_xaxes(categoryorder='category ascending')
+        fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
+        return fig
+
+    def plot_perfil_clinico(self):
+        if 'pluripatologico' not in self.df.columns: return None
+            
+        df_plot = self.df.copy()
+        df_plot['Condition'] = df_plot['pluripatologico'].astype(str).map({'1': 'Multimorbidity', '0': 'Single Pathology', '1.0': 'Multimorbidity', '0.0': 'Single Pathology'}).fillna('No Data')
+        df_plot = df_plot[df_plot['Condition'] != 'No Data']
+            
+        fig = px.histogram(
+            df_plot, x="Periodo_Reingreso", color="Condition", barmode="group", text_auto=True,
+            title="Readmission Volume by Multimorbidity", labels={'Periodo_Reingreso': 'Period', 'Condition': 'Condition'},
+            color_discrete_sequence=['#ef553b', '#636efa']
+        )
+        fig.update_layout(yaxis_title="Number of Patients", xaxis={'categoryorder':'category ascending'}, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
+        return fig
+
+    def plot_gravedad_hospitalaria(self):
+        if 'dias_internados' not in self.df.columns or 'EST_paso_por_uti' not in self.df.columns: return None
+            
+        self.df['UTI_Label'] = self.df['EST_paso_por_uti'].astype(str).map({'1': 'ICU Stay', '1.0': 'ICU Stay', '0': 'General Ward', '0.0': 'General Ward'}).fillna('No Data')
+        df_plot = self.df[self.df['UTI_Label'] != 'No Data'].copy()
+        
+        df_grouped = df_plot.groupby(['Periodo_Reingreso', 'UTI_Label'])['dias_internados'].median().reset_index()
+            
+        fig = px.bar(
+            df_grouped, x="Periodo_Reingreso", y="dias_internados", color="UTI_Label", barmode="group", text_auto=True,
+            title="Hospital Attrition: Median Original Length of Stay",
+            labels={'dias_internados': 'Length of Stay (Median Days)', 'Periodo_Reingreso': 'Period', 'UTI_Label': 'Severity'}
+        )
+        fig.update_layout(xaxis={'categoryorder':'category ascending'}, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
+        return fig
+
+    def plot_contexto_social(self):
+        if 'PA_SITLABO_x' not in self.df.columns: return None
+            
+        df_plot = self.df[~self.df['PA_SITLABO_x'].astype(str).isin(['SIN_DATO', 'S/D', '', 'nan'])].copy()
+        df_plot['PA_SITLABO_x'] = df_plot['PA_SITLABO_x'].str.title()
+        
+        fig = px.histogram(
+            df_plot, x="Periodo_Reingreso", color="PA_SITLABO_x", barmode="group", histnorm="percent",
+            title="Employment Status Distribution by Period", labels={'Periodo_Reingreso': 'Readmission Period', 'PA_SITLABO_x': 'Employment Status'}
+        )
+        fig.update_layout(yaxis_title="% of Patients (Relative)", xaxis={'categoryorder':'category ascending'}, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
+        return fig
+
+    def plot_historial_paciente(self):
+        if 'visitas_guardia_6meses_previos' not in self.df.columns: return None
+
+        condiciones = [
+            self.df['visitas_guardia_6meses_previos'] == 0,
+            self.df['visitas_guardia_6meses_previos'].isin([1, 2]),
+            self.df['visitas_guardia_6meses_previos'] >= 3
+        ]
+        opciones = ['A: 0 visits', 'B: 1-2 visits', 'C: 3+ visits (Hyper-frequenters)']
+        self.df['Categoria_Visitas'] = np.select(condiciones, opciones, default='No Data')
+        
+        df_plot = self.df[self.df['Categoria_Visitas'] != 'No Data'].copy()
+
+        fig = px.histogram(
+            df_plot, x="Periodo_Reingreso", color="Categoria_Visitas", barnorm="percent", text_auto=".1f",
+            title="The Revolving Door: Patient Composition by Recent ER History",
+            labels={'Periodo_Reingreso': 'Period', 'Categoria_Visitas': 'Prior Visits (6 Months)'},
+            color_discrete_sequence=['#2ecc71', '#f1c40f', '#e74c3c'] 
+        )
+        
+        fig.update_layout(yaxis_title="% of Patients in Period", xaxis={'categoryorder':'category ascending'}, barmode='stack', legend={'traceorder':'normal'}, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
+        return fig
+
+    def analizar(self, tipo_analisis, variable_segmentacion='EST_paso_por_uti'):
+        opciones = {
+            'curva': lambda: self.plot_incidencia_acumulada(variable_segmentacion), 
+            'clinico': self.plot_perfil_clinico,
+            'gravedad': self.plot_gravedad_hospitalaria,
+            'social': self.plot_contexto_social,
+            'historial': self.plot_historial_paciente,
+            'cie10': self.plot_motivo_ingreso
+        }
+        if tipo_analisis.lower() in opciones: 
+            return opciones[tipo_analisis.lower()]()
+        return None
+
 # ==========================================
 # 1. PAGE CONFIGURATION
 # ==========================================
@@ -635,11 +819,12 @@ df_paciente = pd.DataFrame([paciente_data])[columnas_modelo]
 # ==========================================
 # TABS & DASHBOARD
 # ==========================================
-tab_diagnostico, tab_estrategia, tab_evidencia, tab_umap = st.tabs([
+tab_diagnostico, tab_estrategia, tab_evidencia, tab_umap, tab_eda = st.tabs([
     "📊 1. Current Risk & Audit", 
     "🧭 2. Stabilization & Simulation", 
     "🧬 3. Cohort & Inspector (KNN)",
-    "🌌 4. Global Universe (UMAP)"
+    "🌌 4. Global Universe (UMAP)",
+    "📈 5. Exploratory Data"
 ])
 
 with tab_diagnostico:
@@ -2268,3 +2453,82 @@ with tab_umap:
     except Exception as e:
         st.error("Error generating UMAP projection and insights.")
         st.warning(f"Technical Detail: {str(e)}")
+
+# ==========================================
+# 10. EXPLORATORY DATA ANALYSIS (EDA)
+# ==========================================
+with tab_eda:
+    st.markdown("#### Global Exploratory Clinical Insights")
+    
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    ruta_npy_eda = os.path.join(BASE_DIR, 'dataset_optimizado_eda.npy')
+    
+    eda_engine = MotorEDADinamico(ruta_npy_eda)
+    datos_cargados = eda_engine.cargar_datos()
+    
+    if not datos_cargados:
+        st.error(f"Please ensure '{ruta_npy_eda}' is uploaded to the application directory to view the EDA.")
+    else:
+        # Menú de selección interactivo
+        col_selec1, col_selec2 = st.columns(2)
+        
+        with col_selec1:
+            tipo_grafico = st.selectbox(
+                "Select Analysis Dimension:",
+                options=[
+                    "Failure Velocity (Cumulative Incidence)",
+                    "Clinical Profile (Multimorbidity)",
+                    "Hospital Attrition (Severity)",
+                    "The Revolving Door (ER History)",
+                    "Clinical Signature (ICD-10 Heatmap)",
+                    "Socioeconomic Context (Employment)"
+                ]
+            )
+            
+        # Mapeo de la selección del usuario a las funciones de la clase
+        mapa_graficos = {
+            "Failure Velocity (Cumulative Incidence)": "curva",
+            "Clinical Profile (Multimorbidity)": "clinico",
+            "Hospital Attrition (Severity)": "gravedad",
+            "The Revolving Door (ER History)": "historial",
+            "Clinical Signature (ICD-10 Heatmap)": "cie10",
+            "Socioeconomic Context (Employment)": "social"
+        }
+        
+        id_grafico = mapa_graficos[tipo_grafico]
+        
+        # Filtro condicional que solo aparece si se selecciona la curva de incidencia
+        if id_grafico == "curva":
+            with col_selec2:
+                filtro_curva = st.selectbox(
+                    "Select Segmentation Variable:",
+                    options=[
+                        "ICU Stay",
+                        "Multimorbidity",
+                        "ER Visits (Previous 6 months)",
+                        "Social Work Intervention",
+                        "Employment Status"
+                    ]
+                )
+                
+            mapa_filtros = {
+                "ICU Stay": "EST_paso_por_uti",
+                "Multimorbidity": "pluripatologico",
+                "ER Visits (Previous 6 months)": "visitas_guardia_6meses_previos",
+                "Social Work Intervention": "SOCIO_intervencion_ts",
+                "Employment Status": "PA_SITLABO_x"
+            }
+            filtro_seleccionado = mapa_filtros[filtro_curva]
+        else:
+            filtro_seleccionado = 'EST_paso_por_uti' # Valor por defecto seguro
+            
+        st.markdown("---")
+        
+        # Generar y mostrar el gráfico
+        with st.spinner("Generating Insights..."):
+            fig_eda = eda_engine.analizar(id_grafico, variable_segmentacion=filtro_seleccionado)
+            
+            if fig_eda:
+                st.plotly_chart(fig_eda, use_container_width=True)
+            else:
+                st.warning("Insufficient data or missing columns in the dataset to render this specific chart.")        
