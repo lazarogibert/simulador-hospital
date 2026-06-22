@@ -1623,11 +1623,11 @@ with tab_estrategia:
                     st.warning(f"Technical Context: {str(e)}")
 
     # ==========================================
-    # --- MOTOR DE CÁLCULO DINÁMICO (LIME - ANCHO COMPLETO BLINDADO) ---
+    # --- MOTOR DE IMPACTO SIMULADO (SHAP DELTA ENGINE) ---
     # ==========================================
     st.markdown("---")
     try:
-        with st.spinner("Analyzing combinatorial impacts of simulated trajectory..."):
+        with st.spinner("Analyzing precise clinical impacts of simulated trajectory..."):
             df_sim = df_paciente.copy()
             
             df_sim['dias_internados'] = float(dias_sim)
@@ -1652,115 +1652,127 @@ with tab_estrategia:
             riesgo_simulado = pipeline.predict_proba(df_sim)[0][1]
             variacion_riesgo = (riesgo_simulado - riesgo_base) * 100
 
+            # 1. Extraer los componentes del pipeline
             prep = pipeline.named_steps['preprocesador']
             clf = pipeline.named_steps['clasificador']
             has_selector = 'feature_selection' in pipeline.named_steps
             selector = pipeline.named_steps['feature_selection'] if has_selector else None
             
-            # 1. Transformación Dinámica del Paciente
-            X_p_proc = prep.transform(df_sim)
-            if selector: X_p_proc = selector.transform(X_p_proc)
-            X_p_dense = X_p_proc.values[0] if hasattr(X_p_proc, 'values') else (X_p_proc.toarray()[0] if hasattr(X_p_proc, 'toarray') else np.array(X_p_proc)[0])
+            # 2. Transformar ambos estados (Original y Simulado) al espacio matemático final
+            X_orig_proc = prep.transform(df_paciente)
+            X_sim_proc = prep.transform(df_sim)
             
-            # 2. Transformación Dinámica del CSV (Alineación Dimensional Perfecta)
-            X_t_proc = prep.transform(df_train_sample)
-            if selector: X_t_proc = selector.transform(X_t_proc)
-            X_t_dense = X_t_proc.values if hasattr(X_t_proc, 'values') else (X_t_proc.toarray() if hasattr(X_t_proc, 'toarray') else np.array(X_t_proc))
-            
-            # 3. Extracción Estricta de Nombres
+            if selector:
+                X_orig_proc = selector.transform(X_orig_proc)
+                X_sim_proc = selector.transform(X_sim_proc)
+                
+            X_orig_dense = X_orig_proc.toarray()[0] if hasattr(X_orig_proc, 'toarray') else np.array(X_orig_proc)[0]
+            X_sim_dense = X_sim_proc.toarray()[0] if hasattr(X_sim_proc, 'toarray') else np.array(X_sim_proc)[0]
+
+            # 3. Extraer Nombres Clínicos Limpios
             if selector and hasattr(selector, 'variables_mantenidas_'):
                 columnas_modelo_final = selector.variables_mantenidas_
-            elif selector:
-                try: columnas_modelo_final = selector.get_feature_names_out()
-                except Exception: columnas_modelo_final = [f"Feature_{i}" for i in range(X_t_dense.shape[1])]
             else:
-                columnas_modelo_final = list(prep.get_feature_names_out())
+                try: columnas_modelo_final = selector.get_feature_names_out()
+                except Exception: columnas_modelo_final = prep.get_feature_names_out()
             
-            # 4. Diccionario UX
             ui_dict = {
+                'dias_internados': 'Hospitalization Days',
                 'DELTA_dolor_eva': 'Δ Pain', 'DELTA_gravedad_percibida': 'Δ Severity',
                 'DELTA_alteracion_mental': 'Δ Mental Alt.', 'DELTA_dependencia_funcional': 'Δ Func. Dep.',
                 'DELTA_portador_dispositivos': 'Δ Medical Devices',
                 'EVO_dolor_eva': 'Current Pain', 'EVO_gravedad_percibida': 'Current Severity',
-                'EVO_aislamiento_infeccioso': 'Current Infect. Isolation',
-                'EVO_complicacion_internacion': 'Current Hosp. Complication',
-                'EVO_alteracion_mental': 'Current Mental Alt.',
-                'EVO_dependencia_funcional': 'Current Func. Dep.',
-                'EVO_portador_dispositivos': 'Current Device Bearer'
+                'EVO_aislamiento_infeccioso': 'Infectious Isolation',
+                'EVO_complicacion_internacion': 'Hospital Complication',
+                'EVO_cuidados_paliativos': 'Palliative Care',
+                'EVO_fuga_o_alta_irregular': 'Irregular Discharge',
+                'EVO_ulceras_presion': 'Pressure Ulcers',
+                'EVO_alteracion_mental': 'Mental Alteration',
+                'EVO_dependencia_funcional': 'Functional Dependency',
+                'EVO_portador_dispositivos': 'Device Bearer',
+                'EVO_cambio_terapeutico_mayor': 'Major Therapeutic Change',
+                'EVO_intervencion_quirurgica': 'Surgical Intervention',
+                'EVO_soporte_transfusional': 'Transfusion Support'
             }
             
-            nombres_lime = []
+            nombres_shap = []
             for n in columnas_modelo_final:
                 n_clean = str(n).replace('num__', '').replace('cat__', '').split('_1')[0].split('_TRUE')[0]
-                nombres_lime.append(ui_dict.get(n_clean, n_clean.replace('_', ' ').title()))
+                nombres_shap.append(ui_dict.get(n_clean, n_clean.replace('_', ' ').title()))
 
-            # 5. Envoltorio Protector
-            def predict_fn_segura(X_array):
-                df_temporal = pd.DataFrame(X_array, columns=columnas_modelo_final)
-                return clf.predict_proba(df_temporal)
-
-            # 6. Ejecución LIME
-            explainer = lime.lime_tabular.LimeTabularExplainer(
-                training_data=X_t_dense,
-                feature_names=nombres_lime, 
-                mode='classification', 
-                random_state=42
-            )
-
-            exp = explainer.explain_instance(
-                data_row=X_p_dense, 
-                predict_fn=predict_fn_segura,
-                num_features=len(nombres_lime) 
-            )
-            
-            lime_list = [item for item in exp.as_list() if 'Δ' in item[0] or 'Current' in item[0]]
-            
-            if not lime_list:
-                 st.info("No significant clinical interaction impacts found for this specific configuration.")
+            # 4. Calcular SHAP Exacto para ambos mundos
+            if 'Forest' in type(clf).__name__ or 'Boost' in type(clf).__name__:
+                explainer = shap.TreeExplainer(clf)
+                shap_orig = explainer.shap_values(X_orig_dense.reshape(1, -1), check_additivity=False)
+                shap_sim = explainer.shap_values(X_sim_dense.reshape(1, -1), check_additivity=False)
             else:
-                lime_list = [x for x in lime_list if abs(x[1]) > 0.001]
-                lime_list = sorted(lime_list, key=lambda x: abs(x[1]))
+                # Para modelos lineales (usamos una matriz vacía rápida como background local)
+                explainer = shap.LinearExplainer(clf, np.zeros((1, len(X_orig_dense))))
+                shap_orig = explainer.shap_values(X_orig_dense.reshape(1, -1))
+                shap_sim = explainer.shap_values(X_sim_dense.reshape(1, -1))
                 
-                fig_l = go.Figure(go.Bar(
-                    x=[x[1]*100 for x in lime_list], 
-                    y=[x[0] for x in lime_list],
+            # Manejo de dimensionalidad multidimensional de SHAP
+            if isinstance(shap_orig, list): 
+                shap_orig = shap_orig[1][0]; shap_sim = shap_sim[1][0]
+            elif len(shap_orig.shape) > 2:
+                shap_orig = shap_orig[0, :, 1]; shap_sim = shap_sim[0, :, 1]
+            else:
+                shap_orig = shap_orig[0]; shap_sim = shap_sim[0]
+
+            # 5. EL CÁLCULO DELTA (Magia Clínica: Acción vs Reacción)
+            shap_deltas = (shap_sim - shap_orig) * 100
+            
+            # Filtramos solo las variables que tuvieron un impacto de cambio real (> 0.05%)
+            cambios_impacto = []
+            for i, delta in enumerate(shap_deltas):
+                if abs(delta) > 0.05:
+                    cambios_impacto.append((nombres_shap[i], delta))
+            
+            if not cambios_impacto:
+                 st.info("The selected clinical changes do not have a statistically significant impact on the readmission probability.")
+            else:
+                cambios_impacto = sorted(cambios_impacto, key=lambda x: abs(x[1]))
+                
+                fig_delta = go.Figure(go.Bar(
+                    x=[x[1] for x in cambios_impacto], 
+                    y=[x[0] for x in cambios_impacto],
                     orientation='h', 
-                    marker_color=['#D62728' if x[1]>0 else '#2CA02C' for x in lime_list],
-                    text=[f"+{x[1]*100:.1f}%" if x[1]>0 else f"{x[1]*100:.1f}%" for x in lime_list],
+                    marker_color=['#FF4444' if x[1]>0 else '#00C851' for x in cambios_impacto], # Rojo si empeora, Verde si mejora
+                    text=[f"+{x[1]:.1f}% Risk" if x[1]>0 else f"{x[1]:.1f}% Risk" for x in cambios_impacto],
                     textposition='outside', 
-                    textfont=dict(size=12)
+                    textfont=dict(size=12, color='white' if st.get_option("theme.base") == "dark" else 'black')
                 ))
                 
-                fig_l.update_layout(
-                    title=f"Scenario Impact Analysis (Simulated Trajectory)",
-                    xaxis_title="Impact on Probability (%)",
+                fig_delta.update_layout(
+                    title="Direct Impact of Simulated Interventions",
+                    xaxis_title="Change in Readmission Probability (%)",
                     plot_bgcolor='rgba(0,0,0,0)', 
                     paper_bgcolor='rgba(0,0,0,0)',
                     margin=dict(l=10, r=40, t=40, b=10),
-                    height=max(350, len(lime_list) * 38), 
+                    height=max(300, len(cambios_impacto) * 45), 
                     xaxis=dict(
                         showgrid=True, gridcolor='rgba(128,128,128,0.2)', 
-                        zeroline=True, zerolinecolor='rgba(128,128,128,0.6)'
+                        zeroline=True, zerolinecolor='rgba(128,128,128,0.8)', zerolinewidth=2
                     )
                 )
                 
                 col_l1, col_l2 = st.columns([1, 3])
                 
                 with col_l2: 
-                    st.plotly_chart(fig_l, use_container_width=True)
+                    st.plotly_chart(fig_delta, use_container_width=True)
                     
                 with col_l1:
-                    st.markdown("### 📊 Simulated Risk")
+                    st.markdown("### 📊 Target Risk")
                     st.metric(
                         label="Hypothetical 15-Day Prob.", 
                         value=f"{riesgo_simulado*100:.1f}%", 
-                        delta=f"{variacion_riesgo:+.1f}% vs Current",
-                        delta_color="inverse"
+                        delta=f"{variacion_riesgo:+.1f}% vs Admission",
+                        delta_color="inverse" # Automáticamente pone rojo si sube, verde si baja
                     )
                     st.markdown("---")
 
     except Exception as e:
-        st.error("Simulation engine failed to initialize.")
+        st.error("Simulation engine encountered an error.")
         st.warning(f"Error detail: {str(e)}")
         
 with tab_evidencia:
