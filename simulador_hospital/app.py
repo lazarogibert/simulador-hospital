@@ -1615,6 +1615,9 @@ with tab_estrategia:
                     st.error("Counterfactual engine is currently unavailable.")
                     st.warning(f"Technical Context: {str(e)}")
 
+    # ==========================================
+    # --- MOTOR DE CÁLCULO DINÁMICO (LIME - ANCHO COMPLETO BLINDADO) ---
+    # ==========================================
     st.markdown("---")
     try:
         with st.spinner("Analyzing combinatorial impacts of simulated trajectory..."):
@@ -1647,13 +1650,19 @@ with tab_estrategia:
             has_selector = 'feature_selection' in pipeline.named_steps
             selector = pipeline.named_steps['feature_selection'] if has_selector else None
             
-            # 1. Obtener la matriz densa del paciente (Filtrada)
+            # 1. Extracción Estricta Numpy para Paciente (Evitando IndexOutOfBounds)
             X_p_proc = prep.transform(df_sim)
             if selector:
                 X_p_proc = selector.transform(X_p_proc)
-            X_p_dense = X_p_proc.toarray()[0] if hasattr(X_p_proc, 'toarray') else np.array(X_p_proc)[0]
-            
-            # 2. Obtener el background dataset (Filtrado)
+                
+            if hasattr(X_p_proc, 'toarray'):
+                X_p_dense = X_p_proc.toarray()[0]
+            elif hasattr(X_p_proc, 'values'):
+                X_p_dense = X_p_proc.values[0]
+            else:
+                X_p_dense = np.array(X_p_proc)[0]
+                
+            # 2. Extracción Estricta Numpy para Entrenamiento LIME
             BASE_DIR = os.path.dirname(os.path.abspath(__file__))
             ruta_x = os.path.join(BASE_DIR, 'X_train_proc_llm.npy')
             X_train_proc_lime = np.load(ruta_x)
@@ -1662,21 +1671,24 @@ with tab_estrategia:
             if selector:
                 X_t_dense = selector.transform(X_t_dense)
                 
-            # Forzar a NumPy puro para LIME
-            if hasattr(X_t_dense, 'toarray'): X_t_dense = X_t_dense.toarray()
-            elif hasattr(X_t_dense, 'values'): X_t_dense = X_t_dense.values
-            
-            # 3. Extraer nombres de variables exactos del Selector
-            if selector and hasattr(selector, 'variables_mantenidas_'):
+            if hasattr(X_t_dense, 'toarray'): 
+                X_t_dense = X_t_dense.toarray()
+            elif hasattr(X_t_dense, 'values'): 
+                X_t_dense = X_t_dense.values
+            X_t_dense = np.array(X_t_dense) # Garantizamos Numpy puro
+                
+            # 3. Alineación forzada de nombres de columnas que el modelo (clf) espera
+            if hasattr(clf, 'feature_names_in_'):
+                columnas_modelo_final = clf.feature_names_in_
+            elif selector and hasattr(selector, 'variables_mantenidas_'):
                 columnas_modelo_final = selector.variables_mantenidas_
-            elif selector:
+            else:
                 try:
                     columnas_modelo_final = selector.get_feature_names_out()
                 except Exception:
                     columnas_modelo_final = [f"Feature_{i}" for i in range(X_t_dense.shape[1])]
-            else:
-                columnas_modelo_final = prep.get_feature_names_out()
             
+            # 4. Traducción para UI
             ui_dict = {
                 'DELTA_dolor_eva': 'Δ Pain', 'DELTA_gravedad_percibida': 'Δ Severity',
                 'DELTA_alteracion_mental': 'Δ Mental Alt.', 'DELTA_dependencia_funcional': 'Δ Func. Dep.',
@@ -1692,14 +1704,10 @@ with tab_estrategia:
             nombres_lime = []
             for n in columnas_modelo_final:
                 n_clean = str(n).split('__')[-1].split('_1')[0]
-                if n_clean in ui_dict:
-                    nombres_lime.append(ui_dict[n_clean])
-                else:
-                    nombres_lime.append(str(n).split('__')[-1])
+                nombres_lime.append(ui_dict.get(n_clean, str(n).split('__')[-1]))
 
-            # 4. ENVOLTORIO DE PREDICCIÓN SEGURO PARA LIME
+            # 5. EL ENVOLTORIO PREDICTOR (Evita "Feature Names Mismatch" y "IndexError")
             def predict_fn_segura(X_array):
-                # Convertimos la matriz numpy de LIME en un DataFrame perfecto
                 df_temporal = pd.DataFrame(X_array, columns=columnas_modelo_final)
                 return clf.predict_proba(df_temporal)
 
@@ -1712,7 +1720,7 @@ with tab_estrategia:
 
             exp = explainer.explain_instance(
                 data_row=X_p_dense, 
-                predict_fn=predict_fn_segura, # <--- SE USA EL ENVOLTORIO AQUÍ
+                predict_fn=predict_fn_segura,
                 num_features=len(nombres_lime) 
             )
             
@@ -1764,7 +1772,7 @@ with tab_estrategia:
 
     except Exception as e:
         st.error("Simulation engine failed to initialize.")
-        st.warning(str(e))
+        st.warning(f"Error detail: {str(e)}")
         
 with tab_evidencia:
     st.markdown("#### Clinical Similarity Network & Cohort Audit")
