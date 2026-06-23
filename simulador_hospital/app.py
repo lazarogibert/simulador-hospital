@@ -2242,7 +2242,7 @@ with tab_evidencia:
                     sub_tab_global, sub_tab_inspector = st.tabs(["🧬 Cohort Profile", "🔍 Case Inspector"])
                     
                     with sub_tab_global:
-                        st.markdown(f"### 👥 Similar Admissions Found (n={len(vecinos_idx)})")
+                        st.markdown(f"### Similar Admissions Found (n={len(vecinos_idx)})")
                         tasa_reingreso = (sum(cohort_outcomes) / len(cohort_outcomes)) * 100 if cohort_outcomes else 0.0
                         st.metric("Historical Readmission Rate", f"{tasa_reingreso:.1f}%")
                         st.progress(tasa_reingreso / 100)
