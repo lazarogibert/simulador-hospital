@@ -2127,24 +2127,42 @@ with tab_evidencia:
         matriz_ext = np.load(ruta_ext, allow_pickle=True)
         nombres_columnas = np.load(ruta_cols, allow_pickle=True)
         
+        # --- APLICACIÓN DEL FILTRO FORENSE (RUIDO TOPOLÓGICO) ---
+        VARIABLES_RUIDO = [
+            'cat__CIE10_MACRO_DERMATITIS Y ECZEMA', 'cat__CIE10_MACRO_OTROS TRASTORNOS NEUROLÓGICOS', 'cat__CIE10_MACRO_OTRAS INFECCIOSAS (B)', 'cat__CIE10_MACRO_TRASTORNOS DE LAS FANERAS / OTROS TRASTORNOS DE PIEL', 'cat__CIE10_MACRO_TEJIDO CONECTIVO (LUPUS, ETC.)', 'cat__CIE10_MACRO_OTROS TUMORES MALIGNOS', 'cat__CIE10_MACRO_OTRAS ENFERMEDADES DE LOS INTESTINOS', 'cat__CIE10_MACRO_HERNIAS', 'cat__CIE10_MACRO_ENFERMEDADES DE LA UNIÓN NEUROMUSCULAR (MIASTENIA)', 'cat__CIE10_MACRO_OTROS FACTORES DE SALUD', 'cat__CIE10_MACRO_ANEMIAS HEMOLÍTICAS', 'cat__CIE10_MACRO_OTROS OSTEOMUSCULARES', 'cat__CIE10_MACRO_VESÍCULA / VÍAS BILIARES / PÁNCREAS', 'cat__CIE10_MACRO_POLINEUROPATÍAS', 'cat__CIE10_MACRO_GENITAL MASCULINO (HIPERPLASIA PROSTÁTICA)', 'cat__CIE10_MACRO_ENFERMEDADES DESMIELINIZANTES (ESCLEROSIS MÚLTIPLE)', 'cat__CIE10_MACRO_TRASTORNOS EXTRAPIRAMIDALES Y DEL MOVIMIENTO (PARKINSON)', 'cat__CIE10_MACRO_CÁNCER DE SISTEMA NERVIOSO CENTRAL', 'cat__CIE10_MACRO_GLUCOSA / HIPOGLUCEMIA', 'cat__CIE10_MACRO_ARTROPATÍAS', 'cat__CIE10_MACRO_OTRAS MALFORMACIONES CONGÉNITAS', 'cat__CIE10_MACRO_OTROS TRASTORNOS MENTALES', 'cat__CIE10_MACRO_TRASTORNOS PAPULOESCAMOSOS (PSORIASIS)', 'cat__CIE10_MACRO_ENFERMEDADES DEGENERATIVAS (ALZHEIMER)', 'cat__CIE10_MACRO_ESQUIZOFRENIA Y TRASTORNOS PSICÓTICOS', 'cat__CIE10_MACRO_TRASTORNOS DE NERVIOS Y PLEXOS', 'cat__CIE10_MACRO_TUMORES IN SITU O BENIGNOS', 'cat__CIE10_MACRO_TRASTORNOS NEURÓTICOS Y DE ANSIEDAD', 'cat__CIE10_MACRO_ANEMIAS NUTRICIONALES', 'cat__CIE10_MACRO_CÁNCER DE VÍAS URINARIAS', 'cat__CIE10_MACRO_OSTEOPATÍAS Y CONDROPATÍAS (OSTEOPOROSIS)', 'cat__CIE10_MACRO_OTROS TRASTORNOS DE LA SANGRE', 'cat__CIE10_MACRO_OTRAS ENFERMEDADES DE LA PIEL', 'cat__CIE10_MACRO_GENITAL FEMENINO (ENDOMETRIOSIS, ETC.)', 'cat__CIE10_MACRO_ENFERMEDADES PULMONARES INTERSTICIALES', 'cat__CIE10_MACRO_CÁNCER DE LABIO / BOCA / FARINGE', 'cat__CIE10_MACRO_ESÓFAGO / ESTÓMAGO / DUODENO', 'cat__CIE10_MACRO_ENFERMEDAD DE CROHN Y COLITIS', 'cat__CIE10_MACRO_TRASTORNOS DE LA PERSONALIDAD', 'cat__CIE10_MACRO_OTROS ENDOCRINOS Y METABÓLICOS', 'cat__CIE10_MACRO_OJO', 'cat__CIE10_MACRO_DEFECTOS DE COAGULACIÓN / PÚRPURA', 'cat__CIE10_MACRO_ENFERMEDAD POR VIH', 'cat__CIE10_MACRO_TRASTORNOS DE LA CONDUCTA ALIMENTARIA / SUEÑO', 'cat__CIE10_MACRO_CÁNCER RESPIRATORIO / INTRATORÁCICO', 'cat__CIE10_MACRO_CÁNCER DE MAMA', 'cat__CIE10_MACRO_DISLIPIDEMIA', 'cat__CIE10_MACRO_ATROFIAS SISTÉMICAS DEL SNC', 'cat__CIE10_MACRO_OÍDO'
+        ]
+        
+        prep = pipeline.named_steps['preprocesador']
+        nombres_expandidos = list(prep.get_feature_names_out())
+        
+        # Generar máscara para aislar variables predictivas reales
+        mask_limpia = np.array([col not in VARIABLES_RUIDO for col in nombres_expandidos])
+        
+        # Extirpar las columnas sucias de la matriz de entrenamiento
+        X_train_limpio = X_train_proc[:, mask_limpia]
+        
         knn_engine = NearestNeighbors(n_neighbors=100, metric='cosine')
-        knn_engine.fit(X_train_proc)
+        knn_engine.fit(X_train_limpio)
         
         umap_reducer = umap.UMAP(n_neighbors=15, min_dist=0.1, metric='cosine', random_state=42)
-        umap_embeddings = umap_reducer.fit_transform(X_train_proc)
+        umap_embeddings = umap_reducer.fit_transform(X_train_limpio)
         
-        return knn_engine, matriz_ext, nombres_columnas, X_train_proc, umap_embeddings
+        return knn_engine, matriz_ext, nombres_columnas, X_train_limpio, umap_embeddings, mask_limpia
 
     plt.close('all') 
     
     try:
         with st.spinner("Calculating topological metrics..."):
-            knn, matriz_extended, nombres_columnas, X_train_proc, umap_embeddings = load_similarity_assets()
+            knn, matriz_extended, nombres_columnas, X_train_limpio, umap_embeddings, mask_limpia = load_similarity_assets()
             
             prep = pipeline.named_steps['preprocesador']
             X_paciente_proc = prep.transform(df_paciente)
+            X_paciente_dense = X_paciente_proc.toarray() if hasattr(X_paciente_proc, 'toarray') else np.array(X_paciente_proc)
             
-            distancias, indices = knn.kneighbors(X_paciente_proc)
+            # --- CORTAR LAS VARIABLES DE RUIDO DEL PACIENTE ACTUAL ---
+            X_paciente_limpio = X_paciente_dense[:, mask_limpia]
+            
+            distancias, indices = knn.kneighbors(X_paciente_limpio)
             vecinos_idx_pool = indices[0]
             similitudes_brutas_pool = np.maximum(0, (1 - distancias[0])) * 100
             
@@ -2240,7 +2258,7 @@ with tab_evidencia:
                     info_inspeccion[label_grafo] = datos_gemelo
         
                 if len(vecinos_idx) > 1:
-                    X_gemelos = X_train_proc[vecinos_idx]
+                    X_gemelos = X_train_limpio[vecinos_idx]
                     dist_gemelos = pairwise_distances(X_gemelos, metric='cosine')
                     umbral_conexion = np.percentile(dist_gemelos, 30) 
                     for i in range(len(vecinos_idx)):
@@ -2492,7 +2510,7 @@ with tab_evidencia:
     except Exception as e:
         st.error("Error generating similarity topology graph.")
         st.warning(f"Technical Detail: {str(e)}")
-        
+
 # ==========================================
 # 9. GLOBAL UNIVERSE (UMAP) IN NEW TAB
 # ==========================================
@@ -2580,7 +2598,15 @@ with tab_umap:
                 ))
             
             if 'vecinos_idx_pool' not in locals() and 'vecinos_idx_pool' not in globals():
-                distancias_rescue, indices_rescue = knn.kneighbors(X_paciente_proc)
+                # BLOQUE DE RESCATE: Si no se calculó en tab_evidencia, lo hacemos aquí con el filtro
+                prep = pipeline.named_steps['preprocesador']
+                X_pac_proc = prep.transform(df_paciente)
+                X_pac_dense = X_pac_proc.toarray() if hasattr(X_pac_proc, 'toarray') else np.array(X_pac_proc)
+                
+                # --- APLICAR MÁSCARA AL PACIENTE (RESCATE) ---
+                X_pac_limpio = X_pac_dense[:, mask_limpia]
+                
+                distancias_rescue, indices_rescue = knn.kneighbors(X_pac_limpio)
                 vecinos_idx_pool = indices_rescue[0]
                 
             local_idx = vecinos_idx_pool[:20] 
