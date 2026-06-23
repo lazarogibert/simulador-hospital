@@ -378,19 +378,29 @@ class MotorEDADinamico:
         fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
         return fig
 
-    def plot_perfil_clinico(self):
+    def plot_perfil_clinico(self, modo='absolute'):
         if 'pluripatologico' not in self.df.columns: return None
             
         df_plot = self.df.copy()
         df_plot['Condition'] = df_plot['pluripatologico'].astype(str).map({'1': 'Multimorbidity', '0': 'Single Pathology', '1.0': 'Multimorbidity', '0.0': 'Single Pathology'}).fillna('No Data')
         df_plot = df_plot[df_plot['Condition'] != 'No Data']
             
-        fig = px.histogram(
-            df_plot, x="Periodo_Reingreso", color="Condition", barmode="group", text_auto=True,
-            title="Readmission Volume by Multimorbidity", labels={'Periodo_Reingreso': 'Period', 'Condition': 'Condition'},
-            color_discrete_sequence=['#ef553b', '#636efa']
-        )
-        fig.update_layout(yaxis_title="Number of Patients", xaxis={'categoryorder':'category ascending'}, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
+        if modo == 'relative':
+            fig = px.histogram(
+                df_plot, x="Periodo_Reingreso", color="Condition", barmode="stack", barnorm="percent", text_auto=".1f",
+                title="Readmission Composition by Multimorbidity (%)", labels={'Periodo_Reingreso': 'Period', 'Condition': 'Condition'},
+                color_discrete_sequence=['#ef553b', '#636efa']
+            )
+            fig.update_layout(yaxis_title="% of Patients in Period")
+        else:
+            fig = px.histogram(
+                df_plot, x="Periodo_Reingreso", color="Condition", barmode="group", text_auto=True,
+                title="Readmission Volume by Multimorbidity", labels={'Periodo_Reingreso': 'Period', 'Condition': 'Condition'},
+                color_discrete_sequence=['#ef553b', '#636efa']
+            )
+            fig.update_layout(yaxis_title="Number of Patients")
+
+        fig.update_layout(xaxis={'categoryorder':'category ascending'}, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
         return fig
 
     # Modificada para aceptar segmentación dinámica
@@ -446,20 +456,29 @@ class MotorEDADinamico:
         fig.update_layout(xaxis={'categoryorder':'category ascending'}, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
         return fig
         
-    def plot_contexto_social(self):
+    def plot_contexto_social(self, modo='absolute'):
         if 'PA_SITLABO_x' not in self.df.columns: return None
             
         df_plot = self.df[~self.df['PA_SITLABO_x'].astype(str).isin(['SIN_DATO', 'S/D', '', 'nan'])].copy()
         df_plot['PA_SITLABO_x'] = df_plot['PA_SITLABO_x'].str.title()
         
-        fig = px.histogram(
-            df_plot, x="Periodo_Reingreso", color="PA_SITLABO_x", barmode="group", histnorm="percent",
-            title="Employment Status Distribution by Period", labels={'Periodo_Reingreso': 'Readmission Period', 'PA_SITLABO_x': 'Employment Status'}
-        )
-        fig.update_layout(yaxis_title="% of Patients (Relative)", xaxis={'categoryorder':'category ascending'}, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
-        return fig
+        if modo == 'relative':
+            fig = px.histogram(
+                df_plot, x="Periodo_Reingreso", color="PA_SITLABO_x", barmode="stack", barnorm="percent", text_auto=".1f",
+                title="Employment Status Composition by Period (%)", labels={'Periodo_Reingreso': 'Readmission Period', 'PA_SITLABO_x': 'Employment Status'}
+            )
+            fig.update_layout(yaxis_title="% of Patients in Period")
+        else:
+            fig = px.histogram(
+                df_plot, x="Periodo_Reingreso", color="PA_SITLABO_x", barmode="group", text_auto=True,
+                title="Employment Status Volume by Period", labels={'Periodo_Reingreso': 'Readmission Period', 'PA_SITLABO_x': 'Employment Status'}
+            )
+            fig.update_layout(yaxis_title="Number of Patients")
 
-    def plot_historial_paciente(self):
+        fig.update_layout(xaxis={'categoryorder':'category ascending'}, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
+        return fig
+    
+    def plot_historial_paciente(self, modo='absolute'):
         if 'visitas_guardia_6meses_previos' not in self.df.columns: return None
 
         condiciones = [
@@ -472,23 +491,33 @@ class MotorEDADinamico:
         
         df_plot = self.df[self.df['Categoria_Visitas'] != 'No Data'].copy()
 
-        fig = px.histogram(
-            df_plot, x="Periodo_Reingreso", color="Categoria_Visitas", barnorm="percent", text_auto=".1f",
-            title="The Revolving Door: Patient Composition by Recent ER History",
-            labels={'Periodo_Reingreso': 'Period', 'Categoria_Visitas': 'Prior Visits (6 Months)'},
-            color_discrete_sequence=['#2ecc71', '#f1c40f', '#e74c3c'] 
-        )
-        
-        fig.update_layout(yaxis_title="% of Patients in Period", xaxis={'categoryorder':'category ascending'}, barmode='stack', legend={'traceorder':'normal'}, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
+        if modo == 'relative':
+            fig = px.histogram(
+                df_plot, x="Periodo_Reingreso", color="Categoria_Visitas", barmode="stack", barnorm="percent", text_auto=".1f",
+                title="The Revolving Door: Patient Composition by Recent ER History (%)",
+                labels={'Periodo_Reingreso': 'Period', 'Categoria_Visitas': 'Prior Visits (6 Months)'},
+                color_discrete_sequence=['#2ecc71', '#f1c40f', '#e74c3c'] 
+            )
+            fig.update_layout(yaxis_title="% of Patients in Period")
+        else:
+            fig = px.histogram(
+                df_plot, x="Periodo_Reingreso", color="Categoria_Visitas", barmode="group", text_auto=True,
+                title="The Revolving Door: Patient Volume by Recent ER History",
+                labels={'Periodo_Reingreso': 'Period', 'Categoria_Visitas': 'Prior Visits (6 Months)'},
+                color_discrete_sequence=['#2ecc71', '#f1c40f', '#e74c3c'] 
+            )
+            fig.update_layout(yaxis_title="Number of Patients")
+            
+        fig.update_layout(xaxis={'categoryorder':'category ascending'}, legend={'traceorder':'normal'}, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
         return fig
 
-    def analizar(self, tipo_analisis, variable_segmentacion='EST_paso_por_uti'):
+    def analizar(self, tipo_analisis, variable_segmentacion='EST_paso_por_uti', modo='absolute'):
         opciones = {
             'curva': lambda: self.plot_incidencia_acumulada(variable_segmentacion), 
-            'clinico': self.plot_perfil_clinico,
-            'gravedad': lambda: self.plot_gravedad_hospitalaria(variable_segmentacion), # <--- CAMBIO AQUÍ
-            'social': self.plot_contexto_social,
-            'historial': self.plot_historial_paciente,
+            'clinico': lambda: self.plot_perfil_clinico(modo),
+            'gravedad': lambda: self.plot_gravedad_hospitalaria(variable_segmentacion),
+            'social': lambda: self.plot_contexto_social(modo),
+            'historial': lambda: self.plot_historial_paciente(modo),
             'cie10': self.plot_motivo_ingreso
         }
         if tipo_analisis.lower() in opciones: 
@@ -2785,6 +2814,9 @@ with tab_eda:
         id_grafico = mapa_graficos[tipo_grafico]
         
         # --- ENRUTADOR DE FILTROS DINÁMICO ---
+        filtro_seleccionado = 'EST_paso_por_uti' # Fallback seguro
+        modo_visual = 'absolute'
+        
         if id_grafico == "curva":
             with col_selec2:
                 filtro_curva = st.selectbox(
@@ -2822,15 +2854,24 @@ with tab_eda:
             }
             filtro_seleccionado = mapa_filtros_gravedad[filtro_gravedad]
             
-        else:
-            # Valor por defecto seguro para los gráficos que no usan filtro
-            filtro_seleccionado = 'EST_paso_por_uti' 
-            
+        elif id_grafico in ["clinico", "social", "historial"]:
+            with col_selec2:
+                sel_modo = st.radio(
+                    "Display Mode:", 
+                    options=["Absolute (Volume)", "Relative (Composition %)"], 
+                    horizontal=True
+                )
+                modo_visual = 'relative' if '%' in sel_modo else 'absolute'
+                
         st.markdown("---")
         
         # Generar y renderizar el gráfico seleccionado
         with st.spinner("Generating Insights..."):
-            fig_eda = eda_engine.analizar(id_grafico, variable_segmentacion=filtro_seleccionado)
+            fig_eda = eda_engine.analizar(
+                id_grafico, 
+                variable_segmentacion=filtro_seleccionado, 
+                modo=modo_visual
+            )
             
             if fig_eda:
                 st.plotly_chart(fig_eda, use_container_width=True)
