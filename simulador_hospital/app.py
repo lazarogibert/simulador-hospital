@@ -1899,6 +1899,11 @@ with tab_estrategia:
         st.error("Simulation engine encountered an error.")
         st.warning(f"Error detail: {str(e)}")
 
+
+# ==========================================
+    # --- 8 TAB EVIDENCIA ---
+    # ==========================================
+
 with tab_evidencia:
     st.markdown("#### Clinical Similarity Network & Cohort Audit")
     
@@ -2332,10 +2337,23 @@ with tab_evidencia:
                                 '2': '2: Urgent', '2.0': '2: Urgent',
                                 '3': '3: Emergency', '3.0': '3: Emergency'
                             }
+                            
+                            # 1. Traducir todos los valores a los nombres estándar
                             triage_traducido = [triage_map.get(str(t).strip(), "Unknown") for t in cohort_triage]
-                            dist_triage = pd.Series(triage_traducido).value_counts(normalize=True) * 100
-                            for tr, pct in dist_triage.items():
-                                st.markdown(f"- {tr}: {pct:.1f}%")
+                            
+                            # 2. Forzar el barrido sobre TODAS las categorías posibles
+                            categorias_esperadas = ['0: Non-Urgent', '1: Standard', '2: Urgent', '3: Emergency']
+                            
+                            for cat in categorias_esperadas:
+                                # Contamos manualmente para evitar el filtro de ceros de value_counts()
+                                pct = (triage_traducido.count(cat) / len(cohort_triage)) * 100
+                                st.markdown(f"- {cat}: {pct:.1f}%")
+                                
+                            # Mostramos Unknown solo si existe
+                            unknown_count = triage_traducido.count("Unknown")
+                            if unknown_count > 0:
+                                pct_unk = (unknown_count / len(cohort_triage)) * 100
+                                st.markdown(f"- Unknown: {pct_unk:.1f}%")
                         else:
                             st.markdown("- Unknown")
 
