@@ -2157,10 +2157,9 @@ with tab_evidencia:
                 info_inspeccion = {}
                 invalid_markers = ["N/A", "MISSING_DATA", "NONE", "NAN", ""]
                 
-                # INICIALIZACIÓN DE LISTAS DE COHORTE (Añadidas las nuevas métricas)
                 cohort_outcomes, cohort_ages, cohort_sex, cohort_diagnoses, cohort_multimorbidity = [], [], [], [], []
                 cohort_los, cohort_icu, cohort_consults, cohort_triage, cohort_ambulance = [], [], [], [], []
-                cohort_med_cardio, cohort_med_neuro = [], []
+                cohort_med_cardio, cohort_med_neuro, cohort_perfil = [], [], []
                 
                 prefijos_nlp = ('LLM_', 'ING_', 'EVO_', 'DELTA_', 'rango_', 'pluripatologico', 'dias_', 'CIE10_MACRO', 'sexo', 'IN_COMPLEJIDAD', 'cantidad_interconsultas', 'visitas_', 'EST_', 'Area', 'HIST_condicion_ultimo_egreso', 'perfil_clinico_ingreso', 'Riesgo_')
                 columnas_comunes_dinamicas = [col for col in nombres_columnas if str(col).startswith(prefijos_nlp)]
@@ -2189,7 +2188,6 @@ with tab_evidencia:
                     cohort_diagnoses.append(matriz_extended[idx, col_idx.get('CIE10_MACRO', -1)])
                     cohort_multimorbidity.append(matriz_extended[idx, col_idx.get('pluripatologico', -1)])
                     
-                    # Carga de las nuevas métricas solicitadas
                     cohort_los.append(matriz_extended[idx, col_idx.get('dias_internados', -1)])
                     cohort_icu.append(matriz_extended[idx, col_idx.get('EST_paso_por_uti', -1)])
                     cohort_consults.append(matriz_extended[idx, col_idx.get('cantidad_interconsultas', -1)])
@@ -2197,6 +2195,7 @@ with tab_evidencia:
                     cohort_ambulance.append(matriz_extended[idx, col_idx.get('EST_ingreso_ambulancia', -1)])
                     cohort_med_cardio.append(matriz_extended[idx, col_idx.get('Riesgo_Cardiovasculares_Inotropicos', -1)])
                     cohort_med_neuro.append(matriz_extended[idx, col_idx.get('Riesgo_Psicofarmacos_Neurologicos', -1)])
+                    cohort_perfil.append(matriz_extended[idx, col_idx.get('perfil_clinico_ingreso', -1)])
                     
                     datos_gemelo = {
                         "similitud": similitud_pct,
@@ -2292,35 +2291,29 @@ with tab_evidencia:
                             pct_diag = (count / len(cohort_diagnoses)) * 100
                             st.markdown(f"- {diag} ({pct_diag:.1f}%)")
 
-                        # --- NUEVO BLOQUE ESTRUCTURAL ---
                         st.markdown("---")
                         st.markdown("#### 🏥 Hospital Burden & Acuity")
                         
                         c1, c2, c3 = st.columns(3)
                         
-                        # 1. Median Length of Stay
                         median_los = pd.to_numeric(pd.Series(cohort_los), errors='coerce').median()
                         if pd.isna(median_los): median_los = 0.0
                         c1.metric("Median Length of Stay", f"{median_los:.1f} days")
                         
-                        # 2. ICU Stay Rate
                         icu_count = sum(1 for x in cohort_icu if str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'])
                         pct_icu = (icu_count / len(cohort_icu)) * 100 if cohort_icu else 0.0
                         c2.metric("ICU Stay Rate", f"{pct_icu:.1f}%")
                         
-                        # 3. Average Interconsultations
                         avg_cons = pd.to_numeric(pd.Series(cohort_consults), errors='coerce').mean()
                         if pd.isna(avg_cons): avg_cons = 0.0
                         c3.metric("Avg. Interconsultations", f"{avg_cons:.1f}")
 
                         c4, c5, c6 = st.columns(3)
                         
-                        # 4. Ambulance Arrival Rate
                         amb_count = sum(1 for x in cohort_ambulance if str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'])
                         pct_amb = (amb_count / len(cohort_ambulance)) * 100 if cohort_ambulance else 0.0
                         c4.metric("Ambulance Arrival", f"{pct_amb:.1f}%")
                         
-                        # 5 & 6. High Risk Meds Exposure
                         cardio_count = sum(1 for x in cohort_med_cardio if str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'])
                         pct_cardio = (cardio_count / len(cohort_med_cardio)) * 100 if cohort_med_cardio else 0.0
                         c5.metric("High-Risk Meds (Cardio)", f"{pct_cardio:.1f}%")
@@ -2338,22 +2331,27 @@ with tab_evidencia:
                                 '3': '3: Emergency', '3.0': '3: Emergency'
                             }
                             
-                            # 1. Traducir todos los valores a los nombres estándar
                             triage_traducido = [triage_map.get(str(t).strip(), "Unknown") for t in cohort_triage]
-                            
-                            # 2. Forzar el barrido sobre TODAS las categorías posibles
                             categorias_esperadas = ['0: Non-Urgent', '1: Standard', '2: Urgent', '3: Emergency']
                             
                             for cat in categorias_esperadas:
-                                # Contamos manualmente para evitar el filtro de ceros de value_counts()
                                 pct = (triage_traducido.count(cat) / len(cohort_triage)) * 100
                                 st.markdown(f"- {cat}: {pct:.1f}%")
                                 
-                            # Mostramos Unknown solo si existe
                             unknown_count = triage_traducido.count("Unknown")
                             if unknown_count > 0:
                                 pct_unk = (unknown_count / len(cohort_triage)) * 100
                                 st.markdown(f"- Unknown: {pct_unk:.1f}%")
+                        else:
+                            st.markdown("- Unknown")
+
+                        st.markdown("**Admission Profile Distribution:**")
+                        if cohort_perfil:
+                            perfil_traducido = [format_clinical_value('perfil_clinico_ingreso', p) for p in cohort_perfil]
+                            dist_perfil = pd.Series(perfil_traducido).value_counts(normalize=True) * 100
+                            for perf, pct in dist_perfil.items():
+                                if str(perf).strip() not in ["N/A", "-1", "UNKNOWN"]:
+                                    st.markdown(f"- {perf}: {pct:.1f}%")
                         else:
                             st.markdown("- Unknown")
 
