@@ -1898,7 +1898,7 @@ with tab_estrategia:
     except Exception as e:
         st.error("Simulation engine encountered an error.")
         st.warning(f"Error detail: {str(e)}")
-        
+
 with tab_evidencia:
     st.markdown("#### Clinical Similarity Network & Cohort Audit")
     
@@ -2152,7 +2152,10 @@ with tab_evidencia:
                 info_inspeccion = {}
                 invalid_markers = ["N/A", "MISSING_DATA", "NONE", "NAN", ""]
                 
+                # INICIALIZACIÓN DE LISTAS DE COHORTE (Añadidas las nuevas métricas)
                 cohort_outcomes, cohort_ages, cohort_sex, cohort_diagnoses, cohort_multimorbidity = [], [], [], [], []
+                cohort_los, cohort_icu, cohort_consults, cohort_triage, cohort_ambulance = [], [], [], [], []
+                cohort_med_cardio, cohort_med_neuro = [], []
                 
                 prefijos_nlp = ('LLM_', 'ING_', 'EVO_', 'DELTA_', 'rango_', 'pluripatologico', 'dias_', 'CIE10_MACRO', 'sexo', 'IN_COMPLEJIDAD', 'cantidad_interconsultas', 'visitas_', 'EST_', 'Area', 'HIST_condicion_ultimo_egreso', 'perfil_clinico_ingreso', 'Riesgo_')
                 columnas_comunes_dinamicas = [col for col in nombres_columnas if str(col).startswith(prefijos_nlp)]
@@ -2180,6 +2183,15 @@ with tab_evidencia:
                     cohort_sex.append(matriz_extended[idx, col_idx.get('sexo', -1)])
                     cohort_diagnoses.append(matriz_extended[idx, col_idx.get('CIE10_MACRO', -1)])
                     cohort_multimorbidity.append(matriz_extended[idx, col_idx.get('pluripatologico', -1)])
+                    
+                    # Carga de las nuevas métricas solicitadas
+                    cohort_los.append(matriz_extended[idx, col_idx.get('dias_internados', -1)])
+                    cohort_icu.append(matriz_extended[idx, col_idx.get('EST_paso_por_uti', -1)])
+                    cohort_consults.append(matriz_extended[idx, col_idx.get('cantidad_interconsultas', -1)])
+                    cohort_triage.append(matriz_extended[idx, col_idx.get('TR_Prioridad', -1)])
+                    cohort_ambulance.append(matriz_extended[idx, col_idx.get('EST_ingreso_ambulancia', -1)])
+                    cohort_med_cardio.append(matriz_extended[idx, col_idx.get('Riesgo_Cardiovasculares_Inotropicos', -1)])
+                    cohort_med_neuro.append(matriz_extended[idx, col_idx.get('Riesgo_Psicofarmacos_Neurologicos', -1)])
                     
                     datos_gemelo = {
                         "similitud": similitud_pct,
@@ -2274,6 +2286,58 @@ with tab_evidencia:
                         for diag, count in top_diags.items():
                             pct_diag = (count / len(cohort_diagnoses)) * 100
                             st.markdown(f"- {diag} ({pct_diag:.1f}%)")
+
+                        # --- NUEVO BLOQUE ESTRUCTURAL ---
+                        st.markdown("---")
+                        st.markdown("#### 🏥 Hospital Burden & Acuity")
+                        
+                        c1, c2, c3 = st.columns(3)
+                        
+                        # 1. Median Length of Stay
+                        median_los = pd.to_numeric(pd.Series(cohort_los), errors='coerce').median()
+                        if pd.isna(median_los): median_los = 0.0
+                        c1.metric("Median Length of Stay", f"{median_los:.1f} days")
+                        
+                        # 2. ICU Stay Rate
+                        icu_count = sum(1 for x in cohort_icu if str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'])
+                        pct_icu = (icu_count / len(cohort_icu)) * 100 if cohort_icu else 0.0
+                        c2.metric("ICU Stay Rate", f"{pct_icu:.1f}%")
+                        
+                        # 3. Average Interconsultations
+                        avg_cons = pd.to_numeric(pd.Series(cohort_consults), errors='coerce').mean()
+                        if pd.isna(avg_cons): avg_cons = 0.0
+                        c3.metric("Avg. Interconsultations", f"{avg_cons:.1f}")
+
+                        c4, c5, c6 = st.columns(3)
+                        
+                        # 4. Ambulance Arrival Rate
+                        amb_count = sum(1 for x in cohort_ambulance if str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'])
+                        pct_amb = (amb_count / len(cohort_ambulance)) * 100 if cohort_ambulance else 0.0
+                        c4.metric("Ambulance Arrival", f"{pct_amb:.1f}%")
+                        
+                        # 5 & 6. High Risk Meds Exposure
+                        cardio_count = sum(1 for x in cohort_med_cardio if str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'])
+                        pct_cardio = (cardio_count / len(cohort_med_cardio)) * 100 if cohort_med_cardio else 0.0
+                        c5.metric("High-Risk Meds (Cardio)", f"{pct_cardio:.1f}%")
+                        
+                        neuro_count = sum(1 for x in cohort_med_neuro if str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'])
+                        pct_neuro = (neuro_count / len(cohort_med_neuro)) * 100 if cohort_med_neuro else 0.0
+                        c6.metric("High-Risk Meds (Neuro)", f"{pct_neuro:.1f}%")
+
+                        st.markdown("**Triage Priority Distribution:**")
+                        if cohort_triage:
+                            triage_map = {
+                                '0': '0: Non-Urgent', '0.0': '0: Non-Urgent',
+                                '1': '1: Standard', '1.0': '1: Standard',
+                                '2': '2: Urgent', '2.0': '2: Urgent',
+                                '3': '3: Emergency', '3.0': '3: Emergency'
+                            }
+                            triage_traducido = [triage_map.get(str(t).strip(), "Unknown") for t in cohort_triage]
+                            dist_triage = pd.Series(triage_traducido).value_counts(normalize=True) * 100
+                            for tr, pct in dist_triage.items():
+                                st.markdown(f"- {tr}: {pct:.1f}%")
+                        else:
+                            st.markdown("- Unknown")
 
                     with sub_tab_inspector:
                         lista_nodos = list(info_inspeccion.keys())
@@ -2383,7 +2447,7 @@ with tab_evidencia:
     except Exception as e:
         st.error("Error generating similarity topology graph.")
         st.warning(f"Technical Detail: {str(e)}")
-
+        
 # ==========================================
 # 9. GLOBAL UNIVERSE (UMAP) IN NEW TAB
 # ==========================================
