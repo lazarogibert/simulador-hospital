@@ -550,7 +550,10 @@ cro_dict = {
     'Active Smoking': 'tabaquismo_activo', 
     'Polypharmacy': 'polifarmacia', 
     'History of Falls': 'historial_caidas', 
-    'Medication Abandonment': 'abandono_medicacion'
+    'Medication Abandonment': 'abandono_medicacion',
+    'Geriatric Frailty': 'fragilidad_geriatrica',
+    'Poor Support Network': 'red_apoyo_deficiente',
+    'Comprehension Barrier': 'barrera_comprension'
 }
 
 ing_dict = {
@@ -559,7 +562,8 @@ ing_dict = {
     'Functional Dependency': 'dependencia_funcional', 
     'Device Bearer': 'portador_dispositivos', 
     'Hemorrhagic Risk': 'riesgo_hemorragico', 
-    'Active Infection': 'infeccion_activa'
+    'Active Infection': 'infeccion_activa',
+    'Severe Multimorbidity': 'multimorbilidad_severa'
 }
 
 evo_dict = {
@@ -570,7 +574,9 @@ evo_dict = {
     'Device Bearer': 'portador_dispositivos', 
     'Major Therapeutic Change': 'cambio_terapeutico_mayor', 
     'Surgical Intervention': 'intervencion_quirurgica', 
-    'Transfusion Support': 'soporte_transfusional'
+    'Transfusion Support': 'soporte_transfusional',
+    'Prolonged IV Therapy': 'terapia_endovenosa_prolongada',
+    'Residual Instability': 'inestabilidad_residual'
 }
 
 # State Initialization
@@ -671,9 +677,12 @@ DICCIONARIO DE VARIABLES Y CRITERIOS CLÍNICOS EXACTOS:
 - LLM_polifarmacia: Toma 5+ fármacos simultáneos o el texto dice "polifarmacia".
 - LLM_historial_caidas: Traumatismos o caídas ocurridas PREVIAMENTE al ingreso actual.
 - LLM_abandono_medicacion: El paciente/familia dejó de tomar la medicación por decisión propia, mala adherencia o razones socioeconómicas. (NO aplica si la suspensión fue indicación médica).
+- LLM_fragilidad_geriatrica: Mención literal de fragilidad, debilidad senil, deterioro senil, agotamiento por edad, sarcopenia o postración por edad.
+- LLM_red_apoyo_deficiente: Vive solo, falta de cuidador principal, institucionalización previa (geriátrico/asilo), situación de calle, o mención de conflicto/abandono familiar.
+- LLM_barrera_comprension: Barrera idiomática, hipoacusia severa, ceguera, o deterioro cognitivo leve/moderado que dificulta comprender pautas.
 
 -- B. Dinámicas (Prefijo ING_ para Ingreso, EVO_ para Evolución):
-- dolor_eva (entero 0-10): Extrae el valor numérico SOLO si se asocia explícitamente a la intensidad del dolor (ej. "EVA 7", "dolor 8/10"). Si usa palabras, mapea: "sin dolor"=0, "leve"=2, "moderado"=5, "intenso"=8, "insoportable"=10. Si NO se menciona el dolor, usa el null estricto (sin comillas).
+- dolor_eva (entero 0-10): Extrae el valor numérico SOLO si se asocia explícitamente a la intensidad del dolor (ej. "EVA 7", "dolor 8/10"). ¡CUIDADO: No confundas fechas (ej. 7/10 como 7 de octubre) ni puntajes de Glasgow con el dolor! Si usa palabras, mapea: "sin dolor"=0, "leve"=2, "moderado"=5, "intenso"=8, "insoportable"=10. Si NO se menciona el dolor, usa el primitivo null estricto (sin comillas).
 - gravedad_percibida (entero 1-10): Mapea el contexto clínico: 1-3 (Ambulatorio/Leve), 4-6 (Sala general estable), 7-8 (Cuidados Intermedios/Descompensado), 9-10 (UTI/Shock/Reanimación/Asistencia Respiratoria). Si no hay datos suficientes, usa null.
 - alteracion_mental (bool): Mención de delirium, excitación, desorientación, confusión, obnubilación, letargo, sopor, coma, somnolencia excesiva o Glasgow < 15.
 - dependencia_funcional (bool): Requiere asistencia para actividades básicas, paciente postrado, hemiplejía, cuadriplejía, paresia severa, o ACV secuelar motor.
@@ -683,19 +692,24 @@ DICCIONARIO DE VARIABLES Y CRITERIOS CLÍNICOS EXACTOS:
 - ING_consultas_reiteradas (bool): Ya había consultado en días previos por este mismo episodio.
 - ING_riesgo_hemorragico (bool): Sangrado activo, melena, hematemesis, epistaxis severa, plaquetopenia/trombocitopenia, coagulopatía o bajo anticoagulación activa.
 - ING_infeccion_activa (bool): Mención de fiebre al ingreso, sospecha de sepsis, uso empírico de antibióticos desde la guardia o foco infeccioso claro (neumonía, ITU, celulitis).
+- ING_multimorbilidad_severa (bool): Mención textual de 3 o más comorbilidades crónicas activas descompensadas simultáneamente (ej. "paciente diabético, hipertenso y con ERC reagudizada").
 
 -- D. Exclusivas de Evolución (Solo eventos del curso de la internación):
 - EVO_complicacion_internacion (bool): Infección intrahospitalaria, nueva caída, flebitis, intercurrencia nueva, shock, sepsis, descompensación hemodinámica, o necesidad de pase a UTI.
 - EVO_aislamiento_infeccioso (bool): Aislamiento de contacto o respiratorio.
 - EVO_cambio_terapeutico_mayor (bool): Inicio de insulina, anticoagulación, inotrópicos, o anticonvulsivantes durante la internación.
-- EVO_intervencion_quirurgica (bool): Mención de paso por quirófano, cirugía, o procedimiento invasivo mayor.
+- EVO_intervencion_quirurgica (bool): Mención de paso por quirófano, cirugía, o procedimiento invasivo mayor (endoscopía, cateterismo).
 - EVO_soporte_transfusional (bool): Requirió transfusión de hemoderivados durante su estadía.
+- EVO_terapia_endovenosa_prolongada (bool): Requirió medicación endovenosa por más de 3 días consecutivos.
+- EVO_inestabilidad_residual (bool): Alta con síntomas residuales documentados (ej. "febrícula", "disnea leve persistente").
 
 FORMATO DE SALIDA OBLIGATORIO:
-Devuelve un JSON válido donde CADA CLAVE es un objeto con 'valor' y 'cita'. Claves esperadas:
-LLM_tabaquismo_activo, LLM_polifarmacia, LLM_historial_caidas, LLM_abandono_medicacion, ING_dolor_eva, ING_gravedad_percibida, ING_alteracion_mental, ING_dependencia_funcional, ING_portador_dispositivos, ING_consultas_reiteradas, ING_riesgo_hemorragico, ING_infeccion_activa, EVO_dolor_eva, EVO_gravedad_percibida, EVO_alteracion_mental, EVO_dependencia_funcional, EVO_portador_dispositivos, EVO_complicacion_internacion, EVO_aislamiento_infeccioso, EVO_cambio_terapeutico_mayor, EVO_intervencion_quirurgica, EVO_soporte_transfusional.
+Devuelve un JSON válido donde CADA CLAVE es un objeto con 'valor' y 'cita'.
+- Booleanos no mencionados/negados: {"valor": false, "cita": ""}
+- Enteros no mencionados: {"valor": null, "cita": ""}
+Claves esperadas:
+LLM_tabaquismo_activo, LLM_polifarmacia, LLM_historial_caidas, LLM_abandono_medicacion, LLM_fragilidad_geriatrica, LLM_red_apoyo_deficiente, LLM_barrera_comprension, ING_dolor_eva, ING_gravedad_percibida, ING_alteracion_mental, ING_dependencia_funcional, ING_portador_dispositivos, ING_consultas_reiteradas, ING_riesgo_hemorragico, ING_infeccion_activa, ING_multimorbilidad_severa, EVO_dolor_eva, EVO_gravedad_percibida, EVO_alteracion_mental, EVO_dependencia_funcional, EVO_portador_dispositivos, EVO_complicacion_internacion, EVO_aislamiento_infeccioso, EVO_cambio_terapeutico_mayor, EVO_intervencion_quirurgica, EVO_soporte_transfusional, EVO_terapia_endovenosa_prolongada, EVO_inestabilidad_residual.
 
-Ejemplo: {"LLM_tabaquismo_activo": {"valor": true, "cita": "fuma 10 cigarrillos al día"}, ...}
 A continuación la historia clínica para auditar:
 """
                 
@@ -1012,7 +1026,7 @@ with tab_diagnostico:
                     'DELTA_portador_dispositivos': 'Device Bearer Delta', 'ING_alteracion_mental': 'Initial Mental Alt.',
                     'ING_consultas_reiteradas': 'Initial Repeated Consults', 'ING_dependencia_funcional': 'Initial Func. Dep.',
                     'ING_portador_dispositivos': 'Initial Device Bearer', 'ING_riesgo_hemorragico': 'Initial Hemorrhagic Risk',
-                    'ING_infeccion_activa': 'Initial Active Infection',
+                    'ING_infeccion_activa': 'Initial Active Infection', 'ING_multimorbilidad_severa': 'Initial Sev. Multimorbidity',
                     'EVO_aislamiento_infeccioso': 'Current Infect. Isolation', 'EVO_alteracion_mental': 'Current Mental Alt.',
                     'EVO_complicacion_internacion': 'Current Hosp. Complication',
                     'EVO_dependencia_funcional': 'Current Func. Dep.',
@@ -1020,8 +1034,11 @@ with tab_diagnostico:
                     'EVO_cambio_terapeutico_mayor': 'Current Major Ther. Change',
                     'EVO_intervencion_quirurgica': 'Current Surgical Interv.',
                     'EVO_soporte_transfusional': 'Current Transfusion Support',
+                    'EVO_terapia_endovenosa_prolongada': 'Current Prolonged IV',
+                    'EVO_inestabilidad_residual': 'Current Residual Instab.',
                     'LLM_abandono_medicacion': 'Chronic: Med. Abandonment',
-                    'LLM_historial_caidas': 'Chronic: History of Falls',
+                    'LLM_historial_caidas': 'Chronic: History of Falls', 'LLM_fragilidad_geriatrica': 'Chronic: Geriatric Frailty',
+                    'LLM_red_apoyo_deficiente': 'Social: Poor Support Net', 'LLM_barrera_comprension': 'Social: Comp. Barrier',
                     'LLM_polifarmacia': 'Chronic: Polypharmacy', 'LLM_tabaquismo_activo': 'Chronic: Active Smoking',
                     'sexo': 'Sex', 'Area': 'Admission Area', 'IN_COMPLEJIDAD': 'Complexity Level','TR_Prioridad': 'Triage Priority',
                     'cantidad_interconsultas': 'Interconsultations', 'visitas_guardia_6meses_previos': 'ER Visits (6m)',
@@ -1361,7 +1378,9 @@ with tab_estrategia:
                 'Hosp. Complication': 'EVO_complicacion_internacion',
                 'Major Ther. Change': 'EVO_cambio_terapeutico_mayor',
                 'Surgical Interv.': 'EVO_intervencion_quirurgica',
-                'Transfusion Support': 'EVO_soporte_transfusional'
+                'Transfusion Support': 'EVO_soporte_transfusional',
+                'Prolonged IV Therapy': 'EVO_terapia_endovenosa_prolongada',
+                'Residual Instability': 'EVO_inestabilidad_residual'
             }
 
             cols_evo = st.columns(4)
@@ -1979,7 +1998,7 @@ with tab_evidencia:
             traducciones_cie = {k.upper(): v for k, v in cie10_ui_dict.items()}
             return traducciones_cie.get(val_str, value)
         
-        bool_suffixes = ('_mental', '_funcional', '_dispositivos', '_reiteradas', '_hemorragico', '_internacion', '_infeccioso', '_activa', '_mayor', '_quirurgica', '_transfusional')
+        bool_suffixes = ('_mental', '_funcional', '_dispositivos', '_reiteradas', '_hemorragico', '_internacion', '_infeccioso', '_activa', '_mayor', '_quirurgica', '_transfusional', '_prolongada', '_residual', '_severa')
         if key_es.startswith('LLM_') or key_es.startswith('EST_') or key_es.startswith('Riesgo_') or key_es in ('pluripatologico') or (key_es.endswith(bool_suffixes) and not key_es.startswith('DELTA_')):
             try:
                 return "Yes" if float(value) == 1.0 else "No"
