@@ -295,13 +295,38 @@ class MotorEDADinamico:
 
     def agrupar_cie10(self, serie):
         primera_letra = serie.fillna('X').astype(str).str.strip().str.upper().str[0]
-        mapeo = {
-            'A': 'Infectious', 'B': 'Infectious', 'C': 'Oncology', 'D': 'Blood/Immunity',
-            'E': 'Endocrine', 'F': 'Mental Health', 'G': 'Neurology', 'I': 'Cardiovascular',
-            'J': 'Respiratory', 'K': 'Digestive', 'M': 'Musculoskeletal', 'N': 'Genitourinary',
-            'S': 'Trauma', 'T': 'Trauma', 'Z': 'Health Service Contact'
+        
+        # Mapeo macro exhaustivo del CIE-10 (A-Z)
+        mapeo_macro = {
+            'A': 'Infectious & Parasitic', 
+            'B': 'Infectious & Parasitic', 
+            'C': 'Oncology (Malignant)', 
+            'D': 'Oncology (Benign) & Blood/Immunity', 
+            'E': 'Endocrine, Nutritional & Metabolic', 
+            'F': 'Mental Health & Behavioral', 
+            'G': 'Neurology (Nervous System)', 
+            'H': 'Sense Organs (Eye & Ear)', 
+            'I': 'Cardiovascular', 
+            'J': 'Respiratory', 
+            'K': 'Digestive', 
+            'L': 'Dermatology (Skin)', 
+            'M': 'Musculoskeletal & Connective Tissue', 
+            'N': 'Genitourinary',
+            'O': 'Pregnancy & Obstetrics', 
+            'P': 'Perinatal Conditions', 
+            'Q': 'Congenital Anomalies', 
+            'R': 'Unclassified Symptoms & Signs', 
+            'S': 'Trauma & Poisoning', 
+            'T': 'Trauma & Poisoning',
+            'U': 'Special Conditions (e.g., COVID-19)', 
+            'V': 'External Causes', 
+            'W': 'External Causes', 
+            'X': 'External Causes', 
+            'Y': 'External Causes', 
+            'Z': 'Health Service Contact'
         }
-        return primera_letra.map(mapeo).fillna('Other Pathologies')
+        
+        return primera_letra.map(mapeo_macro).fillna('Other / Invalid Codes')
 
     def plot_incidencia_acumulada(self, variable_segmentacion='EST_paso_por_uti'):
         if 'tiempo_exacto_reingreso_horas_alta' not in self.df.columns or variable_segmentacion not in self.df.columns: return None
