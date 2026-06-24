@@ -331,8 +331,14 @@ class MotorEDADinamico:
             df_plot['Grupo'] = np.select(condiciones, ['A: 0 visits', 'B: 1-2 visits', 'C: 3+ visits (Hyper-frequenters)'], default='No Data')
             titulo_var = "ER History"
         elif variable_segmentacion == 'PA_SITLABO_x':
-            df_plot['Grupo'] = df_plot[variable_segmentacion].astype(str).str.title()
-            df_plot = df_plot[~df_plot['Grupo'].isin(['Sin_Dato', 'S/D', '', 'No Data'])]
+            mapa_laboral = {
+                'J': 'Retired',
+                'B': 'Unemployed - Seeking Work',
+                'A': 'Homemaker',
+                'N': 'Unemployed - Not Seeking Work',
+                'T': 'Employed or On Leave'
+            }
+            df_plot['Grupo'] = df_plot[variable_segmentacion].astype(str).str.strip().str.upper().map(mapa_laboral).fillna('No Data')
             titulo_var = "Employment Status"
         else:
             df_plot['Grupo'] = df_plot[variable_segmentacion].astype(str)
@@ -357,25 +363,6 @@ class MotorEDADinamico:
         fig.update_xaxes(range=[-5, 380])
         fig.update_layout(yaxis_title="Cumulative Proportion of Readmitted Patients", plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
         
-        return fig
-
-    def plot_motivo_ingreso(self):
-        if 'CIE10_Agrupado' not in self.df.columns: return None
-            
-        df_plot = self.df[~self.df['CIE10_Agrupado'].isin(['Other Pathologies', 'Health Service Contact'])].copy()
-        matriz = pd.crosstab(df_plot['CIE10_Agrupado'], df_plot['Periodo_Reingreso'], normalize='columns') * 100
-        matriz = matriz.fillna(0)
-        
-        col_prematuro = [c for c in matriz.columns if 'Premature' in c]
-        if col_prematuro: matriz = matriz.sort_values(by=col_prematuro[0], ascending=False)
-            
-        fig = px.imshow(
-            matriz, text_auto=".1f", aspect="auto", color_continuous_scale="Reds",
-            title="Clinical Signature: ICD-10 Distribution by Period (%)",
-            labels=dict(x="Readmission Period", y="ICD-10 Chapter", color="% of Patients")
-        )
-        fig.update_xaxes(categoryorder='category ascending')
-        fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
         return fig
 
     def plot_perfil_clinico(self, modo='absolute'):
@@ -459,8 +446,21 @@ class MotorEDADinamico:
     def plot_contexto_social(self, modo='absolute'):
         if 'PA_SITLABO_x' not in self.df.columns: return None
             
-        df_plot = self.df[~self.df['PA_SITLABO_x'].astype(str).isin(['SIN_DATO', 'S/D', '', 'nan'])].copy()
-        df_plot['PA_SITLABO_x'] = df_plot['PA_SITLABO_x'].str.title()
+        df_plot = self.df.copy()
+        
+        mapa_laboral = {
+            'J': 'Retired',
+            'B': 'Unemployed - Seeking Work',
+            'A': 'Homemaker',
+            'N': 'Unemployed - Not Seeking Work',
+            'T': 'Employed or On Leave'
+        }
+        
+        # Mapeamos a los nombres en inglés y asignamos 'No Data' a lo que no coincida
+        df_plot['PA_SITLABO_x'] = df_plot['PA_SITLABO_x'].astype(str).str.strip().str.upper().map(mapa_laboral).fillna('No Data')
+        
+        # Filtramos los registros que quedaron sin dato válido
+        df_plot = df_plot[df_plot['PA_SITLABO_x'] != 'No Data']
         
         if modo == 'relative':
             fig = px.histogram(
