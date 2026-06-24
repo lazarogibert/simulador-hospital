@@ -1971,8 +1971,8 @@ with tab_estrategia:
 
 
 # ==========================================
-    # --- 8 TAB EVIDENCIA ---
-    # ==========================================
+# --- 8 TAB EVIDENCIA ---
+# ==========================================
 
 with tab_evidencia:
     st.markdown("#### Clinical Similarity Network & Cohort Audit")
@@ -2193,8 +2193,8 @@ with tab_evidencia:
     plt.close('all') 
     
     try:
-        with st.spinner("Calculating topological metrics..."):
-            knn, matriz_extended, nombres_columnas, X_train_limpio, umap_embeddings, mask_limpia = load_similarity_assets()
+        with st.spinner("Calculating topological metrics & dynamic geometry..."):
+            knn_global, matriz_extended, nombres_columnas, X_train_limpio, umap_embeddings, mask_limpia = load_similarity_assets()
             
             prep = pipeline.named_steps['preprocesador']
             X_paciente_proc = prep.transform(df_paciente)
@@ -2203,13 +2203,72 @@ with tab_evidencia:
             # --- CORTAR LAS VARIABLES DE RUIDO DEL PACIENTE ACTUAL ---
             X_paciente_limpio = X_paciente_dense[:, mask_limpia]
             
-            distancias, indices = knn.kneighbors(X_paciente_limpio)
+            # --- ESTRATEGIA 3: SELECCIÓN DINÁMICA DE VARIABLES (FILTRO DE ACTIVACIÓN) ---
+            nombres_expandidos = list(prep.get_feature_names_out())
+            columnas_limpias = [col for col, is_clean in zip(nombres_expandidos, mask_limpia) if is_clean]
+            
+            def humanize_col(col):
+                clean_col = col.replace('num__', '').replace('cat__', '')
+                if '_' in clean_col and not any(clean_col.startswith(p) for p in ['LLM_', 'EVO_', 'ING_', 'DELTA_', 'EST_', 'TR_', 'HIST_', 'PA_', 'Riesgo_']):
+                    parts = clean_col.split('_', 1)
+                    base = TRANSLATION_DICT.get(parts[0], parts[0])
+                    return f"{base}: {parts[1]}" if len(parts)>1 else base
+                return TRANSLATION_DICT.get(clean_col, clean_col.replace('_', ' ').title())
+
+            opciones_multiselect = {humanize_col(col): col for col in columnas_limpias}
+            
+            # Detectar exclusivamente las variables "Activas" del paciente para sugerirlas
+            default_cols = []
+            claves_prioridad = ['dias_internados', 'TR_Prioridad', 'rango_edad', 'EST_paso_por_uti', 'pluripatologico', 'DELTA_gravedad_percibida', 'cantidad_interconsultas', 'CIE10_MACRO', 'perfil_clinico']
+            
+            for idx_col, col_name in enumerate(columnas_limpias):
+                valor_paciente = X_paciente_limpio[0, idx_col]
+                
+                # Identificamos las que son de naturaleza continua (siempre pasan)
+                es_continua = any(p in col_name for p in ['dias_internados', 'cantidad_interconsultas', 'DELTA_', 'dolor_eva'])
+                
+                # Filtro Clínico: ¿Está la variable activa en el fenotipo actual?
+                es_activa = es_continua or (valor_paciente > 0)
+                
+                if es_activa:
+                    if any(k in col_name for k in claves_prioridad):
+                        if col_name not in default_cols:
+                            default_cols.append(col_name)
+                            
+            # Limitamos a las 6 más descriptivas para no saturar el selector
+            default_cols = default_cols[:6]
+            
+            default_selections = [humanize_col(c) for c in default_cols if humanize_col(c) in opciones_multiselect]
+            if not default_selections:
+                default_selections = list(opciones_multiselect.keys())[:5]
+
+            st.info("🔬 **Active Similarity Variables:** The system pre-selected the active clinical features driving this patient's specific risk profile. Modify them below to adjust the neighborhood calculation.")
+            selected_human_names = st.multiselect(
+                "Select variables for KNN similarity (Dynamic Subspace):",
+                options=list(opciones_multiselect.keys()),
+                default=default_selections
+            )
+            
+            if not selected_human_names:
+                st.warning("Please select at least one variable to calculate similarity.")
+                st.stop()
+                
+            selected_cols = [opciones_multiselect[name] for name in selected_human_names]
+            selected_indices = [columnas_limpias.index(col) for col in selected_cols]
+            
+            # --- KNN LOCAL (Sub-espacio dimensional) ---
+            X_train_dinamico = X_train_limpio[:, selected_indices]
+            X_paciente_dinamico = X_paciente_limpio[:, selected_indices]
+            
+            knn_dinamico = NearestNeighbors(n_neighbors=100, metric='cosine')
+            knn_dinamico.fit(X_train_dinamico)
+            
+            distancias, indices = knn_dinamico.kneighbors(X_paciente_dinamico)
             vecinos_idx_pool = indices[0]
             similitudes_brutas_pool = np.maximum(0, (1 - distancias[0])) * 100
             
             col_slider, col_empty = st.columns([2, 1])
             with col_slider:
-                st.info("Adjust the similarity threshold to expand or restrict the clinical neighborhood.")
                 umbral_similitud = st.slider(
                     "Minimum Similarity Threshold (%)", 
                     min_value=50, max_value=99, value=70, step=1,
@@ -2223,7 +2282,7 @@ with tab_evidencia:
             similitudes_brutas = similitudes_brutas_pool[mask_umbral]
             
             if len(vecinos_idx) == 0:
-                st.warning(f"No historical admissions found with a similarity match equal to or greater than {umbral_similitud}%. Please lower the threshold.")
+                st.warning(f"No historical admissions found with a similarity match equal to or greater than {umbral_similitud}%. Please lower the threshold or adjust variables.")
             else:
                 col_idx = {col: i for i, col in enumerate(nombres_columnas)}
                 
@@ -2299,9 +2358,14 @@ with tab_evidencia:
                     info_inspeccion[label_grafo] = datos_gemelo
         
                 if len(vecinos_idx) > 1:
-                    X_gemelos = X_train_limpio[vecinos_idx]
+                    # CORRECCIÓN DE SEGURIDAD 1: Indexación directa para evitar IndexError
+                    X_gemelos = X_train_dinamico[vecinos_idx]
+                    
+                    # CORRECCIÓN DE SEGURIDAD 2: Percentil sobre pares distintos, excluyendo diagonal
                     dist_gemelos = pairwise_distances(X_gemelos, metric='cosine')
-                    umbral_conexion = np.percentile(dist_gemelos, 30) 
+                    dist_triu = dist_gemelos[np.triu_indices_from(dist_gemelos, k=1)]
+                    umbral_conexion = np.percentile(dist_triu, 30) if len(dist_triu) > 0 else 0
+                    
                     for i in range(len(vecinos_idx)):
                         for j in range(i + 1, len(vecinos_idx)):
                             if dist_gemelos[i, j] < umbral_conexion:
@@ -2343,105 +2407,113 @@ with tab_evidencia:
                         """)
                 
                 with col_panel:
-                    sub_tab_global, sub_tab_inspector = st.tabs(["🧬 Cohort Profile", "🔍 Case Inspector"])
+                    sub_tab_global, sub_tab_inspector = st.tabs(["📊 Gap Analysis", "🔍 Case Inspector"])
                     
                     with sub_tab_global:
-                        st.markdown(f"### Similar Admissions Found (n={len(vecinos_idx)})")
+                        st.markdown(f"### Gap Analysis: Current Patient vs. Neighborhood (n={len(vecinos_idx)})")
+                        
                         tasa_reingreso = (sum(cohort_outcomes) / len(cohort_outcomes)) * 100 if cohort_outcomes else 0.0
-                        st.metric("Historical Readmission Rate", f"{tasa_reingreso:.1f}%")
+                        st.metric("Historical Readmission Rate of this Cohort", f"{tasa_reingreso:.1f}%")
                         st.progress(tasa_reingreso / 100)
                         
+                        # --- EXTRACCIÓN DE DATOS DEL PACIENTE ACTUAL ---
+                        p_age = format_clinical_value('rango_edad', df_paciente.get('rango_edad', pd.Series(['Unknown'])).iloc[0])
+                        p_sex = format_clinical_value('sexo', df_paciente.get('sexo', pd.Series(['Unknown'])).iloc[0])
+                        p_pluri = format_clinical_value('pluripatologico', df_paciente.get('pluripatologico', pd.Series(['0'])).iloc[0])
+                        p_diag = format_clinical_value('CIE10_MACRO', df_paciente.get('CIE10_MACRO', pd.Series(['Unknown'])).iloc[0])
+                        p_los = safe_int(df_paciente.get('dias_internados', pd.Series([0])).iloc[0])
+                        p_icu = format_clinical_value('EST_paso_por_uti', df_paciente.get('EST_paso_por_uti', pd.Series(['0'])).iloc[0])
+                        p_cons = safe_int(df_paciente.get('cantidad_interconsultas', pd.Series([0])).iloc[0])
+                        p_amb = format_clinical_value('EST_ingreso_ambulancia', df_paciente.get('EST_ingreso_ambulancia', pd.Series(['0'])).iloc[0])
+                        
+                        st.markdown("#### 👤 Demographics & Profile Gap")
                         hombres = sum(1 for s in cohort_sex if str(s).strip().upper() == 'MASCULINO')
                         pct_hombres = (hombres / len(cohort_sex)) * 100 if cohort_sex else 0.0
                         pct_mujeres = 100 - pct_hombres if cohort_sex else 0.0
                         
-                        st.markdown("---")
-                        st.markdown(f"**Demographics:**\n- **Gender:** {pct_hombres:.0f}% Male / {pct_mujeres:.0f}% Female")
-                        
-                        st.markdown("**Age Distribution:**")
-                        if cohort_ages:
+                        c_dem_1, c_dem_2 = st.columns(2)
+                        with c_dem_1:
+                            st.markdown("**Current Patient**")
+                            st.markdown(f"- **Gender:** {p_sex}")
+                            st.markdown(f"- **Age:** {p_age}")
+                            st.markdown(f"- **Multimorbidity:** {p_pluri}")
+                            st.markdown(f"- **Diagnosis:** {p_diag}")
+                        with c_dem_2:
+                            st.markdown("**Cohort Majority**")
+                            st.markdown(f"- **Gender:** {'Male' if pct_hombres > 50 else 'Female'} ({max(pct_hombres, pct_mujeres):.0f}%)")
+                            
                             edades_traducidas = [format_clinical_value('rango_edad', e) for e in cohort_ages]
-                            distribucion_edades = pd.Series(edades_traducidas).value_counts(normalize=True) * 100
-                            for edad, pct in distribucion_edades.head(3).items():
-                                st.markdown(f"- {edad}: {pct:.1f}%")
-                        else:
-                            st.markdown("- Unknown")
-                        
-                        pluri_count = sum(1 for p in cohort_multimorbidity if str(p).strip().upper() in ['1', '1.0', 'TRUE'])
-                        pct_pluri = (pluri_count / len(cohort_multimorbidity)) * 100 if cohort_multimorbidity else 0.0
-                        st.markdown(f"**Multimorbidity Present:** {pct_pluri:.0f}%")
-                        
-                        st.markdown("---")
-                        st.markdown("**Top 3 Primary Diagnoses:**")
-                        diagnosticos_traducidos = [format_clinical_value('CIE10_MACRO', d) for d in cohort_diagnoses]
-                        top_diags = pd.Series(diagnosticos_traducidos).value_counts().head(3)
-                        for diag, count in top_diags.items():
-                            pct_diag = (count / len(cohort_diagnoses)) * 100
-                            st.markdown(f"- {diag} ({pct_diag:.1f}%)")
+                            top_edad = pd.Series(edades_traducidas).mode()[0] if cohort_ages else "Unknown"
+                            pct_edad = (edades_traducidas.count(top_edad) / len(cohort_ages)) * 100 if cohort_ages else 0
+                            st.markdown(f"- **Age:** {top_edad} ({pct_edad:.0f}%)")
+                            
+                            pluri_count = sum(1 for p in cohort_multimorbidity if str(p).strip().upper() in ['1', '1.0', 'TRUE', 'YES'])
+                            pct_pluri = (pluri_count / len(cohort_multimorbidity)) * 100 if cohort_multimorbidity else 0.0
+                            st.markdown(f"- **Multimorbidity Present:** {pct_pluri:.0f}%")
+                            
+                            diagnosticos_traducidos = [format_clinical_value('CIE10_MACRO', d) for d in cohort_diagnoses]
+                            top_diag = pd.Series(diagnosticos_traducidos).mode()[0] if cohort_diagnoses else "Unknown"
+                            pct_diag = (diagnosticos_traducidos.count(top_diag) / len(cohort_diagnoses)) * 100 if cohort_diagnoses else 0
+                            st.markdown(f"- **Diagnosis:** {top_diag} ({pct_diag:.0f}%)")
 
-                        st.markdown("---")
-                        st.markdown("#### 🏥 Hospital Burden & Acuity")
-                        
+                        st.markdown("#### 🏥 Hospital Burden & Acuity Gap")
                         c1, c2, c3 = st.columns(3)
                         
                         median_los = pd.to_numeric(pd.Series(cohort_los), errors='coerce').median()
                         if pd.isna(median_los): median_los = 0.0
-                        c1.metric("Median Length of Stay", f"{median_los:.1f} days")
+                        delta_los = p_los - median_los
+                        c1.metric("Length of Stay", f"{p_los} days", delta=f"{delta_los:+.1f} vs Cohort ({median_los:.1f})", delta_color="inverse")
                         
                         icu_count = sum(1 for x in cohort_icu if str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'])
                         pct_icu = (icu_count / len(cohort_icu)) * 100 if cohort_icu else 0.0
-                        c2.metric("ICU Stay Rate", f"{pct_icu:.1f}%")
+                        c2.metric("ICU Stay", f"{p_icu}", delta=f"Cohort Rate: {pct_icu:.1f}%", delta_color="off")
                         
                         avg_cons = pd.to_numeric(pd.Series(cohort_consults), errors='coerce').mean()
                         if pd.isna(avg_cons): avg_cons = 0.0
-                        c3.metric("Avg. Interconsultations", f"{avg_cons:.1f}")
+                        delta_cons = p_cons - avg_cons
+                        c3.metric("Interconsultations", f"{p_cons}", delta=f"{delta_cons:+.1f} vs Cohort ({avg_cons:.1f})", delta_color="inverse")
 
                         c4, c5, c6 = st.columns(3)
                         
                         amb_count = sum(1 for x in cohort_ambulance if str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'])
                         pct_amb = (amb_count / len(cohort_ambulance)) * 100 if cohort_ambulance else 0.0
-                        c4.metric("Ambulance Arrival", f"{pct_amb:.1f}%")
+                        c4.metric("Ambulance Arrival", f"{p_amb}", delta=f"Cohort Rate: {pct_amb:.1f}%", delta_color="off")
                         
-                        cardio_count = sum(1 for x in cohort_med_cardio if str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'])
-                        pct_cardio = (cardio_count / len(cohort_med_cardio)) * 100 if cohort_med_cardio else 0.0
-                        c5.metric("High-Risk Meds (Cardio)", f"{pct_cardio:.1f}%")
+                        triage_map = {
+                            '0': '0: Non-Urgent', '0.0': '0: Non-Urgent',
+                            '1': '1: Standard', '1.0': '1: Standard',
+                            '2': '2: Urgent', '2.0': '2: Urgent',
+                            '3': '3: Emergency', '3.0': '3: Emergency'
+                        }
+                        if 'TR_Prioridad' in df_paciente.columns:
+                            p_triage_raw = str(df_paciente['TR_Prioridad'].iloc[0]).strip()
+                            p_triage = triage_map.get(p_triage_raw, 'Unknown')
+                        else:
+                            p_triage = 'Unknown'
+                            
+                        triage_traducido = [triage_map.get(str(t).strip(), "Unknown") for t in cohort_triage] if cohort_triage else []
+                        top_triage = pd.Series(triage_traducido).mode()[0] if triage_traducido else "Unknown"
+                        pct_triage = (triage_traducido.count(top_triage) / len(triage_traducido)) * 100 if triage_traducido else 0
+                        # CORRECCIÓN DE SEGURIDAD 3: Evitar truncar si es Unknown para no mostrar "Unkn"
+                        p_triage_display = p_triage if p_triage == "Unknown" else p_triage[:4]
+                        top_triage_display = top_triage if top_triage == "Unknown" else top_triage[:4]
                         
-                        neuro_count = sum(1 for x in cohort_med_neuro if str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'])
-                        pct_neuro = (neuro_count / len(cohort_med_neuro)) * 100 if cohort_med_neuro else 0.0
-                        c6.metric("High-Risk Meds (Neuro)", f"{pct_neuro:.1f}%")
-
-                        st.markdown("**Triage Priority Distribution:**")
-                        if cohort_triage:
-                            triage_map = {
-                                '0': '0: Non-Urgent', '0.0': '0: Non-Urgent',
-                                '1': '1: Standard', '1.0': '1: Standard',
-                                '2': '2: Urgent', '2.0': '2: Urgent',
-                                '3': '3: Emergency', '3.0': '3: Emergency'
-                            }
-                            
-                            triage_traducido = [triage_map.get(str(t).strip(), "Unknown") for t in cohort_triage]
-                            categorias_esperadas = ['0: Non-Urgent', '1: Standard', '2: Urgent', '3: Emergency']
-                            
-                            for cat in categorias_esperadas:
-                                pct = (triage_traducido.count(cat) / len(cohort_triage)) * 100
-                                st.markdown(f"- {cat}: {pct:.1f}%")
-                                
-                            unknown_count = triage_traducido.count("Unknown")
-                            if unknown_count > 0:
-                                pct_unk = (unknown_count / len(cohort_triage)) * 100
-                                st.markdown(f"- Unknown: {pct_unk:.1f}%")
+                        c5.metric("Triage Priority", f"{p_triage_display}", delta=f"Cohort Mode: {top_triage_display} ({pct_triage:.0f}%)", delta_color="off")
+                        
+                        if 'perfil_clinico_ingreso' in df_paciente.columns:
+                            p_perfil = format_clinical_value('perfil_clinico_ingreso', df_paciente['perfil_clinico_ingreso'].iloc[0])
                         else:
-                            st.markdown("- Unknown")
-
-                        st.markdown("**Admission Profile Distribution:**")
-                        if cohort_perfil:
-                            perfil_traducido = [format_clinical_value('perfil_clinico_ingreso', p) for p in cohort_perfil]
-                            dist_perfil = pd.Series(perfil_traducido).value_counts(normalize=True) * 100
-                            for perf, pct in dist_perfil.items():
-                                if str(perf).strip() not in ["N/A", "-1", "UNKNOWN"]:
-                                    st.markdown(f"- {perf}: {pct:.1f}%")
-                        else:
-                            st.markdown("- Unknown")
+                            p_perfil = "Unknown"
+                            
+                        perfil_traducido = [format_clinical_value('perfil_clinico_ingreso', p) for p in cohort_perfil] if cohort_perfil else []
+                        perfiles_validos = [p for p in perfil_traducido if str(p).strip() not in ["N/A", "-1", "UNKNOWN", "Unknown"]]
+                        top_perfil = pd.Series(perfiles_validos).mode()[0] if perfiles_validos else "Unknown"
+                        pct_perfil = (perfiles_validos.count(top_perfil) / len(perfiles_validos)) * 100 if perfiles_validos else 0
+                        
+                        p_perfil_short = p_perfil.split(' ')[0] if p_perfil != "Unknown" else "Unknown"
+                        top_perfil_short = top_perfil.split(' ')[0] if top_perfil != "Unknown" else "Unknown"
+                        
+                        c6.metric("Admission Profile", f"{p_perfil_short}", delta=f"Mode: {top_perfil_short} ({pct_perfil:.0f}%)", delta_color="off")
 
                     with sub_tab_inspector:
                         lista_nodos = list(info_inspeccion.keys())
