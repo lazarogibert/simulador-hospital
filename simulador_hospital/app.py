@@ -264,6 +264,12 @@ def mapear_cie10_macro(cod):
     return "Desconocido"
 
 
+import pandas as pd
+import numpy as np
+import plotly.express as px
+import plotly.graph_objects as go
+import os
+
 class MotorEDADinamico:
     def __init__(self, ruta_npy):
         self.ruta_npy = ruta_npy
@@ -305,7 +311,7 @@ class MotorEDADinamico:
         if variable_segmentacion == 'EST_paso_por_uti':
             df_plot['Grupo'] = df_plot[variable_segmentacion].astype(str).map({'1': 'ICU Stay', '1.0': 'ICU Stay', '0': 'General Ward', '0.0': 'General Ward'}).fillna('No Data')
             titulo_var = "Clinical Severity (ICU)"
-        # --- NUEVO BLOQUE: TRIAGE ---
+        # --- BLOQUE: TRIAGE ---
         elif variable_segmentacion == 'TR_Prioridad':
             mapeo_prioridad = {
                 '0': '0: Non-Urgent', '0.0': '0: Non-Urgent',
@@ -390,7 +396,6 @@ class MotorEDADinamico:
         fig.update_layout(xaxis={'categoryorder':'category ascending'}, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
         return fig
 
-    # Modificada para aceptar segmentación dinámica
     def plot_gravedad_hospitalaria(self, variable_segmentacion='EST_paso_por_uti'):
         if 'dias_internados' not in self.df.columns or variable_segmentacion not in self.df.columns: return None
             
@@ -411,28 +416,24 @@ class MotorEDADinamico:
 
         df_plot = self.df[self.df['Severity_Label'] != 'No Data'].copy()
         
-        # 1. Agrupación matemática avanzada (Mediana + Cuartiles)
         df_grouped = df_plot.groupby(['Periodo_Reingreso', 'Severity_Label'])['dias_internados'].agg(
             Mediana='median',
             Q25=lambda x: x.quantile(0.25),
             Q75=lambda x: x.quantile(0.75)
         ).reset_index()
 
-        # Redondeo para limpieza visual
         df_grouped['Mediana'] = df_grouped['Mediana'].round(1)
         df_grouped['Q25'] = df_grouped['Q25'].round(1)
         df_grouped['Q75'] = df_grouped['Q75'].round(1)
 
-        # 2. Generación del gráfico base
         fig = px.bar(
             df_grouped, x="Periodo_Reingreso", y="Mediana", color="Severity_Label", barmode="group",
-            text="Mediana", # Mantiene el número centrado en la barra
-            custom_data=["Q25", "Q75"], # Inyecta los cuartiles en el backend de la figura
+            text="Mediana", 
+            custom_data=["Q25", "Q75"], 
             title=f"Hospital Attrition: Median Length of Stay by {titulo_eje}",
             labels={'Mediana': 'Length of Stay (Median Days)', 'Periodo_Reingreso': 'Period', 'Severity_Label': titulo_eje}
         )
         
-        # 3. Formateo del Tooltip Inteligente (Hover)
         fig.update_traces(
             hovertemplate="<b>%{x}</b><br>" +
                           titulo_eje + ": <b>%{series_name}</b><br>" +
@@ -456,10 +457,7 @@ class MotorEDADinamico:
             'T': 'Employed or On Leave'
         }
         
-        # Mapeamos a los nombres en inglés y asignamos 'No Data' a lo que no coincida
         df_plot['PA_SITLABO_x'] = df_plot['PA_SITLABO_x'].astype(str).str.strip().str.upper().map(mapa_laboral).fillna('No Data')
-        
-        # Filtramos los registros que quedaron sin dato válido
         df_plot = df_plot[df_plot['PA_SITLABO_x'] != 'No Data']
         
         if modo == 'relative':
@@ -511,6 +509,24 @@ class MotorEDADinamico:
         fig.update_layout(xaxis={'categoryorder':'category ascending'}, legend={'traceorder':'normal'}, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
         return fig
 
+    # --- FUNCIÓN AÑADIDA: HEATMAP CIE10 ---
+    def plot_motivo_ingreso(self):
+        if 'CIE10_Agrupado' not in self.df.columns: return None
+
+        df_heat = self.df.groupby(['Periodo_Reingreso', 'CIE10_Agrupado']).size().reset_index(name='Count')
+        df_heat = df_heat[df_heat['CIE10_Agrupado'] != 'Other Pathologies'] # Limpieza opcional de ruido
+        
+        if df_heat.empty: return None
+
+        fig = px.density_heatmap(
+            df_heat, x="Periodo_Reingreso", y="CIE10_Agrupado", z="Count", 
+            text_auto=True, color_continuous_scale="Viridis",
+            title="Clinical Signature: Readmission Volume by Pathology Group",
+            labels={'Periodo_Reingreso': 'Period', 'CIE10_Agrupado': 'Diagnostic Category (ICD-10)'}
+        )
+        fig.update_layout(xaxis={'categoryorder':'category ascending'}, yaxis={'categoryorder':'total ascending'}, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
+        return fig
+
     def analizar(self, tipo_analisis, variable_segmentacion='EST_paso_por_uti', modo='absolute'):
         opciones = {
             'curva': lambda: self.plot_incidencia_acumulada(variable_segmentacion), 
@@ -518,7 +534,7 @@ class MotorEDADinamico:
             'gravedad': lambda: self.plot_gravedad_hospitalaria(variable_segmentacion),
             'social': lambda: self.plot_contexto_social(modo),
             'historial': lambda: self.plot_historial_paciente(modo),
-            'cie10': self.plot_motivo_ingreso
+            'cie10': self.plot_motivo_ingreso # Ahora encontrará la función correctamente
         }
         if tipo_analisis.lower() in opciones: 
             return opciones[tipo_analisis.lower()]()
