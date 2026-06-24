@@ -2203,7 +2203,9 @@ with tab_evidencia:
             # --- CORTAR LAS VARIABLES DE RUIDO DEL PACIENTE ACTUAL ---
             X_paciente_limpio = X_paciente_dense[:, mask_limpia]
             
-            # --- ESTRATEGIA 3: SELECCIÓN DINÁMICA DE VARIABLES (NOMBRES ROBUSTOS) ---
+           
+
+            # --- ESTRATEGIA 3: SELECCIÓN DINÁMICA DE VARIABLES (FILTRO ESTRICTO DE ACTIVACIÓN) ---
             nombres_expandidos = list(prep.get_feature_names_out())
             columnas_limpias = [col for col, is_clean in zip(nombres_expandidos, mask_limpia) if is_clean]
             
@@ -2243,23 +2245,30 @@ with tab_evidencia:
                 else:
                     return f"📊 [Other] {clean_col.replace('_', ' ').title()}"
 
-            opciones_multiselect = {humanize_col(col): col for col in columnas_limpias}
-            
-            # Identificar variables activas para evitar valores sugeridos en 0
+            # --- NUEVO: FILTRO ESTRICTO DE OPCIONES DISPONIBLES ---
+            opciones_multiselect = {}
             default_cols = []
             claves_prioridad = ['dias_internados', 'TR_Prioridad', 'rango_edad', 'EST_paso_por_uti', 'pluripatologico', 'DELTA_gravedad_percibida', 'cantidad_interconsultas', 'CIE10_MACRO', 'perfil_clinico']
             
             for idx_col, col_name in enumerate(columnas_limpias):
                 valor_paciente = X_paciente_limpio[0, idx_col]
-                es_continua = any(p in col_name for p in ['dias_internados', 'cantidad_interconsultas', 'DELTA_', 'dolor_eva'])
-                es_activa = es_continua or (valor_paciente > 0)
                 
-                if es_activa:
+                # Identificamos si es continua
+                es_continua = any(p in col_name for p in ['dias_internados', 'cantidad_interconsultas', 'DELTA_', 'dolor_eva'])
+                
+                # REGLA ESTRICTA: Solo guardamos la opción si el paciente la tiene activa (o si es continua)
+                if es_continua or valor_paciente > 0:
+                    nombre_humano = humanize_col(col_name)
+                    opciones_multiselect[nombre_humano] = col_name
+                    
+                    # Además, si es de prioridad, la guardamos para las sugerencias por defecto
                     if any(k in col_name for k in claves_prioridad):
                         if col_name not in default_cols:
                             default_cols.append(col_name)
-                            
+
+            # Limitamos a las 6 más descriptivas para no saturar el selector inicial
             default_cols = default_cols[:6]
+            
             default_selections = [humanize_col(c) for c in default_cols if humanize_col(c) in opciones_multiselect]
             if not default_selections:
                 default_selections = list(opciones_multiselect.keys())[:5]
@@ -2267,9 +2276,11 @@ with tab_evidencia:
             st.info("🔬 **Active Similarity Variables:** The system pre-selected the active clinical features driving this patient's specific risk profile. Modify them below to adjust the neighborhood calculation.")
             selected_human_names = st.multiselect(
                 "Select variables for KNN similarity (Dynamic Subspace):",
-                options=list(opciones_multiselect.keys()),
+                options=list(opciones_multiselect.keys()),  # AHORA LA LISTA ESTÁ LIMPIA DE OPCIONES INÚTILES
                 default=default_selections
             )
+
+
             
             if not selected_human_names:
                 st.warning("Please select at least one variable to calculate similarity.")
