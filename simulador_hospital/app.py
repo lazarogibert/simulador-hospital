@@ -509,24 +509,24 @@ class MotorEDADinamico:
         fig.update_layout(xaxis={'categoryorder':'category ascending'}, legend={'traceorder':'normal'}, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
         return fig
 
-    # --- FUNCIÓN AÑADIDA: HEATMAP CIE10 ---
     def plot_motivo_ingreso(self):
         if 'CIE10_Agrupado' not in self.df.columns: return None
-
-        df_heat = self.df.groupby(['Periodo_Reingreso', 'CIE10_Agrupado']).size().reset_index(name='Count')
-        df_heat = df_heat[df_heat['CIE10_Agrupado'] != 'Other Pathologies'] # Limpieza opcional de ruido
+            
+        df_plot = self.df[~self.df['CIE10_Agrupado'].isin(['Other Pathologies', 'Health Service Contact'])].copy()
+        matriz = pd.crosstab(df_plot['CIE10_Agrupado'], df_plot['Periodo_Reingreso'], normalize='columns') * 100
+        matriz = matriz.fillna(0)
         
-        if df_heat.empty: return None
-
-        fig = px.density_heatmap(
-            df_heat, x="Periodo_Reingreso", y="CIE10_Agrupado", z="Count", 
-            text_auto=True, color_continuous_scale="Viridis",
-            title="Clinical Signature: Readmission Volume by Pathology Group",
-            labels={'Periodo_Reingreso': 'Period', 'CIE10_Agrupado': 'Diagnostic Category (ICD-10)'}
+        col_prematuro = [c for c in matriz.columns if 'Premature' in c]
+        if col_prematuro: matriz = matriz.sort_values(by=col_prematuro[0], ascending=False)
+            
+        fig = px.imshow(
+            matriz, text_auto=".1f", aspect="auto", color_continuous_scale="Reds",
+            title="Clinical Signature: ICD-10 Distribution by Period (%)",
+            labels=dict(x="Readmission Period", y="ICD-10 Chapter", color="% of Patients")
         )
-        fig.update_layout(xaxis={'categoryorder':'category ascending'}, yaxis={'categoryorder':'total ascending'}, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
+        fig.update_xaxes(categoryorder='category ascending')
+        fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
         return fig
-
     def analizar(self, tipo_analisis, variable_segmentacion='EST_paso_por_uti', modo='absolute'):
         opciones = {
             'curva': lambda: self.plot_incidencia_acumulada(variable_segmentacion), 
