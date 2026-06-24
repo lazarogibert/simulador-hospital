@@ -2203,31 +2203,55 @@ with tab_evidencia:
             # --- CORTAR LAS VARIABLES DE RUIDO DEL PACIENTE ACTUAL ---
             X_paciente_limpio = X_paciente_dense[:, mask_limpia]
             
-            # --- ESTRATEGIA 3: SELECCIÓN DINÁMICA DE VARIABLES (FILTRO DE ACTIVACIÓN) ---
+            # --- ESTRATEGIA 3: SELECCIÓN DINÁMICA DE VARIABLES (NOMBRES ROBUSTOS) ---
             nombres_expandidos = list(prep.get_feature_names_out())
             columnas_limpias = [col for col, is_clean in zip(nombres_expandidos, mask_limpia) if is_clean]
             
+            def get_category_tag(base):
+                if base in ['rango_edad', 'sexo']: return '👤 [Demographics]'
+                if base.startswith('LLM_'): return '🧠 [NLP Phenotype]'
+                if base.startswith('ING_') or base in ['TR_Prioridad', 'Area', 'EST_ingreso_ambulancia', 'perfil_clinico_ingreso', 'IN_COMPLEJIDAD']: return '🚨 [Admission & Triage]'
+                if base.startswith('EVO_') or base in ['dias_internados', 'EST_paso_por_uti', 'cantidad_interconsultas']: return '🏥 [Evolution & Burden]'
+                if base.startswith('DELTA_'): return '📉 [Clinical Deltas]'
+                if base in ['CIE10_MACRO', 'pluripatologico', 'HIST_condicion_ultimo_egreso', 'visitas_guardia_6meses_previos']: return '🩺 [Clinical History]'
+                if base.startswith('Riesgo_'): return '💊 [Medication Risk]'
+                return '📊 [Other]'
+
             def humanize_col(col):
                 clean_col = col.replace('num__', '').replace('cat__', '')
-                if '_' in clean_col and not any(clean_col.startswith(p) for p in ['LLM_', 'EVO_', 'ING_', 'DELTA_', 'EST_', 'TR_', 'HIST_', 'PA_', 'Riesgo_']):
-                    parts = clean_col.split('_', 1)
-                    base = TRANSLATION_DICT.get(parts[0], parts[0])
-                    return f"{base}: {parts[1]}" if len(parts)>1 else base
-                return TRANSLATION_DICT.get(clean_col, clean_col.replace('_', ' ').title())
+                matched_base = None
+                
+                # Sort descending length to catch full base variables before substrings
+                for base in sorted(TRANSLATION_DICT.keys(), key=len, reverse=True):
+                    if clean_col.startswith(base):
+                        matched_base = base
+                        break
+                        
+                if matched_base:
+                    base_en = TRANSLATION_DICT[matched_base]
+                    tag = get_category_tag(matched_base)
+                    suffix = clean_col[len(matched_base):].strip('_')
+                    
+                    if suffix: # Manejo de One-Hot Encoded (ej. rango_edad_ADULTO MAYOR)
+                        translated_val = format_clinical_value(matched_base, suffix)
+                        # Si format_clinical_value no lo tradujo, lo formateamos limpio
+                        if translated_val.upper() == suffix.upper():
+                            translated_val = suffix.replace('_', ' ').title()
+                        return f"{tag} {base_en}: {translated_val}"
+                    else:
+                        return f"{tag} {base_en}"
+                else:
+                    return f"📊 [Other] {clean_col.replace('_', ' ').title()}"
 
             opciones_multiselect = {humanize_col(col): col for col in columnas_limpias}
             
-            # Detectar exclusivamente las variables "Activas" del paciente para sugerirlas
+            # Identificar variables activas para evitar valores sugeridos en 0
             default_cols = []
             claves_prioridad = ['dias_internados', 'TR_Prioridad', 'rango_edad', 'EST_paso_por_uti', 'pluripatologico', 'DELTA_gravedad_percibida', 'cantidad_interconsultas', 'CIE10_MACRO', 'perfil_clinico']
             
             for idx_col, col_name in enumerate(columnas_limpias):
                 valor_paciente = X_paciente_limpio[0, idx_col]
-                
-                # Identificamos las que son de naturaleza continua (siempre pasan)
                 es_continua = any(p in col_name for p in ['dias_internados', 'cantidad_interconsultas', 'DELTA_', 'dolor_eva'])
-                
-                # Filtro Clínico: ¿Está la variable activa en el fenotipo actual?
                 es_activa = es_continua or (valor_paciente > 0)
                 
                 if es_activa:
@@ -2235,9 +2259,7 @@ with tab_evidencia:
                         if col_name not in default_cols:
                             default_cols.append(col_name)
                             
-            # Limitamos a las 6 más descriptivas para no saturar el selector
             default_cols = default_cols[:6]
-            
             default_selections = [humanize_col(c) for c in default_cols if humanize_col(c) in opciones_multiselect]
             if not default_selections:
                 default_selections = list(opciones_multiselect.keys())[:5]
@@ -2358,10 +2380,7 @@ with tab_evidencia:
                     info_inspeccion[label_grafo] = datos_gemelo
         
                 if len(vecinos_idx) > 1:
-                    # CORRECCIÓN DE SEGURIDAD 1: Indexación directa para evitar IndexError
                     X_gemelos = X_train_dinamico[vecinos_idx]
-                    
-                    # CORRECCIÓN DE SEGURIDAD 2: Percentil sobre pares distintos, excluyendo diagonal
                     dist_gemelos = pairwise_distances(X_gemelos, metric='cosine')
                     dist_triu = dist_gemelos[np.triu_indices_from(dist_gemelos, k=1)]
                     umbral_conexion = np.percentile(dist_triu, 30) if len(dist_triu) > 0 else 0
@@ -2494,7 +2513,7 @@ with tab_evidencia:
                         triage_traducido = [triage_map.get(str(t).strip(), "Unknown") for t in cohort_triage] if cohort_triage else []
                         top_triage = pd.Series(triage_traducido).mode()[0] if triage_traducido else "Unknown"
                         pct_triage = (triage_traducido.count(top_triage) / len(triage_traducido)) * 100 if triage_traducido else 0
-                        # CORRECCIÓN DE SEGURIDAD 3: Evitar truncar si es Unknown para no mostrar "Unkn"
+                        
                         p_triage_display = p_triage if p_triage == "Unknown" else p_triage[:4]
                         top_triage_display = top_triage if top_triage == "Unknown" else top_triage[:4]
                         
