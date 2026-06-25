@@ -534,6 +534,20 @@ class MotorEDADinamico:
                 color_discrete_sequence=['#2ecc71', '#f1c40f', '#e74c3c'] 
             )
             fig.update_layout(yaxis_title="% of Patients in Period")
+
+        elif modo == 'relative_invertido':
+            # Ejes invertidos: X = Categoría de Visitas, Color/Stack = Periodo de Reingreso
+            fig = px.histogram(
+                df_plot, x="Categoria_Visitas", color="Periodo_Reingreso", barmode="stack", barnorm="percent", text_auto=".1f",
+                title="Readmission Period Composition by ER History (%) — Inverted View",
+                labels={'Categoria_Visitas': 'Prior Visits (6 Months)', 'Periodo_Reingreso': 'Period'}
+            )
+            fig.update_layout(
+                yaxis_title="% of Patients within ER History Category",
+                xaxis_title="Prior Visits (6 Months)",
+                legend_title_text='Readmission Period'
+            )
+
         else:
             fig = px.histogram(
                 df_plot, x="Periodo_Reingreso", color="Categoria_Visitas", barmode="group", text_auto=True,
@@ -3063,11 +3077,11 @@ with tab_eda:
             }
             filtro_seleccionado = mapa_filtros_gravedad[filtro_gravedad]
             
-        elif id_grafico == "clinico":
+        elif id_grafico in ["clinico", "historial"]:
             with col_selec2:
                 sel_modo = st.radio(
                     "Display Mode:", 
-                    options=["Absolute (Volume)", "Relative (Composition %)", "Relative Inverted (% by Condition)"], 
+                    options=["Absolute (Volume)", "Relative (Composition %)", "Relative Inverted (% by Category)"], 
                     horizontal=True
                 )
             if sel_modo == "Absolute (Volume)":
@@ -3077,7 +3091,7 @@ with tab_eda:
             else:
                 modo_visual = 'relative_invertido'
 
-        elif id_grafico in ["social", "historial"]:
+        elif id_grafico == "social":
             with col_selec2:
                 sel_modo = st.radio(
                     "Display Mode:", 
