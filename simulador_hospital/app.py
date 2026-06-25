@@ -408,6 +408,20 @@ class MotorEDADinamico:
                 color_discrete_sequence=['#ef553b', '#636efa']
             )
             fig.update_layout(yaxis_title="% of Patients in Period")
+
+        elif modo == 'relative_invertido':
+            # Ejes invertidos: X = Condición de Multimorbilidad, Color/Stack = Periodo de Reingreso
+            fig = px.histogram(
+                df_plot, x="Condition", color="Periodo_Reingreso", barmode="stack", barnorm="percent", text_auto=".1f",
+                title="Multimorbidity Composition by Readmission Period (%) — Inverted View",
+                labels={'Condition': 'Multimorbidity Condition', 'Periodo_Reingreso': 'Period'}
+            )
+            fig.update_layout(
+                yaxis_title="% of Patients within Condition",
+                xaxis_title="Multimorbidity Condition",
+                legend_title_text='Readmission Period'
+            )
+
         else:
             fig = px.histogram(
                 df_plot, x="Periodo_Reingreso", color="Condition", barmode="group", text_auto=True,
@@ -3049,7 +3063,21 @@ with tab_eda:
             }
             filtro_seleccionado = mapa_filtros_gravedad[filtro_gravedad]
             
-        elif id_grafico in ["clinico", "social", "historial"]:
+        elif id_grafico == "clinico":
+            with col_selec2:
+                sel_modo = st.radio(
+                    "Display Mode:", 
+                    options=["Absolute (Volume)", "Relative (Composition %)", "Relative Inverted (% by Condition)"], 
+                    horizontal=True
+                )
+            if sel_modo == "Absolute (Volume)":
+                modo_visual = 'absolute'
+            elif sel_modo == "Relative (Composition %)":
+                modo_visual = 'relative'
+            else:
+                modo_visual = 'relative_invertido'
+
+        elif id_grafico in ["social", "historial"]:
             with col_selec2:
                 sel_modo = st.radio(
                     "Display Mode:", 
@@ -3057,16 +3085,6 @@ with tab_eda:
                     horizontal=True
                 )
                 modo_visual = 'relative' if '%' in sel_modo else 'absolute'
-                
-        st.markdown("---")
-        
-        # Generar y renderizar el gráfico seleccionado
-        with st.spinner("Generating Insights..."):
-            fig_eda = eda_engine.analizar(
-                id_grafico, 
-                variable_segmentacion=filtro_seleccionado, 
-                modo=modo_visual
-            )
             
             if fig_eda:
                 st.plotly_chart(fig_eda, use_container_width=True)
