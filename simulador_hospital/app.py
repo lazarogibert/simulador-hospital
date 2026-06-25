@@ -529,7 +529,7 @@ class MotorEDADinamico:
         if modo == 'relative':
             fig = px.histogram(
                 df_plot, x="Periodo_Reingreso", color="Categoria_Visitas", barmode="stack", barnorm="percent", text_auto=".1f",
-                title="The Revolving Door: Patient Composition by Recent ER History (%)",
+                title="Patient Composition by Recent ER History (%)",
                 labels={'Periodo_Reingreso': 'Period', 'Categoria_Visitas': 'Prior Visits (6 Months)'},
                 color_discrete_sequence=['#2ecc71', '#f1c40f', '#e74c3c'] 
             )
@@ -537,7 +537,7 @@ class MotorEDADinamico:
         else:
             fig = px.histogram(
                 df_plot, x="Periodo_Reingreso", color="Categoria_Visitas", barmode="group", text_auto=True,
-                title="The Revolving Door: Patient Volume by Recent ER History",
+                title="Patient Volume by Recent ER History",
                 labels={'Periodo_Reingreso': 'Period', 'Categoria_Visitas': 'Prior Visits (6 Months)'},
                 color_discrete_sequence=['#2ecc71', '#f1c40f', '#e74c3c'] 
             )
@@ -3004,7 +3004,7 @@ with tab_eda:
                     "Failure Velocity (Cumulative Incidence)",
                     "Clinical Profile (Multimorbidity)",
                     "Hospital Attrition (Severity)",
-                    "The Revolving Door (ER History)",
+                    "(ER History)",
                     "Clinical Signature (ICD-10 Heatmap)",
                     "Socioeconomic Context (Employment)"
                 ]
@@ -3015,7 +3015,7 @@ with tab_eda:
             "Failure Velocity (Cumulative Incidence)": "curva",
             "Clinical Profile (Multimorbidity)": "clinico",
             "Hospital Attrition (Severity)": "gravedad",
-            "The Revolving Door (ER History)": "historial",
+            "(ER History)": "historial",
             "Clinical Signature (ICD-10 Heatmap)": "cie10",
             "Socioeconomic Context (Employment)": "social"
         }
