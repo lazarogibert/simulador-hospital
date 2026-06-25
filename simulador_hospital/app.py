@@ -2482,7 +2482,7 @@ with tab_evidencia:
                         p_cons = safe_int(df_paciente.get('cantidad_interconsultas', pd.Series([0])).iloc[0])
                         p_amb = format_clinical_value('EST_ingreso_ambulancia', df_paciente.get('EST_ingreso_ambulancia', pd.Series(['0'])).iloc[0])
                         
-                        st.markdown("#### 👤 Demographics & Profile Gap")
+                        st.markdown("###### Demographics & Profile Gap")
                         hombres = sum(1 for s in cohort_sex if str(s).strip().upper() == 'MASCULINO')
                         pct_hombres = (hombres / len(cohort_sex)) * 100 if cohort_sex else 0.0
                         pct_mujeres = 100 - pct_hombres if cohort_sex else 0.0
