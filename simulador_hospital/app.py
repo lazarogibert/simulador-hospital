@@ -350,9 +350,7 @@ class MotorEDADinamico:
         elif variable_segmentacion == 'pluripatologico':
             df_plot['Grupo'] = df_plot[variable_segmentacion].astype(str).map({'1': 'Multimorbidity', '1.0': 'Multimorbidity', '0': 'Single Pathology', '0.0': 'Single Pathology'}).fillna('No Data')
             titulo_var = "Multimorbidity"
-        elif variable_segmentacion == 'SOCIO_intervencion_ts':
-            df_plot['Grupo'] = df_plot[variable_segmentacion].astype(str).map({'1': 'With SW Intervention', '1.0': 'With SW Intervention', '0': 'No Intervention', '0.0': 'No Intervention'}).fillna('No Data')
-            titulo_var = "Social Work Intervention"
+        
         elif variable_segmentacion == 'visitas_guardia_6meses_previos':
             condiciones = [
                 df_plot[variable_segmentacion] == 0,
@@ -2995,7 +2993,7 @@ with tab_eda:
                         "Triage Priority", 
                         "Multimorbidity",
                         "ER Visits (Previous 6 months)",
-                        "Social Work Intervention",
+                        
                         "Employment Status"
                     ]
                 )
@@ -3005,7 +3003,7 @@ with tab_eda:
                 "Triage Priority": "TR_Prioridad",
                 "Multimorbidity": "pluripatologico",
                 "ER Visits (Previous 6 months)": "visitas_guardia_6meses_previos",
-                "Social Work Intervention": "SOCIO_intervencion_ts",
+                
                 "Employment Status": "PA_SITLABO_x"
             }
             filtro_seleccionado = mapa_filtros[filtro_curva]
