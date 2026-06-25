@@ -3085,6 +3085,16 @@ with tab_eda:
                     horizontal=True
                 )
                 modo_visual = 'relative' if '%' in sel_modo else 'absolute'
+                
+        st.markdown("---")
+        
+        # Generar y renderizar el gráfico seleccionado
+        with st.spinner("Generating Insights..."):
+            fig_eda = eda_engine.analizar(
+                id_grafico, 
+                variable_segmentacion=filtro_seleccionado, 
+                modo=modo_visual
+            )
             
             if fig_eda:
                 st.plotly_chart(fig_eda, use_container_width=True)
