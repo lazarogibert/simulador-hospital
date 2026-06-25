@@ -2466,7 +2466,7 @@ with tab_evidencia:
                     sub_tab_global, sub_tab_inspector = st.tabs(["📊 Gap Analysis", "🔍 Case Inspector"])
                     
                     with sub_tab_global:
-                        st.markdown(f"### Gap Analysis: Current Patient vs. Neighborhood (n={len(vecinos_idx)})")
+                        st.markdown(f"##### Gap Analysis: Current Patient vs. Neighborhood (n={len(vecinos_idx)})")
                         
                         tasa_reingreso = (sum(cohort_outcomes) / len(cohort_outcomes)) * 100 if cohort_outcomes else 0.0
                         st.metric("Historical Readmission Rate of this Cohort", f"{tasa_reingreso:.1f}%")
@@ -2482,7 +2482,7 @@ with tab_evidencia:
                         p_cons = safe_int(df_paciente.get('cantidad_interconsultas', pd.Series([0])).iloc[0])
                         p_amb = format_clinical_value('EST_ingreso_ambulancia', df_paciente.get('EST_ingreso_ambulancia', pd.Series(['0'])).iloc[0])
                         
-                        st.markdown("###### Demographics & Profile Gap")
+                        st.markdown("##### Demographics & Profile Gap")
                         hombres = sum(1 for s in cohort_sex if str(s).strip().upper() == 'MASCULINO')
                         pct_hombres = (hombres / len(cohort_sex)) * 100 if cohort_sex else 0.0
                         pct_mujeres = 100 - pct_hombres if cohort_sex else 0.0
@@ -2512,7 +2512,7 @@ with tab_evidencia:
                             pct_diag = (diagnosticos_traducidos.count(top_diag) / len(cohort_diagnoses)) * 100 if cohort_diagnoses else 0
                             st.markdown(f"- **Diagnosis:** {top_diag} ({pct_diag:.0f}%)")
 
-                        st.markdown("#### 🏥 Hospital Burden & Acuity Gap")
+                        st.markdown("##### Hospital Burden & Acuity Gap")
                         c1, c2, c3 = st.columns(3)
                         
                         median_los = pd.to_numeric(pd.Series(cohort_los), errors='coerce').median()
