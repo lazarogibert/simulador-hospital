@@ -2614,7 +2614,7 @@ with tab_evidencia:
                                     </div>
                                     """, unsafe_allow_html=True)
                                 
-                                st.markdown("#### 📋 Shared Clinical Profile")
+                                st.markdown("#####  Shared Clinical Profile")
                                 with st.container(height=280):
                                     for nombre_var_es, valor_var in data["datos_comunes"].items():
                                         nombre_en = TRANSLATION_DICT.get(nombre_var_es, nombre_var_es.replace('_', ' ').title())
@@ -2625,7 +2625,7 @@ with tab_evidencia:
                                 diagsec_en = traducir_ninguno(data['diagsec'])
                                 farmacos_raw = data['farmacos']
                                 
-                                st.markdown("#### 🏥 Retrospective Details")
+                                st.markdown("#####  Retrospective Details")
                                 st.markdown(f"**Secondary Diagnoses:**\n{diagsec_en}")
                                 st.markdown(f"**Medications:**")
                                 
