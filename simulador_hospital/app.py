@@ -2467,7 +2467,19 @@ with tab_evidencia:
                     
                     with sub_tab_global:
                         st.markdown(f"##### Gap Analysis: Current Patient vs. Neighborhood (n={len(vecinos_idx)})")
-                        
+                        st.markdown("""
+                                    <style>
+                                    div[data-testid="stMetricValue"] {
+                                        font-size: 18px;
+                                    }
+                                    div[data-testid="stMetricLabel"] {
+                                        font-size: 12px;
+                                    }
+                                    div[data-testid="stMetricDelta"] {
+                                        font-size: 12px;
+                                    }
+                                    </style>
+                                """, unsafe_allow_html=True)
                         tasa_reingreso = (sum(cohort_outcomes) / len(cohort_outcomes)) * 100 if cohort_outcomes else 0.0
                         st.metric("Historical Readmission Rate of this Cohort", f"{tasa_reingreso:.1f}%")
                         st.progress(tasa_reingreso / 100)
