@@ -2780,7 +2780,7 @@ with tab_umap:
             
             with col_mapa:
                 if modo_color == "Readmitted vs Safe Discharge":
-                    # Sin categoría adicional -> forma neutra (circle) para ambos grupos
+                    # Mismas formas que el modo Multimorbidity: circle (safe) / diamond (readmit)
                     fig_umap.add_trace(go.Scatter(
                         x=umap_embeddings[mask_safe_global, 0], y=umap_embeddings[mask_safe_global, 1],
                         mode='markers', name='Safe Discharge',
@@ -2791,7 +2791,7 @@ with tab_umap:
                         x=umap_embeddings[mask_readmit_global, 0], y=umap_embeddings[mask_readmit_global, 1],
                         mode='markers', name='Readmitted',
                         text=hover_texts_global[mask_readmit_global], hoverinfo='text',
-                        marker=dict(color=COLOR_READMIT, size=8, opacity=0.9, symbol='circle', line=dict(color='white', width=0.8))
+                        marker=dict(color=COLOR_READMIT, size=8, opacity=0.9, symbol='diamond', line=dict(color='white', width=0.8))
                     ))
                 
                 elif modo_color == "Age Distribution":
