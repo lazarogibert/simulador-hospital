@@ -2813,7 +2813,7 @@ with tab_umap:
                 # --- APLICAR MÁSCARA AL PACIENTE (RESCATE) ---
                 X_pac_limpio = X_pac_dense[:, mask_limpia]
                 
-                distancias_rescue, indices_rescue = knn.kneighbors(X_pac_limpio)
+                distancias_rescue, indices_rescue = knn_global.kneighbors(X_pac_limpio)
                 vecinos_idx_pool = indices_rescue[0]
                 
             local_idx = vecinos_idx_pool[:20] 
@@ -2852,22 +2852,72 @@ with tab_umap:
                     agregar_capa_umap(fig_umap, mask_multi_no, 'circle', 'No Multimorbidity')
                     agregar_capa_umap(fig_umap, mask_multi_yes, 'diamond', 'Multimorbidity Present')
                 
-                paciente_umap_coords = np.mean(umap_embeddings[vecinos_idx_pool[:3]], axis=0, keepdims=True)
+                # ==========================================
+                # OUTLIER DETECTION & GEOMETRIC ISOLATION
+                # ==========================================
+                # Calculate the real global distance using the noise-free space
+                distancias_global, indices_global = knn_global.kneighbors(X_paciente_limpio)
+                similitud_maxima = np.maximum(0, (1 - distancias_global[0][0])) * 100
+                
+                # Critical threshold for definitive isolation
+                UMBRAL_OUTLIER = 40.0
+                es_outlier_clinico = similitud_maxima < UMBRAL_OUTLIER
+                
+                # Dynamic visual parameters based on atypicality level
+                if es_outlier_clinico:
+                    # 1. Geometric Isolation: Force the point outside the main manifold
+                    max_x = np.max(umap_embeddings[:, 0])
+                    max_y = np.max(umap_embeddings[:, 1])
+                    
+                    # Displace to a peripheral contingency coordinate
+                    paciente_umap_coords = np.array([[max_x + 3.0, max_y + 3.0]])
+                    
+                    # 2. Visual Alert Encoding
+                    paciente_color = '#FF00FF'      # Neon Magenta for high administrative criticality
+                    paciente_symbol = 'hexagram'    # Disruptive multi-axis star icon for warning
+                    paciente_size = 24
+                    paciente_label = "⚠️ ISOLATED CASE (Clinical Outlier)"
+                    
+                    # 3. UI Interruption: Explicit safety banners for the clinician
+                    st.sidebar.error(f"🚨 **ALERT: UNPRECEDENTED PHENOTYPE**\n\nThis patient does not resemble any historical records (Similarity: {similitud_maxima:.1f}%). Review with extreme caution.")
+                    st.warning(
+                        f"🚨 **CRITICAL TOPOLOGICAL SUPPORT:** The current patient's phenotypic signature is **highly atypical**. "
+                        f"The maximum similarity with the historical database is only **{similitud_maxima:.1f}%**, "
+                        f"which falls below the safety threshold of {UMBRAL_OUTLIER}%. The system has isolated this case "
+                        f"geometrically to the periphery of the map to prevent erroneous interpretations based on standard clusters."
+                    )
+                else:
+                    # Standard safe projection if the patient belongs to the known universe
+                    # Centroid projection based on the 3 closest historical twins
+                    paciente_umap_coords = np.mean(umap_embeddings[indices_global[0][:3]], axis=0, keepdims=True)
+                    paciente_color = '#87CEEB'     # Sky blue for active patient
+                    paciente_symbol = 'star'       # Original star icon
+                    paciente_size = 20
+                    paciente_label = "Current Admission"
+
+                # --- Tooltip Data Extraction (Hover) ---
                 diag_paciente = format_clinical_value('CIE10_MACRO', df_paciente['CIE10_MACRO'].iloc[0] if 'CIE10_MACRO' in df_paciente.columns else 'N/A')
                 edad_paciente_raw = df_paciente['rango_edad'].iloc[0] if 'rango_edad' in df_paciente.columns else 'N/A'
                 edad_paciente = format_clinical_value('rango_edad', edad_paciente_raw)
                 dias_paciente = safe_int(df_paciente['dias_internados'].iloc[0] if 'dias_internados' in df_paciente.columns else 0)
                 
-                paciente_hover = (f"<b>CURRENT ADMISSION</b><br>"
+                paciente_hover = (f"<b>{paciente_label}</b><br>"
+                                  f"<b>Max Historical Match:</b> {similitud_maxima:.1f}%<br>"
                                   f"<b>Diagnosis:</b> {diag_paciente}<br>"
                                   f"<b>Age:</b> {edad_paciente}<br>"
                                   f"<b>Stay:</b> {dias_paciente} days")
-    
+        
+                # --- Inject the patient trace into the go.Figure object ---
                 fig_umap.add_trace(go.Scatter(
                     x=[paciente_umap_coords[0, 0]], y=[paciente_umap_coords[0, 1]],
-                    mode='markers', name='Current Admission',
+                    mode='markers', name=paciente_label,
                     text=[paciente_hover], hoverinfo='text',
-                    marker=dict(color='#87CEEB', size=20, symbol='star', line=dict(color='black', width=2.5))
+                    marker=dict(
+                        color=paciente_color, 
+                        size=paciente_size, 
+                        symbol=paciente_symbol, 
+                        line=dict(color='black', width=2.5)
+                    )
                 ))
                 
                 fig_umap.update_layout(
