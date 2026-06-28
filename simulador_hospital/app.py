@@ -2710,11 +2710,11 @@ with tab_umap:
             fig_umap = go.Figure()
             borde_marcador = dict(width=0.6, color='rgba(255,255,255,0.6)')
             
-            # --- ESQUEMA FIJO: COLOR = RESULTADO CLÍNICO ---
-            COLOR_SAFE = '#00C851'      # Verde -> Safe Discharge
-            COLOR_READMIT = '#FF4444'   # Rojo  -> Readmitted
+            # --- FIXED SCHEME: COLOR = CLINICAL OUTCOME ---
+            COLOR_SAFE = '#00C851'      # Green -> Safe Discharge
+            COLOR_READMIT = '#FF4444'   # Red   -> Readmitted
             
-            # --- PALETA DE FORMAS PARA CATEGORÍAS ---
+            # --- MARKER PALETTE FOR CATEGORIES ---
             SYMBOLS_CATEGORIA = ['circle', 'square', 'triangle-up', 'diamond',
                                   'cross', 'x', 'pentagon', 'hexagon', 'star', 'triangle-down']
             
@@ -2761,7 +2761,7 @@ with tab_umap:
             hover_texts_global = np.array(hover_texts_global)
 
             def agregar_leyenda_outcome(fig):
-                """Agrega entradas de leyenda fijas: color = resultado clínico."""
+                """Adds static legend entries for outcome mapping."""
                 fig.add_trace(go.Scatter(
                     x=[None], y=[None], mode='markers',
                     name="Safe Discharge (color)", legendgroup="outcome_safe",
@@ -2774,11 +2774,7 @@ with tab_umap:
                 ))
 
             def agregar_capa_umap(fig, mascara_filtro, symbol_categoria, nombre_grupo, mostrar_leyenda_forma=True):
-                """
-                Dibuja una categoría en el mapa.
-                - symbol_categoria define la FORMA (representa la categoría).
-                - El COLOR siempre representa el resultado clínico (Safe/Readmit).
-                """
+                """Plots a specific demographic/clinical layer on top of the UMAP coordinates."""
                 grupo_legend_id = str(nombre_grupo).replace(" ", "_").lower()
                 
                 if mostrar_leyenda_forma:
@@ -2788,29 +2784,33 @@ with tab_umap:
                         marker=dict(color='rgba(140,140,140,0.95)', size=11, symbol=symbol_categoria)
                     ))
                 
+                # Extract original row indices for Safe points to inject into customdata
+                idx_safe = np.where(mascara_filtro & mask_safe_global)[0]
                 fig.add_trace(go.Scatter(
-                    x=umap_embeddings[mascara_filtro & mask_safe_global, 0], 
-                    y=umap_embeddings[mascara_filtro & mask_safe_global, 1],
+                    x=umap_embeddings[idx_safe, 0], 
+                    y=umap_embeddings[idx_safe, 1],
                     mode='markers', legendgroup=grupo_legend_id, showlegend=False, 
-                    text=hover_texts_global[mascara_filtro & mask_safe_global], hoverinfo='text',
+                    text=hover_texts_global[idx_safe], hoverinfo='text',
+                    customdata=idx_safe, # INJECTION FOR GAP ANALYSIS
                     marker=dict(color=COLOR_SAFE, size=5, opacity=0.55, symbol=symbol_categoria, line=borde_marcador)
                 ))
                 
+                # Extract original row indices for Readmitted points to inject into customdata
+                idx_readmit = np.where(mascara_filtro & mask_readmit_global)[0]
                 fig.add_trace(go.Scatter(
-                    x=umap_embeddings[mascara_filtro & mask_readmit_global, 0], 
-                    y=umap_embeddings[mascara_filtro & mask_readmit_global, 1],
+                    x=umap_embeddings[idx_readmit, 0], 
+                    y=umap_embeddings[idx_readmit, 1],
                     mode='markers', legendgroup=grupo_legend_id, showlegend=False, 
-                    text=hover_texts_global[mascara_filtro & mask_readmit_global], hoverinfo='text',
+                    text=hover_texts_global[idx_readmit], hoverinfo='text',
+                    customdata=idx_readmit, # INJECTION FOR GAP ANALYSIS
                     marker=dict(color=COLOR_READMIT, size=8, opacity=0.9, symbol=symbol_categoria, line=dict(color='white', width=0.8))
                 ))
             
             if 'vecinos_idx_pool' not in locals() and 'vecinos_idx_pool' not in globals():
-                # BLOQUE DE RESCATE: Si no se calculó en tab_evidencia, lo hacemos aquí con el filtro
+                # SAFETY RESCUE: If not calculated in tab_evidencia, handle scope mapping locally
                 prep = pipeline.named_steps['preprocesador']
                 X_pac_proc = prep.transform(df_paciente)
                 X_pac_dense = X_pac_proc.toarray() if hasattr(X_pac_proc, 'toarray') else np.array(X_pac_proc)
-                
-                # --- APLICAR MÁSCARA AL PACIENTE (RESCATE) ---
                 X_pac_limpio = X_pac_dense[:, mask_limpia]
                 
                 distancias_rescue, indices_rescue = knn_global.kneighbors(X_pac_limpio)
@@ -2820,17 +2820,21 @@ with tab_umap:
             
             with col_mapa:
                 if modo_color == "Readmitted vs Safe Discharge":
-                    # Mismas formas que el modo Multimorbidity: circle (safe) / diamond (readmit)
+                    idx_safe = np.where(mask_safe_global)[0]
                     fig_umap.add_trace(go.Scatter(
-                        x=umap_embeddings[mask_safe_global, 0], y=umap_embeddings[mask_safe_global, 1],
+                        x=umap_embeddings[idx_safe, 0], y=umap_embeddings[idx_safe, 1],
                         mode='markers', name='Safe Discharge',
-                        text=hover_texts_global[mask_safe_global], hoverinfo='text',
+                        text=hover_texts_global[idx_safe], hoverinfo='text',
+                        customdata=idx_safe, # INJECTION FOR GAP ANALYSIS
                         marker=dict(color=COLOR_SAFE, size=5, opacity=0.5, symbol='circle', line=borde_marcador)
                     ))
+                    
+                    idx_readmit = np.where(mask_readmit_global)[0]
                     fig_umap.add_trace(go.Scatter(
-                        x=umap_embeddings[mask_readmit_global, 0], y=umap_embeddings[mask_readmit_global, 1],
+                        x=umap_embeddings[idx_readmit, 0], y=umap_embeddings[idx_readmit, 1],
                         mode='markers', name='Readmitted',
-                        text=hover_texts_global[mask_readmit_global], hoverinfo='text',
+                        text=hover_texts_global[idx_readmit], hoverinfo='text',
+                        customdata=idx_readmit, # INJECTION FOR GAP ANALYSIS
                         marker=dict(color=COLOR_READMIT, size=8, opacity=0.9, symbol='diamond', line=dict(color='white', width=0.8))
                     ))
                 
@@ -2855,30 +2859,24 @@ with tab_umap:
                 # ==========================================
                 # OUTLIER DETECTION & GEOMETRIC ISOLATION
                 # ==========================================
-                # Calculate the real global distance using the noise-free space
+                # Compute real neighborhood distances using the clean space
                 distancias_global, indices_global = knn_global.kneighbors(X_paciente_limpio)
                 similitud_maxima = np.maximum(0, (1 - distancias_global[0][0])) * 100
                 
-                # Critical threshold for definitive isolation
                 UMBRAL_OUTLIER = 40.0
                 es_outlier_clinico = similitud_maxima < UMBRAL_OUTLIER
                 
-                # Dynamic visual parameters based on atypicality level
                 if es_outlier_clinico:
-                    # 1. Geometric Isolation: Force the point outside the main manifold
+                    # Displace to a peripheral quadrant outside the known manifold limits
                     max_x = np.max(umap_embeddings[:, 0])
                     max_y = np.max(umap_embeddings[:, 1])
-                    
-                    # Displace to a peripheral contingency coordinate
                     paciente_umap_coords = np.array([[max_x + 3.0, max_y + 3.0]])
                     
-                    # 2. Visual Alert Encoding
-                    paciente_color = '#FF00FF'      # Neon Magenta for high administrative criticality
-                    paciente_symbol = 'hexagram'    # Disruptive multi-axis star icon for warning
+                    paciente_color = '#FF00FF'      # Neon Magenta warning color
+                    paciente_symbol = 'hexagram'    # Distinct shape for safety tracking
                     paciente_size = 24
                     paciente_label = "⚠️ ISOLATED CASE (Clinical Outlier)"
                     
-                    # 3. UI Interruption: Explicit safety banners for the clinician
                     st.sidebar.error(f"🚨 **ALERT: UNPRECEDENTED PHENOTYPE**\n\nThis patient does not resemble any historical records (Similarity: {similitud_maxima:.1f}%). Review with extreme caution.")
                     st.warning(
                         f"🚨 **CRITICAL TOPOLOGICAL SUPPORT:** The current patient's phenotypic signature is **highly atypical**. "
@@ -2887,15 +2885,13 @@ with tab_umap:
                         f"geometrically to the periphery of the map to prevent erroneous interpretations based on standard clusters."
                     )
                 else:
-                    # Standard safe projection if the patient belongs to the known universe
-                    # Centroid projection based on the 3 closest historical twins
+                    # Centroid projection inside the valid cluster map bounds
                     paciente_umap_coords = np.mean(umap_embeddings[indices_global[0][:3]], axis=0, keepdims=True)
-                    paciente_color = '#87CEEB'     # Sky blue for active patient
-                    paciente_symbol = 'star'       # Original star icon
+                    paciente_color = '#87CEEB'     # Standard Sky blue for active patient
+                    paciente_symbol = 'star'       # Baseline icon
                     paciente_size = 20
                     paciente_label = "Current Admission"
 
-                # --- Tooltip Data Extraction (Hover) ---
                 diag_paciente = format_clinical_value('CIE10_MACRO', df_paciente['CIE10_MACRO'].iloc[0] if 'CIE10_MACRO' in df_paciente.columns else 'N/A')
                 edad_paciente_raw = df_paciente['rango_edad'].iloc[0] if 'rango_edad' in df_paciente.columns else 'N/A'
                 edad_paciente = format_clinical_value('rango_edad', edad_paciente_raw)
@@ -2907,11 +2903,11 @@ with tab_umap:
                                   f"<b>Age:</b> {edad_paciente}<br>"
                                   f"<b>Stay:</b> {dias_paciente} days")
         
-                # --- Inject the patient trace into the go.Figure object ---
                 fig_umap.add_trace(go.Scatter(
                     x=[paciente_umap_coords[0, 0]], y=[paciente_umap_coords[0, 1]],
                     mode='markers', name=paciente_label,
                     text=[paciente_hover], hoverinfo='text',
+                    customdata=[-1], # Negative 1 avoids conflict during Lasso selection
                     marker=dict(
                         color=paciente_color, 
                         size=paciente_size, 
@@ -2925,136 +2921,231 @@ with tab_umap:
                     xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
                     yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
                     margin=dict(l=10, r=10, t=10, b=10), height=550,
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5)
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
+                    dragmode='lasso' # Default to lasso select
                 )
-                st.plotly_chart(fig_umap, use_container_width=True)
+                
+                # --- INTERACTIVE SELECTION HANDLING ---
+                if "cluster_A" not in st.session_state: st.session_state.cluster_A = []
+                if "cluster_B" not in st.session_state: st.session_state.cluster_B = []
+
+                # Use Streamlit's native selection API
+                selection_event = st.plotly_chart(fig_umap, use_container_width=True, on_select="rerun", selection_mode=('lasso', 'box'))
+                
+                current_selection_idx = []
+                if selection_event and "selection" in selection_event and "points" in selection_event["selection"]:
+                    for pt in selection_event["selection"]["points"]:
+                        if "customdata" in pt:
+                            val = pt["customdata"]
+                            idx_val = int(val[0]) if isinstance(val, list) else int(val)
+                            if idx_val != -1: # Ignore the current patient marker
+                                current_selection_idx.append(idx_val)
+                                
+                # Selection Buttons Panel
+                st.markdown("##### 🧲 Spatial Contrast Tool (Lasso/Box Select)")
+                c_btn1, c_btn2, c_btn3 = st.columns(3)
+                
+                if c_btn1.button(f"Save as Neighborhood A ({len(current_selection_idx)} pts)", disabled=len(current_selection_idx)==0, use_container_width=True):
+                    st.session_state.cluster_A = current_selection_idx
+                    st.rerun()
+                if c_btn2.button(f"Save as Neighborhood B ({len(current_selection_idx)} pts)", disabled=len(current_selection_idx)==0, use_container_width=True):
+                    st.session_state.cluster_B = current_selection_idx
+                    st.rerun()
+                if c_btn3.button("Clear Saved Neighborhoods", use_container_width=True):
+                    st.session_state.cluster_A = []
+                    st.session_state.cluster_B = []
+                    st.rerun()
 
             with col_insights:
-                st.markdown("### 📊 Clinical Topology Analysis")
-                
-                outcomes_locales = y_hist_global[local_idx]
-                tasa_reingreso_local = (np.sum(outcomes_locales) / len(outcomes_locales)) * 100 if len(outcomes_locales) > 0 else tasa_reingreso_base
-                
-                st.markdown(
-                    f"""
-                    <div style='padding:10px; background-color:rgba(128,128,128,0.1); border-radius:5px; margin-bottom:15px; border-left: 4px solid #1E90FF;'>
-                        <p style='margin:0; font-size:12px; color:gray;'>CENSUS PROJECTION (N = {total_internaciones:,})</p>
-                        <p style='margin:0; font-size:15px;'>Global Hospital Readmission Rate: <b>{tasa_reingreso_base:.1f}%</b></p>
-                    </div>
-                    """, unsafe_allow_html=True
-                )
-
-                if modo_color == "Readmitted vs Safe Discharge":
-                    st.markdown("#### 📍 Historical Outcomes Overview")
-                    st.markdown(f"- **Local Cluster Readmission Rate:** `{tasa_reingreso_local:.1f}%`")
-                    st.markdown("---")
+                # ==========================================
+                # DUAL-MODE INSIGHTS: GAP ANALYSIS VS LOCAL
+                # ==========================================
+                if len(st.session_state.cluster_A) > 0 and len(st.session_state.cluster_B) > 0:
+                    # ----------------------------------------------------
+                    # MODE 1: DUAL NEIGHBORHOOD SPATIAL CONTRAST
+                    # ----------------------------------------------------
+                    st.markdown("### ⚖️ Gap Analysis: Spatial Contrast")
+                    idx_A = st.session_state.cluster_A
+                    idx_B = st.session_state.cluster_B
                     
+                    # Extracting dynamic stats for Cluster A
+                    outcomes_A = y_hist_global[idx_A]
+                    tasa_A = (np.sum(outcomes_A) / len(outcomes_A)) * 100
+                    los_A = np.mean(dias_global_num[idx_A])
+                    multi_A = np.mean([str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'] for x in pluri_global[idx_A]]) * 100
+                    diags_A = [format_clinical_value('CIE10_MACRO', d) for d in diag_global[idx_A]]
+                    diag_dom_A = pd.Series(diags_A).mode()[0] if diags_A else "Unknown"
+
+                    # Extracting dynamic stats for Cluster B
+                    outcomes_B = y_hist_global[idx_B]
+                    tasa_B = (np.sum(outcomes_B) / len(outcomes_B)) * 100
+                    los_B = np.mean(dias_global_num[idx_B])
+                    multi_B = np.mean([str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'] for x in pluri_global[idx_B]]) * 100
+                    diags_B = [format_clinical_value('CIE10_MACRO', d) for d in diag_global[idx_B]]
+                    diag_dom_B = pd.Series(diags_B).mode()[0] if diags_B else "Unknown"
+                    
+                    st.markdown(
+                        f"""
+                        <div style='padding:10px; background-color:rgba(128,128,128,0.1); border-radius:5px; margin-bottom:15px; border-left: 4px solid #9C27B0;'>
+                            <p style='margin:0; font-size:13px; color:gray;'>NEIGHBORHOOD SIZE</p>
+                            <p style='margin:0; font-size:14px;'>Zone A: <b>{len(idx_A)} pts</b> | Zone B: <b>{len(idx_B)} pts</b></p>
+                        </div>
+                        """, unsafe_allow_html=True
+                    )
+                    
+                    st.markdown("#### 1. Readmission Rate Risk")
+                    c_g1, c_g2 = st.columns(2)
+                    c_g1.metric("Neighborhood A", f"{tasa_A:.1f}%")
+                    c_g2.metric("Neighborhood B", f"{tasa_B:.1f}%", delta=f"{tasa_B - tasa_A:+.1f}% vs A", delta_color="inverse")
+                    
+                    st.markdown("#### 2. Median Length of Stay (LOS)")
+                    c_g3, c_g4 = st.columns(2)
+                    c_g3.metric("Neighborhood A", f"{los_A:.1f} d")
+                    c_g4.metric("Neighborhood B", f"{los_B:.1f} d", delta=f"{los_B - los_A:+.1f} days vs A", delta_color="inverse")
+                    
+                    st.markdown("#### 3. Multimorbidity & Dominant Diagnosis")
+                    st.markdown(f"- **Zone A:** `{multi_A:.0f}%` Multimorbidity | Dom. Diag: *{diag_dom_A}*")
+                    st.markdown(f"- **Zone B:** `{multi_B:.0f}%` Multimorbidity | Dom. Diag: *{diag_dom_B}*")
+                    
+                    st.markdown("---")
                     st.markdown("**Descriptive Observation:**")
-                    if tasa_reingreso_local < tasa_reingreso_base - 3:
-                        insight_txt = f"This admission maps to a cluster where historical readmissions ({tasa_reingreso_local:.1f}%) are lower than the hospital average. Similar past cases have predominantly resulted in safe discharges."
-                    elif tasa_reingreso_local > tasa_reingreso_base + 5:
-                        insight_txt = f"This admission maps to a cluster where historical readmissions ({tasa_reingreso_local:.1f}%) are notably higher than the hospital average. Statistical association suggests a complex profile."
+                    if abs(tasa_A - tasa_B) > 10:
+                        insight_gap = f"The selected regions show a critical divergence in risk profiles (Gap: {abs(tasa_A - tasa_B):.1f}%). The geometry explicitly maps the phenomenological gap between {diag_dom_A} and {diag_dom_B}."
+                    elif abs(multi_A - multi_B) > 25:
+                        insight_gap = f"While readmission risks may be comparable, the underlying mechanisms differ drastically. Zone A holds {multi_A:.0f}% complex multimorbidity vs {multi_B:.0f}% in Zone B, pointing to distinct stabilization routes."
                     else:
-                        insight_txt = f"This admission maps to a cluster where historical readmissions ({tasa_reingreso_local:.1f}%) closely follow the hospital average. Outcomes for similar past cases show a mixed distribution."
+                        insight_gap = "The selected zones share similar statistical outcomes despite potentially different coordinates. Explore individual parameters in the Sandbox for precise differentiators."
                         
-                    st.markdown(f"<div style='font-size:14px; line-height:1.5;'>{insight_txt}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='font-size:14px; line-height:1.5;'>{insight_gap}</div>", unsafe_allow_html=True)
 
-                elif modo_color == "Age Distribution":
-                    edades_trad_global = np.array([format_clinical_value('rango_edad', e) for e in edades_global])
-                    edades_locales = np.array([format_clinical_value('rango_edad', e) for e in edades_global[local_idx]])
-                    serie_edades_locales = pd.Series(edades_locales)
-                    distribucion_local = serie_edades_locales.value_counts(normalize=True) * 100
+                else:
+                    # ----------------------------------------------------
+                    # MODE 2: ORIGINAL LOCAL TOPOLOGY ANALYSIS
+                    # ----------------------------------------------------
+                    st.markdown("### 📊 Clinical Topology Analysis")
                     
-                    st.markdown("#### ⏳ Age Cohort Distribution")
-                    st.markdown("**Local Cluster Breakdown:**")
-                    for edad_cat, pct_local in distribucion_local.items():
-                        pct_global = (np.sum(edades_trad_global == edad_cat) / total_internaciones) * 100 if total_internaciones > 0 else 0
-                        st.markdown(f"- {edad_cat}: `{pct_local:.1f}%` *(Global: {pct_global:.1f}%)*")
+                    outcomes_locales = y_hist_global[local_idx]
+                    tasa_reingreso_local = (np.sum(outcomes_locales) / len(outcomes_locales)) * 100 if len(outcomes_locales) > 0 else tasa_reingreso_base
                     
-                    st.markdown("---")
-                    st.markdown("**Descriptive Observation:**")
-                    
-                    edad_dominante_local = serie_edades_locales.mode()[0] if not serie_edades_locales.empty else "Unknown"
-                    if edad_paciente != edad_dominante_local and edad_paciente not in ["Unknown", "N/A"]:
-                        insight_txt = f"The case maps to a geometric cluster where the most frequent demographic is {edad_dominante_local}, differing from the current patient's chronological classification ({edad_paciente}). The grouping is driven by statistical similarities across clinical text and multi-dimensional factors rather than age constraints."
-                    else:
-                        insight_txt = f"The patient's chronological age class aligns with the dominant demographic ({edad_dominante_local}) of this local cluster, representing a statistically typical presentation for this cohort within historical records."
-                    
-                    st.markdown(f"<div style='font-size:14px; line-height:1.5;'>{insight_txt}</div>", unsafe_allow_html=True)
+                    st.markdown(
+                        f"""
+                        <div style='padding:10px; background-color:rgba(128,128,128,0.1); border-radius:5px; margin-bottom:15px; border-left: 4px solid #1E90FF;'>
+                            <p style='margin:0; font-size:12px; color:gray;'>CENSUS PROJECTION (N = {total_internaciones:,})</p>
+                            <p style='margin:0; font-size:15px;'>Global Hospital Readmission Rate: <b>{tasa_reingreso_base:.1f}%</b></p>
+                        </div>
+                        """, unsafe_allow_html=True
+                    )
 
-                elif modo_color == "Multimorbidity":
-                    mask_multi_yes = np.array([str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'] for x in pluri_global])
-                    pct_pluri_global = (np.sum(mask_multi_yes) / total_internaciones) * 100 if total_internaciones > 0 else 0
-                    
-                    pluri_local_raw = pluri_global[local_idx]
-                    mask_multi_local = np.array([str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'] for x in pluri_local_raw])
-                    pct_pluri_local = np.mean(mask_multi_local) * 100 if len(mask_multi_local) > 0 else 0
-                    
-                    st.markdown("#### 🏥 Multimorbidity Context")
-                    st.markdown(f"- **Local Cluster Multimorbidity Density:** `{pct_pluri_local:.1f}%`")
-                    st.markdown(f"- **Global Hospital Multimorbidity Rate:** `{pct_pluri_global:.1f}%`")
-                    st.markdown("---")
-                    
-                    st.markdown("**Descriptive Observation:**")
-                    if pct_pluri_local < 30 and tasa_reingreso_local > tasa_reingreso_base:
-                        insight_txt = f"This cluster exhibits an increased historical readmission rate ({tasa_reingreso_local:.1f}%) alongside a low density of chronic multimorbidity ({pct_pluri_local:.1f}%), pointing toward mathematical similarities driven by acute clinical profiles, specialized procedures, or alternative non-chronic variables."
-                    elif pct_pluri_local > 70:
-                        insight_txt = f"This neighborhood is heavily saturated with multimorbidity ({pct_pluri_local:.1f}%), a baseline historically associated with complex longitudinal management and coordination of multiple disease tracks."
-                    else:
-                        insight_txt = f"The cluster contains a balanced distribution of chronic complexity, suggesting that past outcomes in this specific map region are shaped by a combination of acute severity and underlying chronic baselines."
+                    if modo_color == "Readmitted vs Safe Discharge":
+                        st.markdown("#### 📍 Historical Outcomes Overview")
+                        st.markdown(f"- **Local Cluster Readmission Rate:** `{tasa_reingreso_local:.1f}%`")
+                        st.markdown("---")
                         
-                    st.markdown(f"<div style='font-size:14px; line-height:1.5;'>{insight_txt}</div>", unsafe_allow_html=True)
+                        st.markdown("**Descriptive Observation:**")
+                        if tasa_reingreso_local < tasa_reingreso_base - 3:
+                            insight_txt = f"This admission maps to a cluster where historical readmissions ({tasa_reingreso_local:.1f}%) are lower than the hospital average. Similar past cases have predominantly resulted in safe discharges."
+                        elif tasa_reingreso_local > tasa_reingreso_base + 5:
+                            insight_txt = f"This admission maps to a cluster where historical readmissions ({tasa_reingreso_local:.1f}%) are notably higher than the hospital average. Statistical association suggests a complex profile."
+                        else:
+                            insight_txt = f"This admission maps to a cluster where historical readmissions ({tasa_reingreso_local:.1f}%) closely follow the hospital average. Outcomes for similar past cases show a mixed distribution."
+                            
+                        st.markdown(f"<div style='font-size:14px; line-height:1.5;'>{insight_txt}</div>", unsafe_allow_html=True)
 
-                st.markdown("---")
-                
-                if tasa_reingreso_local > tasa_reingreso_base + 5:
-                    box_color = "#FFBB33" 
-                    box_title = "Cluster Summary: Elevated Historical Risk"
-                elif tasa_reingreso_local < tasa_reingreso_base - 3:
-                    box_color = "#00C851" 
-                    box_title = "Cluster Summary: Standard Historical Risk"
-                else:
-                    box_color = "#33b5e5" 
-                    box_title = "Cluster Summary: Average Historical Risk"
-                
-                if len(local_idx) > 0:
-                    local_pluri_vals = [str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'] for x in pluri_global[local_idx]]
-                    pct_pluri_local_str = f"{(np.sum(local_pluri_vals) / len(local_pluri_vals)) * 100:.0f}%"
+                    elif modo_color == "Age Distribution":
+                        edades_trad_global = np.array([format_clinical_value('rango_edad', e) for e in edades_global])
+                        edades_locales = np.array([format_clinical_value('rango_edad', e) for e in edades_global[local_idx]])
+                        serie_edades_locales = pd.Series(edades_locales)
+                        distribucion_local = serie_edades_locales.value_counts(normalize=True) * 100
+                        
+                        st.markdown("#### ⏳ Age Cohort Distribution")
+                        st.markdown("**Local Cluster Breakdown:**")
+                        for edad_cat, pct_local in distribucion_local.items():
+                            pct_global = (np.sum(edades_trad_global == edad_cat) / total_internaciones) * 100 if total_internaciones > 0 else 0
+                            st.markdown(f"- {edad_cat}: `{pct_local:.1f}%` *(Global: {pct_global:.1f}%)*")
+                        
+                        st.markdown("---")
+                        st.markdown("**Descriptive Observation:**")
+                        
+                        edad_dominante_local = serie_edades_locales.mode()[0] if not serie_edades_locales.empty else "Unknown"
+                        if edad_paciente != edad_dominante_local and edad_paciente not in ["Unknown", "N/A"]:
+                            insight_txt = f"The case maps to a geometric cluster where the most frequent demographic is {edad_dominante_local}, differing from the current patient's chronological classification ({edad_paciente}). The grouping is driven by statistical similarities across clinical text and multi-dimensional factors rather than age constraints."
+                        else:
+                            insight_txt = f"The patient's chronological age class aligns with the dominant demographic ({edad_dominante_local}) of this local cluster, representing a statistically typical presentation for this cohort within historical records."
+                        
+                        st.markdown(f"<div style='font-size:14px; line-height:1.5;'>{insight_txt}</div>", unsafe_allow_html=True)
+
+                    elif modo_color == "Multimorbidity":
+                        mask_multi_yes = np.array([str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'] for x in pluri_global])
+                        pct_pluri_global = (np.sum(mask_multi_yes) / total_internaciones) * 100 if total_internaciones > 0 else 0
+                        
+                        pluri_local_raw = pluri_global[local_idx]
+                        mask_multi_local = np.array([str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'] for x in pluri_local_raw])
+                        pct_pluri_local = np.mean(mask_multi_local) * 100 if len(mask_multi_local) > 0 else 0
+                        
+                        st.markdown("#### 🏥 Multimorbidity Context")
+                        st.markdown(f"- **Local Cluster Multimorbidity Density:** `{pct_pluri_local:.1f}%`")
+                        st.markdown(f"- **Global Hospital Multimorbidity Rate:** `{pct_pluri_global:.1f}%`")
+                        st.markdown("---")
+                        
+                        st.markdown("**Descriptive Observation:**")
+                        if pct_pluri_local < 30 and tasa_reingreso_local > tasa_reingreso_base:
+                            insight_txt = f"This cluster exhibits an increased historical readmission rate ({tasa_reingreso_local:.1f}%) alongside a low density of chronic multimorbidity ({pct_pluri_local:.1f}%), pointing toward mathematical similarities driven by acute clinical profiles, specialized procedures, or alternative non-chronic variables."
+                        elif pct_pluri_local > 70:
+                            insight_txt = f"This neighborhood is heavily saturated with multimorbidity ({pct_pluri_local:.1f}%), a baseline historically associated with complex longitudinal management and coordination of multiple disease tracks."
+                        else:
+                            insight_txt = f"The cluster contains a balanced distribution of chronic complexity, suggesting that past outcomes in this specific map region are shaped by a combination of acute severity and underlying chronic baselines."
+                            
+                        st.markdown(f"<div style='font-size:14px; line-height:1.5;'>{insight_txt}</div>", unsafe_allow_html=True)
+
+                    st.markdown("---")
                     
-                    diags_locales = [format_clinical_value('CIE10_MACRO', d) for d in diag_global[local_idx]]
-                    diag_dominante = pd.Series(diags_locales).mode()[0] if diags_locales else "Unknown"
+                    if tasa_reingreso_local > tasa_reingreso_base + 5:
+                        box_color = "#FFBB33" 
+                        box_title = "Cluster Summary: Elevated Historical Risk"
+                    elif tasa_reingreso_local < tasa_reingreso_base - 3:
+                        box_color = "#00C851" 
+                        box_title = "Cluster Summary: Standard Historical Risk"
+                    else:
+                        box_color = "#33b5e5" 
+                        box_title = "Cluster Summary: Average Historical Risk"
                     
-                    los_global_mean = np.mean(dias_global_num)
-                    los_local_mean = np.mean(dias_global_num[local_idx])
+                    if len(local_idx) > 0:
+                        local_pluri_vals = [str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'] for x in pluri_global[local_idx]]
+                        pct_pluri_local_str = f"{(np.sum(local_pluri_vals) / len(local_pluri_vals)) * 100:.0f}%"
+                        
+                        diags_locales = [format_clinical_value('CIE10_MACRO', d) for d in diag_global[local_idx]]
+                        diag_dominante = pd.Series(diags_locales).mode()[0] if diags_locales else "Unknown"
+                        
+                        los_global_mean = np.mean(dias_global_num)
+                        los_local_mean = np.mean(dias_global_num[local_idx])
+                        
+                        visitas_local_mean = np.mean(visitas_global_num[local_idx])
+                    else:
+                        pct_pluri_local_str = "N/A"
+                        diag_dominante = "Unknown"
+                        los_global_mean, los_local_mean, visitas_local_mean = 0.0, 0.0, 0.0
                     
-                    visitas_local_mean = np.mean(visitas_global_num[local_idx])
-                else:
-                    pct_pluri_local_str = "N/A"
-                    diag_dominante = "Unknown"
-                    los_global_mean, los_local_mean, visitas_local_mean = 0.0, 0.0, 0.0
-                
-                st.markdown(f"#### 📋 {box_title}")
-                st.markdown(
-                    f"""
-                    <div style='padding: 12px; background-color: {box_color}15; border-left: 4px solid {box_color}; border-radius: 4px;'>
-                        <p style='margin: 0 0 8px 0; font-size:13px;'>The current admission aligns with a topological neighborhood characterized by:</p>
-                        <ul style='margin: 0 0 8px 0; font-size:13px; padding-left: 20px;'>
-                            <li>A historical readmission rate of <b>{tasa_reingreso_local:.1f}%</b>.</li>
-                            <li>A dominant primary diagnosis of <b>{diag_dominante}</b>.</li>
-                            <li>A multimorbidity prevalence of <b>{pct_pluri_local_str}</b> among nearby cases.</li>
-                            <li>An average Length of Stay of <b>{los_local_mean:.1f} days</b> (vs. Global Hospital Mean: {los_global_mean:.1f} days).</li>
-                            <li>An average of <b>{visitas_local_mean:.1f} ER visits</b> within the 6 months prior to admission.</li>
-                        </ul>
-                        <p style='margin: 0; font-size:12px; color: gray;'><i>Clinical Note: We recommend contextualizing these statistical associations with your clinical judgment or utilizing the Counterfactual Simulator to explore modifiable risk variables.</i></p>
-                    </div>
-                    """, 
-                    unsafe_allow_html=True
-                )
+                    st.markdown(f"#### 📋 {box_title}")
+                    st.markdown(
+                        f"""
+                        <div style='padding: 12px; background-color: {box_color}15; border-left: 4px solid {box_color}; border-radius: 4px;'>
+                            <p style='margin: 0 0 8px 0; font-size:13px;'>The current admission aligns with a topological neighborhood characterized by:</p>
+                            <ul style='margin: 0 0 8px 0; font-size:13px; padding-left: 20px;'>
+                                <li>A historical readmission rate of <b>{tasa_reingreso_local:.1f}%</b>.</li>
+                                <li>A dominant primary diagnosis of <b>{diag_dominante}</b>.</li>
+                                <li>A multimorbidity prevalence of <b>{pct_pluri_local_str}</b> among nearby cases.</li>
+                                <li>An average Length of Stay of <b>{los_local_mean:.1f} days</b> (vs. Global Hospital Mean: {los_global_mean:.1f} days).</li>
+                                <li>An average of <b>{visitas_local_mean:.1f} ER visits</b> within the 6 months prior to admission.</li>
+                            </ul>
+                            <p style='margin: 0; font-size:12px; color: gray;'><i>Clinical Note: We recommend contextualizing these statistical associations with your clinical judgment or utilizing the Counterfactual Simulator to explore modifiable risk variables.</i></p>
+                        </div>
+                        """, 
+                        unsafe_allow_html=True
+                    )
 
     except Exception as e:
         st.error("Error generating UMAP projection and insights.")
         st.warning(f"Technical Detail: {str(e)}")
-
 # ==========================================
 # 10. EXPLORATORY DATA ANALYSIS (EDA)
 # ==========================================
