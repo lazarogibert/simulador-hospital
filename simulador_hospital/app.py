@@ -1604,25 +1604,23 @@ with tab_estrategia:
                     rangos_permitidos = {}
                     vars_a_variar = []
 
+                    # AHORA TODAS LAS VARIABLES EVO ENTRAN INCONDICIONALMENTE
                     for col in variables_accionables:
-                        val_actual = df_paciente[col].iloc[0]
+                        val_actual = float(df_paciente[col].iloc[0])
+                        vars_a_variar.append(col)
 
                         if 'gravedad' in col:
-                            if val_actual > 1.0:
-                                rangos_permitidos[col] = [1.0, float(val_actual)]
-                                vars_a_variar.append(col)
+                            # Permitimos al algoritmo buscar en el rango fisiológico completo
+                            rangos_permitidos[col] = [1.0, 10.0]
                         elif 'dolor' in col:
-                            if val_actual > 0.0:
-                                rangos_permitidos[col] = [0.0, float(val_actual)]
-                                vars_a_variar.append(col)
+                            rangos_permitidos[col] = [0.0, 10.0]
                         else:
-                            if val_actual == 1.0:
-                                rangos_permitidos[col] = [0, 1]
-                                vars_a_variar.append(col)
+                            # Variables binarias completamente libres
+                            rangos_permitidos[col] = [0, 1]
 
                     if 'dias_internados' in df_paciente.columns:
                         val_dias = float(df_paciente['dias_internados'].iloc[0])
-                        # AUMENTO DEL RANGO: Permitimos a DiCE explorar hasta 14 días extra para igualar al Sandbox
+                        # AUMENTO DEL RANGO: Permitimos a DiCE explorar hasta 14 días extra
                         rangos_permitidos['dias_internados'] = [val_dias, val_dias + 14.0]
                         vars_a_variar.append('dias_internados')
 
@@ -1644,7 +1642,7 @@ with tab_estrategia:
                             m_local = dice_ml.Model(model=modelo_sinc, backend="sklearn")
                             
                             try:
-                                # CAMBIO CLAVE: Algoritmo Genético es vastamente superior encontrando combinaciones exactas
+                                # Algoritmo Genético es vastamente superior encontrando combinaciones exactas
                                 exp_local = dice_ml.Dice(d, m_local, method="genetic")
                                 dice_exp_local = exp_local.generate_counterfactuals(
                                     df_paciente, total_CFs=total_cfs, desired_class="opposite",
@@ -1653,7 +1651,7 @@ with tab_estrategia:
                                 )
                                 cf_local = dice_exp_local.cf_examples_list[0].final_cfs_df
                             except Exception:
-                                # Fallback a random: si falla genetic (librería ausente), doblamos los intentos aleatorios
+                                # Fallback a random si falla genetic (librería ausente)
                                 try:
                                     exp_local = dice_ml.Dice(d, m_local, method="random")
                                     dice_exp_local = exp_local.generate_counterfactuals(
@@ -1793,13 +1791,15 @@ with tab_estrategia:
                                                 col_en = evo_output_dict.get(col, col)
 
                                                 if 'dolor' in col or 'gravedad' in col:
-                                                    st.write(f"- 💊 **{col_en}**: Target reduction ➔ **[{val_cf:.0f}]** (Currently: {val_orig:.0f})")
+                                                    direccion = "reduction" if val_cf < val_orig else "adjustment"
+                                                    st.write(f"- 💊 **{col_en}**: Target {direccion} ➔ **[{val_cf:.0f}]** (Currently: {val_orig:.0f})")
                                                 elif col == 'dias_internados':
                                                     dias_extra = val_cf - val_orig
                                                     st.write(f"- ⏳ **{col_en}**: Extend stay by ➔ **[+{dias_extra:.0f} days]** (Total target: {val_cf:.0f})")
                                                 else:
                                                     status_en = "Resolved/Absent" if val_cf == 0 else "Present"
-                                                    st.write(f"- 🛡️ **{col_en}**: Target status ➔ **[{status_en}]**")
+                                                    estado_actual_str = "Present" if val_orig == 1 else "Absent"
+                                                    st.write(f"- 🛡️ **{col_en}**: Target status ➔ **[{status_en}]** (Currently: {estado_actual_str})")
 
                                         riesgo_ruta = cf_df.iloc[r_idx]['riesgo_real_post_redondeo']
                                         st.markdown(
@@ -2007,7 +2007,6 @@ with tab_estrategia:
     except Exception as e:
         st.error("Simulation engine encountered an error.")
         st.warning(f"Error detail: {str(e)}")
-
 # ==========================================
 # --- 8 TAB EVIDENCIA ---
 # ==========================================
