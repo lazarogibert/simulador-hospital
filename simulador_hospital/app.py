@@ -1529,6 +1529,14 @@ with tab_estrategia:
                 else:
                     X_sync = X.copy()
 
+                # --- ✅ Las binarias EVO pueden venir como string ('0'/'1') desde DiCE,
+                # las re-convertimos a numérico antes de pasarlas al pipeline real ---
+                for col in self.columnas_modelo:
+                    if col in X_sync.columns and X_sync[col].dtype == object:
+                        convertido = pd.to_numeric(X_sync[col], errors='coerce')
+                        if convertido.notna().all():
+                            X_sync[col] = convertido
+
                 sincronizar_deltas(X_sync)  # única fuente de verdad
 
                 probas_originales = self.pipeline.predict_proba(X_sync)
@@ -1588,13 +1596,10 @@ with tab_estrategia:
 
                     # --- ✅ FILTRO DE IMPACTO REAL ---
                     UMBRAL_IMPORTANCIA = 1e-6
-
                     importancia_map = calcular_importancia_por_variable(pipeline, columnas_modelo)
 
                     def es_relevante(col):
-                        """Considera relevante una EVO si ella misma o su DELTA asociado
-                        tienen peso real en el modelo (evita descartar variables que solo
-                        impactan indirectamente vía el delta)."""
+                        """Relevante si la EVO cruda o su DELTA asociado tienen peso real."""
                         imp_cruda = importancia_map.get(col, 0.0)
                         col_delta = {
                             'EVO_dolor_eva': 'DELTA_dolor_eva',
@@ -1609,7 +1614,6 @@ with tab_estrategia:
                     variables_accionables_todas = [col for col in columnas_modelo if col.startswith('EVO_')]
                     variables_accionables = [col for col in variables_accionables_todas if es_relevante(col)]
 
-                    # --- ✅ AVISO: condiciones activas excluidas por no tener impacto medible ---
                     variables_sin_impacto_activas = [
                         col for col in variables_accionables_todas
                         if col not in variables_accionables and float(df_paciente[col].iloc[0]) == 1.0
@@ -1619,6 +1623,18 @@ with tab_estrategia:
                         col for col in variables_accionables
                         if 'dolor' not in col and 'gravedad' not in col
                     ]
+
+                    # --- ✅ CASTEO EXPLÍCITO Y CONSISTENTE DE BINARIAS A STRING ---
+                    # Controlamos el formato exacto ('0'/'1') en vez de dejar que dice_ml
+                    # lo infiera implícito desde un float (lo que generaba '0.0'/'1.0').
+                    for col in features_binarias_evo:
+                        df_dice_train[col] = df_dice_train[col].round().astype('Int64').astype(str)
+
+                    # Fila del paciente que se le pasa a DiCE: mismo formato de string
+                    # en esas columnas, si no, DiCE no reconoce el punto de partida.
+                    df_paciente_dice_query = df_paciente.copy()
+                    for col in features_binarias_evo:
+                        df_paciente_dice_query[col] = df_paciente_dice_query[col].round().astype('Int64').astype(str)
 
                     features_continuas = [
                         col for col in df_paciente.select_dtypes(include=[np.number]).columns.tolist()
@@ -1659,8 +1675,10 @@ with tab_estrategia:
                                 rangos_permitidos[col] = [0.0, float(val_actual)]
                                 vars_a_variar.append(col)
                         else:
+                            # REGLA: Si la complicación existe (1), DiCE intenta curarla (0)
+                            # Formato STRING '0'/'1' para matchear con df_dice_train
                             if val_actual == 1.0:
-                                rangos_permitidos[col] = [0, 1]
+                                rangos_permitidos[col] = ['0', '1']
                                 vars_a_variar.append(col)
 
                     if 'dias_internados' in df_paciente.columns:
@@ -1673,7 +1691,7 @@ with tab_estrategia:
                     else:
                         MARGEN_BUSQUEDA = 0.005
 
-                        # --- ✅ LOG DE ERRORES REALES (para debug, no se muestra al médico) ---
+                        # --- ✅ LOG DE ERRORES REALES (debug, no se muestra por defecto) ---
                         if 'debug_dice_errors' not in st.session_state:
                             st.session_state['debug_dice_errors'] = []
                         st.session_state['debug_dice_errors'].clear()
@@ -1684,44 +1702,30 @@ with tab_estrategia:
 
                             cf_local = None
 
-                            # --- ✅ CASCADA DE 3 MÉTODOS: kdtree -> genetic -> random ---
-                            # kdtree: rápido, requiere un punto REAL en la muestra que cumpla todo.
+                            # --- ✅ kdtree EXCLUIDO: bug conocido con dtype category ---
+                            # genetic: optimiza directamente, no depende de un punto real en la muestra.
                             try:
-                                exp_local = dice_ml.Dice(d, m_local, method="kdtree")
+                                exp_local = dice_ml.Dice(d, m_local, method="genetic")
                                 dice_exp_local = exp_local.generate_counterfactuals(
-                                    df_paciente, total_CFs=total_cfs, desired_class="opposite",
+                                    df_paciente_dice_query, total_CFs=total_cfs, desired_class="opposite",
                                     features_to_vary=vars_a_variar, permitted_range=rangos_permitidos,
                                 )
                                 cf_local = dice_exp_local.cf_examples_list[0].final_cfs_df
                             except Exception as e1:
-                                st.session_state['debug_dice_errors'].append(f"kdtree: {e1}")
+                                st.session_state['debug_dice_errors'].append(f"genetic: {e1}")
                                 cf_local = None
 
-                            # genetic: optimiza directamente, no necesita un punto real existente.
-                            if cf_local is None or cf_local.empty:
-                                try:
-                                    exp_local = dice_ml.Dice(d, m_local, method="genetic")
-                                    dice_exp_local = exp_local.generate_counterfactuals(
-                                        df_paciente, total_CFs=total_cfs, desired_class="opposite",
-                                        features_to_vary=vars_a_variar, permitted_range=rangos_permitidos,
-                                    )
-                                    cf_local = dice_exp_local.cf_examples_list[0].final_cfs_df
-                                except Exception as e2:
-                                    st.session_state['debug_dice_errors'].append(f"genetic: {e2}")
-                                    cf_local = None
-
-                            # random: último recurso, alta iteración.
                             if cf_local is None or cf_local.empty:
                                 try:
                                     exp_local = dice_ml.Dice(d, m_local, method="random")
                                     dice_exp_local = exp_local.generate_counterfactuals(
-                                        df_paciente, total_CFs=total_cfs * 3, desired_class="opposite",
+                                        df_paciente_dice_query, total_CFs=total_cfs * 3, desired_class="opposite",
                                         features_to_vary=vars_a_variar, permitted_range=rangos_permitidos,
                                         random_seed=42
                                     )
                                     cf_local = dice_exp_local.cf_examples_list[0].final_cfs_df
-                                except Exception as e3:
-                                    st.session_state['debug_dice_errors'].append(f"random: {e3}")
+                                except Exception as e2:
+                                    st.session_state['debug_dice_errors'].append(f"random: {e2}")
                                     cf_local = None
 
                             if cf_local is None or cf_local.empty:
@@ -1729,6 +1733,8 @@ with tab_estrategia:
 
                             cf_local = cf_local.copy()
 
+                            # Redondeo seguro a tipos nativos
+                            # (pd.to_numeric maneja tanto '0'/'1' string como floats sin problema)
                             for col in vars_a_variar:
                                 if col not in ['EVO_dolor_eva', 'EVO_gravedad_percibida', 'dias_internados']:
                                     cf_local[col] = pd.to_numeric(cf_local[col], errors='coerce').fillna(0)
@@ -1754,6 +1760,7 @@ with tab_estrategia:
                             if cf_local.empty:
                                 return None
 
+                            # Deduplicar por firma
                             firmas_vistas = {}
                             rutas_unicas = []
                             for idx_row, row in cf_local.iterrows():
@@ -1807,12 +1814,14 @@ with tab_estrategia:
                                 umbral_logrado = umbral_valid
                                 break
 
-                        # --- ✅ AVISO de variables sin impacto activas (independiente del resultado) ---
+                        # --- ✅ Aviso de variables activas sin impacto medible ---
                         if variables_sin_impacto_activas:
-                            nombres_legibles = ", ".join(v.replace('EVO_', '').replace('_', ' ').title() for v in variables_sin_impacto_activas)
+                            nombres_legibles = ", ".join(
+                                v.replace('EVO_', '').replace('_', ' ').title() for v in variables_sin_impacto_activas
+                            )
                             st.caption(f"ℹ️ Active conditions excluded as targets (no measurable model impact): {nombres_legibles}")
 
-                        # --- ✅ Debug expander: solo errores reales, no se muestra al médico por defecto ---
+                        # --- ✅ Debug expander: solo errores reales ---
                         if st.session_state['debug_dice_errors']:
                             with st.expander("🔬 DEBUG: DiCE search errors", expanded=False):
                                 for err in st.session_state['debug_dice_errors']:
