@@ -1490,7 +1490,7 @@ with tab_estrategia:
                     status_evo_sim[col] = st.toggle(label, value=val_init, key=f"sim_{col}_base_{val_init}")
 
     # ==================================================================
-    # COLUMNA DERECHA: RUTAS DE ESTABILIZACIÓN (DiCE) — CORREGIDO
+    # COLUMNA DERECHA: RUTAS DE ESTABILIZACIÓN (DiCE)
     # ==================================================================
     with col_rutas:
         st.markdown("---")
@@ -1622,7 +1622,8 @@ with tab_estrategia:
 
                     if 'dias_internados' in df_paciente.columns:
                         val_dias = float(df_paciente['dias_internados'].iloc[0])
-                        rangos_permitidos['dias_internados'] = [val_dias, val_dias + 7.0]
+                        # AUMENTO DEL RANGO: Permitimos a DiCE explorar hasta 14 días extra para igualar al Sandbox
+                        rangos_permitidos['dias_internados'] = [val_dias, val_dias + 14.0]
                         vars_a_variar.append('dias_internados')
 
                     if not vars_a_variar:
@@ -1631,19 +1632,20 @@ with tab_estrategia:
                         # ----------------------------------------------------------------
                         # FIX 2 + 3: umbrales relativos (no 0.5 fijo) + validación final
                         # ----------------------------------------------------------------
-                        MARGEN_BUSQUEDA = 0.01          # colchón para que la búsqueda no quede al filo
+                        MARGEN_BUSQUEDA = 0.002         # Reducido drásticamente para evitar que descarte soluciones limítrofes válidas
                         PASOS_MITIGACION = [0.05, 0.10, 0.15]  # cuánto por encima del umbral real se relaja
 
-                        def generar_y_validar(umbral_calibracion, umbral_validacion, total_cfs=12):
+                        def generar_y_validar(umbral_calibracion, umbral_validacion, total_cfs=20):
                             """Genera CFs con DiCE calibrado a 'umbral_calibracion' y valida
                             cada candidato redondeado contra el pipeline REAL exigiendo
                             riesgo_real < umbral_validacion. Devuelve un DataFrame ya
                             redondeado, deduplicado y validado, o None si no hay nada viable."""
                             modelo_sinc = ModeloSincronizado(pipeline, columnas_modelo, umbral_calibracion)
                             m_local = dice_ml.Model(model=modelo_sinc, backend="sklearn")
-                            exp_local = dice_ml.Dice(d, m_local, method="random")
-
+                            
                             try:
+                                # CAMBIO CLAVE: Algoritmo Genético es vastamente superior encontrando combinaciones exactas
+                                exp_local = dice_ml.Dice(d, m_local, method="genetic")
                                 dice_exp_local = exp_local.generate_counterfactuals(
                                     df_paciente, total_CFs=total_cfs, desired_class="opposite",
                                     features_to_vary=vars_a_variar, permitted_range=rangos_permitidos,
@@ -1651,20 +1653,31 @@ with tab_estrategia:
                                 )
                                 cf_local = dice_exp_local.cf_examples_list[0].final_cfs_df
                             except Exception:
-                                cf_local = None
+                                # Fallback a random: si falla genetic (librería ausente), doblamos los intentos aleatorios
+                                try:
+                                    exp_local = dice_ml.Dice(d, m_local, method="random")
+                                    dice_exp_local = exp_local.generate_counterfactuals(
+                                        df_paciente, total_CFs=total_cfs * 2, desired_class="opposite",
+                                        features_to_vary=vars_a_variar, permitted_range=rangos_permitidos,
+                                        random_seed=42
+                                    )
+                                    cf_local = dice_exp_local.cf_examples_list[0].final_cfs_df
+                                except Exception:
+                                    cf_local = None
 
                             if cf_local is None or cf_local.empty:
                                 return None
 
                             cf_local = cf_local.copy()
 
-                            # Redondeo a unidades clínicas (ya debería venir casi exacto
-                            # gracias a continuous_features_precision, esto es solo blindaje)
+                            # Redondeo a unidades clínicas con coerción segura (BLINDAJE DE TIPOS)
                             for col in vars_a_variar:
                                 if col not in ['EVO_dolor_eva', 'EVO_gravedad_percibida', 'dias_internados']:
+                                    # DiCE trata binarias como categóricas devolviendo Strings. Forzamos a numérico.
+                                    cf_local[col] = pd.to_numeric(cf_local[col], errors='coerce').fillna(0)
                                     cf_local[col] = (cf_local[col] >= 0.5).astype(int)
                                 else:
-                                    cf_local[col] = cf_local[col].round()
+                                    cf_local[col] = pd.to_numeric(cf_local[col], errors='coerce').fillna(0).round()
 
                             cf_local = cf_local.drop_duplicates(subset=vars_a_variar).reset_index(drop=True)
 
@@ -1731,7 +1744,7 @@ with tab_estrategia:
                         umbral_logrado = None
 
                         for umbral_calib, umbral_valid, es_alta_segura in etapas:
-                            resultado = generar_y_validar(umbral_calib, umbral_valid, total_cfs=12)
+                            resultado = generar_y_validar(umbral_calib, umbral_valid, total_cfs=20)
                             if resultado is not None and not resultado.empty:
                                 cf_df = resultado
                                 modo_mitigacion = not es_alta_segura
@@ -1994,7 +2007,6 @@ with tab_estrategia:
     except Exception as e:
         st.error("Simulation engine encountered an error.")
         st.warning(f"Error detail: {str(e)}")
-
 
 # ==========================================
 # --- 8 TAB EVIDENCIA ---
