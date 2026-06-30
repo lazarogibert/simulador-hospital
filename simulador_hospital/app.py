@@ -1601,52 +1601,66 @@ with tab_estrategia:
                     rangos_permitidos = {}
                     vars_a_variar = []
 
-                    # --- FIJADO: RESTRICCIÓN DE BÚSQUEDA CLÍNICA PARA ASEGURAR CONVERGENCIA ---
+                    # --- CORRECCIÓN VITAL: BÚSQUEDA ASIMÉTRICA ---
                     for col in variables_accionables:
                         val_actual = float(df_paciente[col].iloc[0])
-                        vars_a_variar.append(col) # Entran TODAS incondicionalmente
-
+                        
                         if 'gravedad' in col:
-                            # Solo permitimos explorar hacia la mejoría o igual
-                            rangos_permitidos[col] = [1.0, max(1.0, val_actual)]
+                            if val_actual > 1.0:
+                                rangos_permitidos[col] = [1.0, float(val_actual)]
+                                vars_a_variar.append(col)
                         elif 'dolor' in col:
-                            rangos_permitidos[col] = [0.0, max(0.0, val_actual)]
+                            if val_actual > 0.0:
+                                rangos_permitidos[col] = [0.0, float(val_actual)]
+                                vars_a_variar.append(col)
                         else:
-                            # Variables binarias completamente libres
-                            rangos_permitidos[col] = [0, 1]
+                            # REGLA: Si la complicación existe (1), DiCE intenta curarla (0)
+                            if val_actual == 1.0:
+                                rangos_permitidos[col] = [0, 1]
+                                vars_a_variar.append(col)
+                            # Si NO existe, NO se toca (evita explorar millones de combinaciones absurdas)
 
                     if 'dias_internados' in df_paciente.columns:
                         val_dias = float(df_paciente['dias_internados'].iloc[0])
-                        rangos_permitidos['dias_internados'] = [max(0.0, val_dias - 2.0), val_dias + 14.0]
+                        rangos_permitidos['dias_internados'] = [val_dias, val_dias + 10.0] # Damos margen sensato
                         vars_a_variar.append('dias_internados')
 
                     if not vars_a_variar:
                         st.error("There are no modifiable clinical targets in the patient's current evolution that can improve their condition.")
                     else:
-                        MARGEN_BUSQUEDA = 0.005 # Ajustado a 0.5% para evitar descartes severos
+                        MARGEN_BUSQUEDA = 0.005 # Colchón técnico
 
-                        def generar_y_validar(umbral_calibracion, umbral_validacion, total_cfs=30):
+                        def generar_y_validar(umbral_calibracion, umbral_validacion, total_cfs=20):
                             modelo_sinc = ModeloSincronizado(pipeline, columnas_modelo, umbral_calibracion)
                             m_local = dice_ml.Model(model=modelo_sinc, backend="sklearn")
                             
                             try:
-                                # Retornamos a random con más iterations: es más estable cuando el espacio está bien delimitado por rangos_permitidos
-                                exp_local = dice_ml.Dice(d, m_local, method="random")
+                                # kdtree busca soluciones reales en los datos, es mucho más estable que random
+                                exp_local = dice_ml.Dice(d, m_local, method="kdtree")
                                 dice_exp_local = exp_local.generate_counterfactuals(
                                     df_paciente, total_CFs=total_cfs, desired_class="opposite",
                                     features_to_vary=vars_a_variar, permitted_range=rangos_permitidos,
-                                    random_seed=42
                                 )
                                 cf_local = dice_exp_local.cf_examples_list[0].final_cfs_df
                             except Exception:
-                                cf_local = None
+                                # Fallback a random con alta iteración solo en caso extremo
+                                try:
+                                    exp_local = dice_ml.Dice(d, m_local, method="random")
+                                    dice_exp_local = exp_local.generate_counterfactuals(
+                                        df_paciente, total_CFs=total_cfs * 3, desired_class="opposite",
+                                        features_to_vary=vars_a_variar, permitted_range=rangos_permitidos,
+                                        random_seed=42
+                                    )
+                                    cf_local = dice_exp_local.cf_examples_list[0].final_cfs_df
+                                except Exception:
+                                    cf_local = None
 
                             if cf_local is None or cf_local.empty:
                                 return None
 
                             cf_local = cf_local.copy()
 
-                            # Redondeo a unidades clínicas con coerción segura (BLINDAJE DE TIPOS)
+                            # Redondeo seguro a tipos nativos
                             for col in vars_a_variar:
                                 if col not in ['EVO_dolor_eva', 'EVO_gravedad_percibida', 'dias_internados']:
                                     cf_local[col] = pd.to_numeric(cf_local[col], errors='coerce').fillna(0)
@@ -1672,7 +1686,7 @@ with tab_estrategia:
                             if cf_local.empty:
                                 return None
 
-                            # Deduplicar por firma cualitativa, priorizando menor esfuerzo clínico
+                            # Deduplicar por firma
                             firmas_vistas = {}
                             rutas_unicas = []
                             for idx_row, row in cf_local.iterrows():
@@ -1707,12 +1721,10 @@ with tab_estrategia:
 
                             return cf_local
 
-                        # --- Construir la escalera DINÁMICA de mitigación ---
+                        # Escalera dinámica
                         etapas = [(umbral - MARGEN_BUSQUEDA, umbral, True)]
-                        
                         distancia_riesgo = riesgo - umbral
                         if distancia_riesgo > 0.01:
-                            # Genera 6 peldaños precisos desde el umbral hasta justo por debajo del riesgo del paciente
                             pasos_dinamicos = np.linspace(umbral + (distancia_riesgo/6), riesgo - 0.005, num=6)
                             for objetivo in pasos_dinamicos:
                                 etapas.append((objetivo - MARGEN_BUSQUEDA, objetivo, False))
@@ -1722,7 +1734,7 @@ with tab_estrategia:
                         umbral_logrado = None
 
                         for umbral_calib, umbral_valid, es_alta_segura in etapas:
-                            resultado = generar_y_validar(umbral_calib, umbral_valid, total_cfs=30)
+                            resultado = generar_y_validar(umbral_calib, umbral_valid, total_cfs=20)
                             if resultado is not None and not resultado.empty:
                                 cf_df = resultado
                                 modo_mitigacion = not es_alta_segura
