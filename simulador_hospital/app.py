@@ -983,50 +983,6 @@ for col in variables_categoricas_train:
 
 df_paciente = pd.DataFrame([paciente_data])[columnas_modelo]
 
-# ==========================================
-# 🔬 DEBUG TEMPORAL - DIAGNÓSTICO EVO MUERTAS
-# ==========================================
-with st.expander("🔬 DEBUG: Diagnóstico de variables EVO", expanded=False):
-    prep_debug = pipeline.named_steps['preprocesador']
-    
-    variables_a_testear = [
-        'EVO_aislamiento_infeccioso',
-        'EVO_complicacion_internacion',
-        'EVO_cambio_terapeutico_mayor',
-        'EVO_intervencion_quirurgica',
-        'EVO_soporte_transfusional',
-        'EVO_terapia_endovenosa_prolongada',
-        'EVO_inestabilidad_residual',
-        'EVO_alteracion_mental',  # control: esta SÍ tiene delta
-    ]
-    
-    nombres_prep = prep_debug.get_feature_names_out()
-    
-    for var in variables_a_testear:
-        if var not in df_paciente.columns:
-            st.write(f"⚠️ {var}: no existe en df_paciente")
-            continue
-        
-        fila_a = df_paciente.copy()
-        fila_b = df_paciente.copy()
-        fila_a[var] = 0
-        fila_b[var] = 1
-        
-        Xa = prep_debug.transform(fila_a)
-        Xb = prep_debug.transform(fila_b)
-        Xa = Xa.toarray() if hasattr(Xa, 'toarray') else np.array(Xa)
-        Xb = Xb.toarray() if hasattr(Xb, 'toarray') else np.array(Xb)
-        
-        diff = np.abs(Xa - Xb)
-        idx_cambiados = np.where(diff.sum(axis=0) > 1e-9)[0]
-        
-        pred_a = pipeline.predict_proba(fila_a)[0][1]
-        pred_b = pipeline.predict_proba(fila_b)[0][1]
-        
-        st.markdown(f"**{var}**")
-        st.write(f"- Columnas afectadas en preprocesador: {list(nombres_prep[idx_cambiados]) if len(idx_cambiados) > 0 else '❌ NINGUNA'}")
-        st.write(f"- predict_proba(0) = {pred_a:.4f} | predict_proba(1) = {pred_b:.4f} | diferencia = {abs(pred_b-pred_a):.4f}")
-        st.markdown("---")
 
 # ==========================================
 # TABS & DASHBOARD
@@ -1452,6 +1408,24 @@ with tab_estrategia:
     # ----------------------------------------------------------------
     # HELPERS COMPARTIDOS (una sola fuente de verdad para los deltas)
     # ----------------------------------------------------------------
+    @st.cache_resource
+def calcular_importancia_por_variable(_pipeline, _columnas_modelo):
+    """Mapea cada variable cruda a su importancia real en el modelo final."""
+    prep = _pipeline.named_steps['preprocesador']
+    clf = _pipeline.named_steps['clasificador']
+    nombres_prep = prep.get_feature_names_out()
+
+    if not hasattr(clf, 'feature_importances_'):
+        # Modelo sin feature_importances_ (ej. lineal): no filtramos, dejamos pasar todo
+        return {col: 1.0 for col in _columnas_modelo}
+
+    importancias = clf.feature_importances_
+    mapa = {}
+    for col in _columnas_modelo:
+        candidatos = [i for i, n in enumerate(nombres_prep) if n.split('__')[-1] == col]
+        mapa[col] = max([importancias[i] for i in candidatos], default=0.0)
+    return mapa
+    
     PARES_DELTA = {
         'DELTA_dolor_eva': ('EVO_dolor_eva', 'ING_dolor_eva'),
         'DELTA_gravedad_percibida': ('EVO_gravedad_percibida', 'ING_gravedad_percibida'),
@@ -1613,7 +1587,14 @@ with tab_estrategia:
                     df_paciente_para_dice['target'] = 1
                     df_dice_train = pd.concat([df_dice_train, df_paciente_para_dice], ignore_index=True)
 
-                    variables_accionables = [col for col in columnas_modelo if col.startswith('EVO_')]
+                    UMBRAL_IMPORTANCIA = 1e-6  # ajustable; cualquier cosa por encima de "prácticamente cero"
+
+                    importancia_map = calcular_importancia_por_variable(pipeline, columnas_modelo)
+                        
+                    variables_accionables = [
+                        col for col in columnas_modelo
+                        if col.startswith('EVO_') and importancia_map.get(col, 0.0) > UMBRAL_IMPORTANCIA
+                    ]
 
                     features_binarias_evo = [
                         col for col in variables_accionables
