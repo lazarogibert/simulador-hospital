@@ -984,6 +984,51 @@ for col in variables_categoricas_train:
 df_paciente = pd.DataFrame([paciente_data])[columnas_modelo]
 
 # ==========================================
+# 🔬 DEBUG TEMPORAL - DIAGNÓSTICO EVO MUERTAS
+# ==========================================
+with st.expander("🔬 DEBUG: Diagnóstico de variables EVO", expanded=False):
+    prep_debug = pipeline.named_steps['preprocesador']
+    
+    variables_a_testear = [
+        'EVO_aislamiento_infeccioso',
+        'EVO_complicacion_internacion',
+        'EVO_cambio_terapeutico_mayor',
+        'EVO_intervencion_quirurgica',
+        'EVO_soporte_transfusional',
+        'EVO_terapia_endovenosa_prolongada',
+        'EVO_inestabilidad_residual',
+        'EVO_alteracion_mental',  # control: esta SÍ tiene delta
+    ]
+    
+    nombres_prep = prep_debug.get_feature_names_out()
+    
+    for var in variables_a_testear:
+        if var not in df_paciente.columns:
+            st.write(f"⚠️ {var}: no existe en df_paciente")
+            continue
+        
+        fila_a = df_paciente.copy()
+        fila_b = df_paciente.copy()
+        fila_a[var] = 0
+        fila_b[var] = 1
+        
+        Xa = prep_debug.transform(fila_a)
+        Xb = prep_debug.transform(fila_b)
+        Xa = Xa.toarray() if hasattr(Xa, 'toarray') else np.array(Xa)
+        Xb = Xb.toarray() if hasattr(Xb, 'toarray') else np.array(Xb)
+        
+        diff = np.abs(Xa - Xb)
+        idx_cambiados = np.where(diff.sum(axis=0) > 1e-9)[0]
+        
+        pred_a = pipeline.predict_proba(fila_a)[0][1]
+        pred_b = pipeline.predict_proba(fila_b)[0][1]
+        
+        st.markdown(f"**{var}**")
+        st.write(f"- Columnas afectadas en preprocesador: {list(nombres_prep[idx_cambiados]) if len(idx_cambiados) > 0 else '❌ NINGUNA'}")
+        st.write(f"- predict_proba(0) = {pred_a:.4f} | predict_proba(1) = {pred_b:.4f} | diferencia = {abs(pred_b-pred_a):.4f}")
+        st.markdown("---")
+
+# ==========================================
 # TABS & DASHBOARD
 # ==========================================
 tab_diagnostico, tab_estrategia, tab_evidencia, tab_umap, tab_eda = st.tabs([
