@@ -1409,7 +1409,7 @@ with tab_estrategia:
     # HELPERS COMPARTIDOS (una sola fuente de verdad para los deltas)
     # ----------------------------------------------------------------
     @st.cache_resource
-def calcular_importancia_por_variable(_pipeline, _columnas_modelo):
+    def calcular_importancia_por_variable(_pipeline, _columnas_modelo):
     """Mapea cada variable cruda a su importancia real en el modelo final."""
     prep = _pipeline.named_steps['preprocesador']
     clf = _pipeline.named_steps['clasificador']
