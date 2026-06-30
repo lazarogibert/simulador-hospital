@@ -1568,9 +1568,6 @@ with tab_estrategia:
                     df_paciente_para_dice['target'] = 1
                     df_dice_train = pd.concat([df_dice_train, df_paciente_para_dice], ignore_index=True)
 
-                    # ----------------------------------------------------------------
-                    # FIX 1: separar correctamente continuas vs categóricas + precisión
-                    # ----------------------------------------------------------------
                     variables_accionables = [col for col in columnas_modelo if col.startswith('EVO_')]
 
                     features_binarias_evo = [
@@ -1604,46 +1601,37 @@ with tab_estrategia:
                     rangos_permitidos = {}
                     vars_a_variar = []
 
-                    # AHORA TODAS LAS VARIABLES EVO ENTRAN INCONDICIONALMENTE
+                    # --- FIJADO: RESTRICCIÓN DE BÚSQUEDA CLÍNICA PARA ASEGURAR CONVERGENCIA ---
                     for col in variables_accionables:
                         val_actual = float(df_paciente[col].iloc[0])
-                        vars_a_variar.append(col)
+                        vars_a_variar.append(col) # Entran TODAS incondicionalmente
 
                         if 'gravedad' in col:
-                            # Permitimos al algoritmo buscar en el rango fisiológico completo
-                            rangos_permitidos[col] = [1.0, 10.0]
+                            # Solo permitimos explorar hacia la mejoría o igual
+                            rangos_permitidos[col] = [1.0, max(1.0, val_actual)]
                         elif 'dolor' in col:
-                            rangos_permitidos[col] = [0.0, 10.0]
+                            rangos_permitidos[col] = [0.0, max(0.0, val_actual)]
                         else:
                             # Variables binarias completamente libres
                             rangos_permitidos[col] = [0, 1]
 
                     if 'dias_internados' in df_paciente.columns:
                         val_dias = float(df_paciente['dias_internados'].iloc[0])
-                        # AUMENTO DEL RANGO: Permitimos a DiCE explorar hasta 14 días extra
-                        rangos_permitidos['dias_internados'] = [val_dias, val_dias + 14.0]
+                        rangos_permitidos['dias_internados'] = [max(0.0, val_dias - 2.0), val_dias + 14.0]
                         vars_a_variar.append('dias_internados')
 
                     if not vars_a_variar:
                         st.error("There are no modifiable clinical targets in the patient's current evolution that can improve their condition.")
                     else:
-                        # ----------------------------------------------------------------
-                        # FIX 2 + 3: umbrales relativos (no 0.5 fijo) + validación final
-                        # ----------------------------------------------------------------
-                        MARGEN_BUSQUEDA = 0.002         # Reducido drásticamente para evitar que descarte soluciones limítrofes válidas
-                        PASOS_MITIGACION = [0.05, 0.10, 0.15]  # cuánto por encima del umbral real se relaja
+                        MARGEN_BUSQUEDA = 0.005 # Ajustado a 0.5% para evitar descartes severos
 
-                        def generar_y_validar(umbral_calibracion, umbral_validacion, total_cfs=20):
-                            """Genera CFs con DiCE calibrado a 'umbral_calibracion' y valida
-                            cada candidato redondeado contra el pipeline REAL exigiendo
-                            riesgo_real < umbral_validacion. Devuelve un DataFrame ya
-                            redondeado, deduplicado y validado, o None si no hay nada viable."""
+                        def generar_y_validar(umbral_calibracion, umbral_validacion, total_cfs=30):
                             modelo_sinc = ModeloSincronizado(pipeline, columnas_modelo, umbral_calibracion)
                             m_local = dice_ml.Model(model=modelo_sinc, backend="sklearn")
                             
                             try:
-                                # Algoritmo Genético es vastamente superior encontrando combinaciones exactas
-                                exp_local = dice_ml.Dice(d, m_local, method="genetic")
+                                # Retornamos a random con más iterations: es más estable cuando el espacio está bien delimitado por rangos_permitidos
+                                exp_local = dice_ml.Dice(d, m_local, method="random")
                                 dice_exp_local = exp_local.generate_counterfactuals(
                                     df_paciente, total_CFs=total_cfs, desired_class="opposite",
                                     features_to_vary=vars_a_variar, permitted_range=rangos_permitidos,
@@ -1651,17 +1639,7 @@ with tab_estrategia:
                                 )
                                 cf_local = dice_exp_local.cf_examples_list[0].final_cfs_df
                             except Exception:
-                                # Fallback a random si falla genetic (librería ausente)
-                                try:
-                                    exp_local = dice_ml.Dice(d, m_local, method="random")
-                                    dice_exp_local = exp_local.generate_counterfactuals(
-                                        df_paciente, total_CFs=total_cfs * 2, desired_class="opposite",
-                                        features_to_vary=vars_a_variar, permitted_range=rangos_permitidos,
-                                        random_seed=42
-                                    )
-                                    cf_local = dice_exp_local.cf_examples_list[0].final_cfs_df
-                                except Exception:
-                                    cf_local = None
+                                cf_local = None
 
                             if cf_local is None or cf_local.empty:
                                 return None
@@ -1671,7 +1649,6 @@ with tab_estrategia:
                             # Redondeo a unidades clínicas con coerción segura (BLINDAJE DE TIPOS)
                             for col in vars_a_variar:
                                 if col not in ['EVO_dolor_eva', 'EVO_gravedad_percibida', 'dias_internados']:
-                                    # DiCE trata binarias como categóricas devolviendo Strings. Forzamos a numérico.
                                     cf_local[col] = pd.to_numeric(cf_local[col], errors='coerce').fillna(0)
                                     cf_local[col] = (cf_local[col] >= 0.5).astype(int)
                                 else:
@@ -1679,7 +1656,7 @@ with tab_estrategia:
 
                             cf_local = cf_local.drop_duplicates(subset=vars_a_variar).reset_index(drop=True)
 
-                            # --- VALIDACIÓN FINAL: recalcular con el pipeline REAL ---
+                            # --- VALIDACIÓN FINAL ---
                             riesgos_reales = []
                             es_valida = []
                             for idx_row in range(len(cf_local)):
@@ -1730,11 +1707,14 @@ with tab_estrategia:
 
                             return cf_local
 
-                        # --- Construir la escalera de etapas: alta segura -> mitigación graduada ---
+                        # --- Construir la escalera DINÁMICA de mitigación ---
                         etapas = [(umbral - MARGEN_BUSQUEDA, umbral, True)]
-                        for paso in PASOS_MITIGACION:
-                            objetivo = umbral + paso
-                            if objetivo < riesgo - 0.01:  # solo tiene sentido si mejora el riesgo actual
+                        
+                        distancia_riesgo = riesgo - umbral
+                        if distancia_riesgo > 0.01:
+                            # Genera 6 peldaños precisos desde el umbral hasta justo por debajo del riesgo del paciente
+                            pasos_dinamicos = np.linspace(umbral + (distancia_riesgo/6), riesgo - 0.005, num=6)
+                            for objetivo in pasos_dinamicos:
                                 etapas.append((objetivo - MARGEN_BUSQUEDA, objetivo, False))
 
                         cf_df = None
@@ -1742,7 +1722,7 @@ with tab_estrategia:
                         umbral_logrado = None
 
                         for umbral_calib, umbral_valid, es_alta_segura in etapas:
-                            resultado = generar_y_validar(umbral_calib, umbral_valid, total_cfs=20)
+                            resultado = generar_y_validar(umbral_calib, umbral_valid, total_cfs=30)
                             if resultado is not None and not resultado.empty:
                                 cf_df = resultado
                                 modo_mitigacion = not es_alta_segura
@@ -1883,15 +1863,12 @@ with tab_estrategia:
             for col, val in status_evo_sim.items():
                 overrides_sandbox[col] = 1.0 if val else 0.0
 
-            # Misma función usada para validar las rutas de DiCE -> consistencia garantizada
             df_sim = construir_fila_simulada(df_paciente, overrides_sandbox)
 
-            # Cálculo de riesgos marginales
             riesgo_base = pipeline.predict_proba(df_paciente)[0][1]
             riesgo_simulado = pipeline.predict_proba(df_sim)[0][1]
             variacion_riesgo = (riesgo_simulado - riesgo_base) * 100
 
-            # Extracción del pipeline
             prep = pipeline.named_steps['preprocesador']
             clf = pipeline.named_steps['clasificador']
 
@@ -1900,7 +1877,6 @@ with tab_estrategia:
 
             columnas_modelo_final = list(prep.get_feature_names_out())
 
-            # --- DICCIONARIO ACTUALIZADO ---
             ui_dict = {
                 'dias_internados': 'Hospitalization Length of Stay',
                 'DELTA_dolor_eva': 'Δ Pain Progression (Discharge - Admission)',
@@ -1946,14 +1922,11 @@ with tab_estrategia:
 
                 if n_clean.startswith(('EVO_', 'DELTA_')) or n_clean == 'dias_internados':
                     peso_pct = shap_sim[i] * 100
-
-                    # --- CORRECCIÓN DE VISIBILIDAD: OCULTAR LO INACTIVO ---
                     es_valido = True
                     
                     val_orig = float(df_paciente.get(n_clean, pd.Series([0.0])).iloc[0])
                     val_sim = float(df_sim.get(n_clean, pd.Series([0.0])).iloc[0])
                     
-                    # Si el paciente nunca tuvo el síntoma (ni al ingreso ni en la simulación), se oculta
                     if val_orig == 0.0 and val_sim == 0.0:
                         es_valido = False
 
@@ -2007,6 +1980,7 @@ with tab_estrategia:
     except Exception as e:
         st.error("Simulation engine encountered an error.")
         st.warning(f"Error detail: {str(e)}")
+        
 # ==========================================
 # --- 8 TAB EVIDENCIA ---
 # ==========================================
