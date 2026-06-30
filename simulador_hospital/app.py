@@ -1410,7 +1410,7 @@ with tab_estrategia:
     # ----------------------------------------------------------------
     @st.cache_resource
     def calcular_importancia_por_variable(_pipeline, _columnas_modelo):
-    """Mapea cada variable cruda a su importancia real en el modelo final."""
+    #"""Mapea cada variable cruda a su importancia real en el modelo final."""
         prep = _pipeline.named_steps['preprocesador']
         clf = _pipeline.named_steps['clasificador']
         nombres_prep = prep.get_feature_names_out()
