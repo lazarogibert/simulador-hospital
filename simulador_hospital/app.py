@@ -1410,22 +1410,21 @@ with tab_estrategia:
     # ----------------------------------------------------------------
     @st.cache_resource
     def calcular_importancia_por_variable(_pipeline, _columnas_modelo):
-    #"""Mapea cada variable cruda a su importancia real en el modelo final."""
+        """Mapea cada variable cruda a su importancia real en el modelo final."""
         prep = _pipeline.named_steps['preprocesador']
         clf = _pipeline.named_steps['clasificador']
         nombres_prep = prep.get_feature_names_out()
-    
+
         if not hasattr(clf, 'feature_importances_'):
-            # Modelo sin feature_importances_ (ej. lineal): no filtramos, dejamos pasar todo
             return {col: 1.0 for col in _columnas_modelo}
-    
+
         importancias = clf.feature_importances_
         mapa = {}
         for col in _columnas_modelo:
             candidatos = [i for i, n in enumerate(nombres_prep) if n.split('__')[-1] == col]
             mapa[col] = max([importancias[i] for i in candidatos], default=0.0)
         return mapa
-    
+
     PARES_DELTA = {
         'DELTA_dolor_eva': ('EVO_dolor_eva', 'ING_dolor_eva'),
         'DELTA_gravedad_percibida': ('EVO_gravedad_percibida', 'ING_gravedad_percibida'),
@@ -1587,13 +1586,33 @@ with tab_estrategia:
                     df_paciente_para_dice['target'] = 1
                     df_dice_train = pd.concat([df_dice_train, df_paciente_para_dice], ignore_index=True)
 
-                    UMBRAL_IMPORTANCIA = 1e-6  # ajustable; cualquier cosa por encima de "prácticamente cero"
+                    # --- ✅ FILTRO DE IMPACTO REAL ---
+                    UMBRAL_IMPORTANCIA = 1e-6
 
                     importancia_map = calcular_importancia_por_variable(pipeline, columnas_modelo)
-                        
-                    variables_accionables = [
-                        col for col in columnas_modelo
-                        if col.startswith('EVO_') and importancia_map.get(col, 0.0) > UMBRAL_IMPORTANCIA
+
+                    def es_relevante(col):
+                        """Considera relevante una EVO si ella misma o su DELTA asociado
+                        tienen peso real en el modelo (evita descartar variables que solo
+                        impactan indirectamente vía el delta)."""
+                        imp_cruda = importancia_map.get(col, 0.0)
+                        col_delta = {
+                            'EVO_dolor_eva': 'DELTA_dolor_eva',
+                            'EVO_gravedad_percibida': 'DELTA_gravedad_percibida',
+                            'EVO_alteracion_mental': 'DELTA_alteracion_mental',
+                            'EVO_dependencia_funcional': 'DELTA_dependencia_funcional',
+                            'EVO_portador_dispositivos': 'DELTA_portador_dispositivos',
+                        }.get(col)
+                        imp_delta = importancia_map.get(col_delta, 0.0) if col_delta else 0.0
+                        return max(imp_cruda, imp_delta) > UMBRAL_IMPORTANCIA
+
+                    variables_accionables_todas = [col for col in columnas_modelo if col.startswith('EVO_')]
+                    variables_accionables = [col for col in variables_accionables_todas if es_relevante(col)]
+
+                    # --- ✅ AVISO: condiciones activas excluidas por no tener impacto medible ---
+                    variables_sin_impacto_activas = [
+                        col for col in variables_accionables_todas
+                        if col not in variables_accionables and float(df_paciente[col].iloc[0]) == 1.0
                     ]
 
                     features_binarias_evo = [
@@ -1630,7 +1649,7 @@ with tab_estrategia:
                     # --- CORRECCIÓN VITAL: BÚSQUEDA ASIMÉTRICA ---
                     for col in variables_accionables:
                         val_actual = float(df_paciente[col].iloc[0])
-                        
+
                         if 'gravedad' in col:
                             if val_actual > 1.0:
                                 rangos_permitidos[col] = [1.0, float(val_actual)]
@@ -1640,36 +1659,59 @@ with tab_estrategia:
                                 rangos_permitidos[col] = [0.0, float(val_actual)]
                                 vars_a_variar.append(col)
                         else:
-                            # REGLA: Si la complicación existe (1), DiCE intenta curarla (0)
                             if val_actual == 1.0:
                                 rangos_permitidos[col] = [0, 1]
                                 vars_a_variar.append(col)
-                            # Si NO existe, NO se toca (evita explorar millones de combinaciones absurdas)
 
                     if 'dias_internados' in df_paciente.columns:
                         val_dias = float(df_paciente['dias_internados'].iloc[0])
-                        rangos_permitidos['dias_internados'] = [val_dias, val_dias + 10.0] # Damos margen sensato
+                        rangos_permitidos['dias_internados'] = [val_dias, val_dias + 10.0]
                         vars_a_variar.append('dias_internados')
 
                     if not vars_a_variar:
                         st.error("There are no modifiable clinical targets in the patient's current evolution that can improve their condition.")
                     else:
-                        MARGEN_BUSQUEDA = 0.005 # Colchón técnico
+                        MARGEN_BUSQUEDA = 0.005
+
+                        # --- ✅ LOG DE ERRORES REALES (para debug, no se muestra al médico) ---
+                        if 'debug_dice_errors' not in st.session_state:
+                            st.session_state['debug_dice_errors'] = []
+                        st.session_state['debug_dice_errors'].clear()
 
                         def generar_y_validar(umbral_calibracion, umbral_validacion, total_cfs=20):
                             modelo_sinc = ModeloSincronizado(pipeline, columnas_modelo, umbral_calibracion)
                             m_local = dice_ml.Model(model=modelo_sinc, backend="sklearn")
-                            
+
+                            cf_local = None
+
+                            # --- ✅ CASCADA DE 3 MÉTODOS: kdtree -> genetic -> random ---
+                            # kdtree: rápido, requiere un punto REAL en la muestra que cumpla todo.
                             try:
-                                # kdtree busca soluciones reales en los datos, es mucho más estable que random
                                 exp_local = dice_ml.Dice(d, m_local, method="kdtree")
                                 dice_exp_local = exp_local.generate_counterfactuals(
                                     df_paciente, total_CFs=total_cfs, desired_class="opposite",
                                     features_to_vary=vars_a_variar, permitted_range=rangos_permitidos,
                                 )
                                 cf_local = dice_exp_local.cf_examples_list[0].final_cfs_df
-                            except Exception:
-                                # Fallback a random con alta iteración solo en caso extremo
+                            except Exception as e1:
+                                st.session_state['debug_dice_errors'].append(f"kdtree: {e1}")
+                                cf_local = None
+
+                            # genetic: optimiza directamente, no necesita un punto real existente.
+                            if cf_local is None or cf_local.empty:
+                                try:
+                                    exp_local = dice_ml.Dice(d, m_local, method="genetic")
+                                    dice_exp_local = exp_local.generate_counterfactuals(
+                                        df_paciente, total_CFs=total_cfs, desired_class="opposite",
+                                        features_to_vary=vars_a_variar, permitted_range=rangos_permitidos,
+                                    )
+                                    cf_local = dice_exp_local.cf_examples_list[0].final_cfs_df
+                                except Exception as e2:
+                                    st.session_state['debug_dice_errors'].append(f"genetic: {e2}")
+                                    cf_local = None
+
+                            # random: último recurso, alta iteración.
+                            if cf_local is None or cf_local.empty:
                                 try:
                                     exp_local = dice_ml.Dice(d, m_local, method="random")
                                     dice_exp_local = exp_local.generate_counterfactuals(
@@ -1678,7 +1720,8 @@ with tab_estrategia:
                                         random_seed=42
                                     )
                                     cf_local = dice_exp_local.cf_examples_list[0].final_cfs_df
-                                except Exception:
+                                except Exception as e3:
+                                    st.session_state['debug_dice_errors'].append(f"random: {e3}")
                                     cf_local = None
 
                             if cf_local is None or cf_local.empty:
@@ -1686,7 +1729,6 @@ with tab_estrategia:
 
                             cf_local = cf_local.copy()
 
-                            # Redondeo seguro a tipos nativos
                             for col in vars_a_variar:
                                 if col not in ['EVO_dolor_eva', 'EVO_gravedad_percibida', 'dias_internados']:
                                     cf_local[col] = pd.to_numeric(cf_local[col], errors='coerce').fillna(0)
@@ -1712,7 +1754,6 @@ with tab_estrategia:
                             if cf_local.empty:
                                 return None
 
-                            # Deduplicar por firma
                             firmas_vistas = {}
                             rutas_unicas = []
                             for idx_row, row in cf_local.iterrows():
@@ -1747,7 +1788,6 @@ with tab_estrategia:
 
                             return cf_local
 
-                        # Escalera dinámica
                         etapas = [(umbral - MARGEN_BUSQUEDA, umbral, True)]
                         distancia_riesgo = riesgo - umbral
                         if distancia_riesgo > 0.01:
@@ -1766,6 +1806,17 @@ with tab_estrategia:
                                 modo_mitigacion = not es_alta_segura
                                 umbral_logrado = umbral_valid
                                 break
+
+                        # --- ✅ AVISO de variables sin impacto activas (independiente del resultado) ---
+                        if variables_sin_impacto_activas:
+                            nombres_legibles = ", ".join(v.replace('EVO_', '').replace('_', ' ').title() for v in variables_sin_impacto_activas)
+                            st.caption(f"ℹ️ Active conditions excluded as targets (no measurable model impact): {nombres_legibles}")
+
+                        # --- ✅ Debug expander: solo errores reales, no se muestra al médico por defecto ---
+                        if st.session_state['debug_dice_errors']:
+                            with st.expander("🔬 DEBUG: DiCE search errors", expanded=False):
+                                for err in st.session_state['debug_dice_errors']:
+                                    st.code(err)
 
                         if cf_df is None or cf_df.empty:
                             st.error("No mathematically viable target routes were found for discharge or mitigation, even after relaxing the clinical target.")
@@ -1790,7 +1841,7 @@ with tab_estrategia:
                                 'EVO_intervencion_quirurgica': 'Surgical Intervention',
                                 'EVO_soporte_transfusional': 'Transfusion Support',
                                 'dias_internados': 'Additional Hospitalization Days',
-                                'EVO_terapia_endovenosa_prolongada': 'Prolonged IV Therapy', 
+                                'EVO_terapia_endovenosa_prolongada': 'Prolonged IV Therapy',
                                 'EVO_inestabilidad_residual': 'Residual Instability'
                             }
 
@@ -1932,7 +1983,7 @@ with tab_estrategia:
                 'EVO_cambio_terapeutico_mayor': 'Major Therapeutic Change',
                 'EVO_intervencion_quirurgica': 'Surgical Intervention Performed',
                 'EVO_soporte_transfusional': 'Transfusion Support Required',
-                'EVO_terapia_endovenosa_prolongada': 'Prolonged IV Therapy', 
+                'EVO_terapia_endovenosa_prolongada': 'Prolonged IV Therapy',
                 'EVO_inestabilidad_residual': 'Residual Instability'
             }
 
@@ -1961,10 +2012,10 @@ with tab_estrategia:
                 if n_clean.startswith(('EVO_', 'DELTA_')) or n_clean == 'dias_internados':
                     peso_pct = shap_sim[i] * 100
                     es_valido = True
-                    
+
                     val_orig = float(df_paciente.get(n_clean, pd.Series([0.0])).iloc[0])
                     val_sim = float(df_sim.get(n_clean, pd.Series([0.0])).iloc[0])
-                    
+
                     if val_orig == 0.0 and val_sim == 0.0:
                         es_valido = False
 
