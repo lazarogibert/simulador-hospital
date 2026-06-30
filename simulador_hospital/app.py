@@ -1411,20 +1411,20 @@ with tab_estrategia:
     @st.cache_resource
     def calcular_importancia_por_variable(_pipeline, _columnas_modelo):
     """Mapea cada variable cruda a su importancia real en el modelo final."""
-    prep = _pipeline.named_steps['preprocesador']
-    clf = _pipeline.named_steps['clasificador']
-    nombres_prep = prep.get_feature_names_out()
-
-    if not hasattr(clf, 'feature_importances_'):
-        # Modelo sin feature_importances_ (ej. lineal): no filtramos, dejamos pasar todo
-        return {col: 1.0 for col in _columnas_modelo}
-
-    importancias = clf.feature_importances_
-    mapa = {}
-    for col in _columnas_modelo:
-        candidatos = [i for i, n in enumerate(nombres_prep) if n.split('__')[-1] == col]
-        mapa[col] = max([importancias[i] for i in candidatos], default=0.0)
-    return mapa
+        prep = _pipeline.named_steps['preprocesador']
+        clf = _pipeline.named_steps['clasificador']
+        nombres_prep = prep.get_feature_names_out()
+    
+        if not hasattr(clf, 'feature_importances_'):
+            # Modelo sin feature_importances_ (ej. lineal): no filtramos, dejamos pasar todo
+            return {col: 1.0 for col in _columnas_modelo}
+    
+        importancias = clf.feature_importances_
+        mapa = {}
+        for col in _columnas_modelo:
+            candidatos = [i for i, n in enumerate(nombres_prep) if n.split('__')[-1] == col]
+            mapa[col] = max([importancias[i] for i in candidatos], default=0.0)
+        return mapa
     
     PARES_DELTA = {
         'DELTA_dolor_eva': ('EVO_dolor_eva', 'ING_dolor_eva'),
