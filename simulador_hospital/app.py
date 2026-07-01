@@ -2808,6 +2808,7 @@ with tab_umap:
             total_internaciones = len(y_hist_global)
             tasa_reingreso_base = (np.sum(y_hist_global) / total_internaciones) * 100 if total_internaciones > 0 else 0.0
             
+            # --- EXTRACCIÓN DE VARIABLES GLOBALES PARA INSIGHTS ---
             col_edad = col_idx.get('rango_edad')
             edades_global = matriz_extended[:, col_edad] if col_edad is not None else np.full(total_internaciones, 'Unknown')
             
@@ -2826,6 +2827,29 @@ with tab_umap:
             visitas_global_raw = matriz_extended[:, col_visitas] if col_visitas is not None else np.zeros(total_internaciones)
             visitas_global_num = pd.to_numeric(visitas_global_raw, errors='coerce')
             visitas_global_num = np.nan_to_num(visitas_global_num, nan=0.0)
+
+            col_inter = col_idx.get('cantidad_interconsultas')
+            inter_global_raw = matriz_extended[:, col_inter] if col_inter is not None else np.zeros(total_internaciones)
+            inter_global_num = pd.to_numeric(inter_global_raw, errors='coerce').fillna(0.0)
+
+            col_amb = col_idx.get('EST_ingreso_ambulancia')
+            amb_global = matriz_extended[:, col_amb] if col_amb is not None else np.zeros(total_internaciones)
+
+            col_uti = col_idx.get('EST_paso_por_uti')
+            uti_global = matriz_extended[:, col_uti] if col_uti is not None else np.zeros(total_internaciones)
+
+            col_triage = col_idx.get('TR_Prioridad')
+            triage_global = matriz_extended[:, col_triage] if col_triage is not None else np.full(total_internaciones, 'Unknown')
+
+            col_perfil = col_idx.get('perfil_clinico_ingreso')
+            perfil_global = matriz_extended[:, col_perfil] if col_perfil is not None else np.full(total_internaciones, 'Unknown')
+
+            triage_map = {
+                '0': '0: Non-Urgent', '0.0': '0: Non-Urgent',
+                '1': '1: Standard', '1.0': '1: Standard',
+                '2': '2: Urgent', '2.0': '2: Urgent',
+                '3': '3: Emergency', '3.0': '3: Emergency'
+            }
             
             hover_texts_global = []
             for i in range(len(y_hist_global)):
@@ -3054,6 +3078,23 @@ with tab_umap:
                     tasa_A = (np.sum(outcomes_A) / len(outcomes_A)) * 100
                     los_A = np.mean(dias_global_num[idx_A])
                     multi_A = np.mean([str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'] for x in pluri_global[idx_A]]) * 100
+                    visitas_A = np.mean(visitas_global_num[idx_A])
+                    inter_A = np.mean(inter_global_num[idx_A])
+                    amb_A = np.mean([str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'] for x in amb_global[idx_A]]) * 100
+                    uti_A = np.mean([str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'] for x in uti_global[idx_A]]) * 100
+                    
+                    triages_A = [triage_map.get(str(t).strip(), "Unknown") for t in triage_global[idx_A]]
+                    if triages_A:
+                        triage_dist_A_str = ", ".join([f"{k} ({v/len(triages_A)*100:.0f}%)" for k, v in pd.Series(triages_A).value_counts().items()])
+                    else:
+                        triage_dist_A_str = "Unknown"
+                    
+                    perfiles_A = [format_clinical_value('perfil_clinico_ingreso', p) for p in perfil_global[idx_A]]
+                    perfiles_validos_A = [p for p in perfiles_A if str(p).strip() not in ["N/A", "-1", "UNKNOWN", "Unknown"]]
+                    if perfiles_validos_A:
+                        perfil_dist_A_str = ", ".join([f"{k} ({v/len(perfiles_validos_A)*100:.0f}%)" for k, v in pd.Series(perfiles_validos_A).value_counts().items()])
+                    else:
+                        perfil_dist_A_str = "Unknown"
                     
                     diags_A = [format_clinical_value('CIE10_MACRO', d) for d in diag_global[idx_A]]
                     if diags_A:
@@ -3069,6 +3110,23 @@ with tab_umap:
                     tasa_B = (np.sum(outcomes_B) / len(outcomes_B)) * 100
                     los_B = np.mean(dias_global_num[idx_B])
                     multi_B = np.mean([str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'] for x in pluri_global[idx_B]]) * 100
+                    visitas_B = np.mean(visitas_global_num[idx_B])
+                    inter_B = np.mean(inter_global_num[idx_B])
+                    amb_B = np.mean([str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'] for x in amb_global[idx_B]]) * 100
+                    uti_B = np.mean([str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'] for x in uti_global[idx_B]]) * 100
+                    
+                    triages_B = [triage_map.get(str(t).strip(), "Unknown") for t in triage_global[idx_B]]
+                    if triages_B:
+                        triage_dist_B_str = ", ".join([f"{k} ({v/len(triages_B)*100:.0f}%)" for k, v in pd.Series(triages_B).value_counts().items()])
+                    else:
+                        triage_dist_B_str = "Unknown"
+                    
+                    perfiles_B = [format_clinical_value('perfil_clinico_ingreso', p) for p in perfil_global[idx_B]]
+                    perfiles_validos_B = [p for p in perfiles_B if str(p).strip() not in ["N/A", "-1", "UNKNOWN", "Unknown"]]
+                    if perfiles_validos_B:
+                        perfil_dist_B_str = ", ".join([f"{k} ({v/len(perfiles_validos_B)*100:.0f}%)" for k, v in pd.Series(perfiles_validos_B).value_counts().items()])
+                    else:
+                        perfil_dist_B_str = "Unknown"
                     
                     diags_B = [format_clinical_value('CIE10_MACRO', d) for d in diag_global[idx_B]]
                     if diags_B:
@@ -3101,6 +3159,17 @@ with tab_umap:
                     st.markdown("#### 3. Multimorbidity & Top Diagnoses")
                     st.markdown(f"- **Zone A:** `{multi_A:.0f}%` Multimorbidity<br>🧬 **Top 3:** *{diag_dom_A_str}*", unsafe_allow_html=True)
                     st.markdown(f"- **Zone B:** `{multi_B:.0f}%` Multimorbidity<br>🧬 **Top 3:** *{diag_dom_B_str}*", unsafe_allow_html=True)
+
+                    st.markdown("#### 4. Healthcare Utilization (Means)")
+                    c_u1, c_u2, c_u3, c_u4 = st.columns(4)
+                    c_u1.metric("ER Visits A", f"{visitas_A:.1f}")
+                    c_u2.metric("ER Visits B", f"{visitas_B:.1f}", delta=f"{visitas_B - visitas_A:+.1f} vs A", delta_color="inverse")
+                    c_u3.metric("Interconsults A", f"{inter_A:.1f}")
+                    c_u4.metric("Interconsults B", f"{inter_B:.1f}", delta=f"{inter_B - inter_A:+.1f} vs A", delta_color="inverse")
+
+                    st.markdown("#### 5. Admission Acuity & Profile")
+                    st.markdown(f"- **Zone A:** `ICU: {uti_A:.0f}%` | `Ambulance: {amb_A:.0f}%`<br>🚦 **Triage:** *{triage_dist_A_str}*<br>📋 **Profile:** *{perfil_dist_A_str}*", unsafe_allow_html=True)
+                    st.markdown(f"- **Zone B:** `ICU: {uti_B:.0f}%` | `Ambulance: {amb_B:.0f}%`<br>🚦 **Triage:** *{triage_dist_B_str}*<br>📋 **Profile:** *{perfil_dist_B_str}*", unsafe_allow_html=True)
                     
                     st.markdown("---")
                     st.markdown("**Descriptive Observation:**")
@@ -3217,12 +3286,34 @@ with tab_umap:
                         
                         los_global_mean = np.mean(dias_global_num)
                         los_local_mean = np.mean(dias_global_num[local_idx])
-                        
                         visitas_local_mean = np.mean(visitas_global_num[local_idx])
+                        inter_local_mean = np.mean(inter_global_num[local_idx])
+                        
+                        local_uti_vals = [str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'] for x in uti_global[local_idx]]
+                        pct_uti_local_str = f"{(np.sum(local_uti_vals) / len(local_uti_vals)) * 100:.0f}%"
+
+                        local_amb_vals = [str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'] for x in amb_global[local_idx]]
+                        pct_amb_local_str = f"{(np.sum(local_amb_vals) / len(local_amb_vals)) * 100:.0f}%"
+                        
+                        triage_locales = [triage_map.get(str(t).strip(), "Unknown") for t in triage_global[local_idx]]
+                        if triage_locales:
+                            triage_dist_str = ", ".join([f"{k} ({v/len(triage_locales)*100:.0f}%)" for k, v in pd.Series(triage_locales).value_counts().items()])
+                        else:
+                            triage_dist_str = "Unknown"
+                        
+                        perfiles_locales = [format_clinical_value('perfil_clinico_ingreso', p) for p in perfil_global[local_idx]]
+                        perfiles_validos = [p for p in perfiles_locales if str(p).strip() not in ["N/A", "-1", "UNKNOWN", "Unknown"]]
+                        if perfiles_validos:
+                            perfil_dist_str = ", ".join([f"{k} ({v/len(perfiles_validos)*100:.0f}%)" for k, v in pd.Series(perfiles_validos).value_counts().items()])
+                        else:
+                            perfil_dist_str = "Unknown"
+
                     else:
                         pct_pluri_local_str = "N/A"
                         diag_dominante_str = "Unknown"
-                        los_global_mean, los_local_mean, visitas_local_mean = 0.0, 0.0, 0.0
+                        los_global_mean, los_local_mean, visitas_local_mean, inter_local_mean = 0.0, 0.0, 0.0, 0.0
+                        pct_uti_local_str, pct_amb_local_str = "N/A", "N/A"
+                        triage_dist_str, perfil_dist_str = "Unknown", "Unknown"
                     
                     st.markdown(f"#### 📋 {box_title}")
                     st.markdown(
@@ -3234,7 +3325,10 @@ with tab_umap:
                                 <li>Top primary diagnoses: <b>{diag_dominante_str}</b>.</li>
                                 <li>A multimorbidity prevalence of <b>{pct_pluri_local_str}</b> among nearby cases.</li>
                                 <li>An average Length of Stay of <b>{los_local_mean:.1f} days</b> (vs. Global Hospital Mean: {los_global_mean:.1f} days).</li>
-                                <li>An average of <b>{visitas_local_mean:.1f} ER visits</b> within the 6 months prior to admission.</li>
+                                <li>An average of <b>{visitas_local_mean:.1f} ER visits</b> and <b>{inter_local_mean:.1f} interconsultations</b>.</li>
+                                <li>An ICU admission rate of <b>{pct_uti_local_str}</b> and Ambulance arrival rate of <b>{pct_amb_local_str}</b>.</li>
+                                <li>Triage Priority distribution: <b>{triage_dist_str}</b>.</li>
+                                <li>Admission Profile distribution: <b>{perfil_dist_str}</b>.</li>
                             </ul>
                             <p style='margin: 0; font-size:12px; color: gray;'><i>Clinical Note: We recommend contextualizing these statistical associations with your clinical judgment or utilizing the Counterfactual Simulator to explore modifiable risk variables.</i></p>
                         </div>
