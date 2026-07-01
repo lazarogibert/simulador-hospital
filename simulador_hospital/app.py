@@ -3054,16 +3054,30 @@ with tab_umap:
                     tasa_A = (np.sum(outcomes_A) / len(outcomes_A)) * 100
                     los_A = np.mean(dias_global_num[idx_A])
                     multi_A = np.mean([str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'] for x in pluri_global[idx_A]]) * 100
+                    
                     diags_A = [format_clinical_value('CIE10_MACRO', d) for d in diag_global[idx_A]]
-                    diag_dom_A = pd.Series(diags_A).mode()[0] if diags_A else "Unknown"
+                    if diags_A:
+                        top3_A_counts = pd.Series(diags_A).value_counts().head(3)
+                        diag_dom_A_str = ", ".join([f"{k} ({v/len(diags_A)*100:.0f}%)" for k, v in top3_A_counts.items()])
+                        diag_dom_A_first = top3_A_counts.index[0]
+                    else:
+                        diag_dom_A_str = "Unknown"
+                        diag_dom_A_first = "Unknown"
 
                     # Extracting dynamic stats for Cluster B
                     outcomes_B = y_hist_global[idx_B]
                     tasa_B = (np.sum(outcomes_B) / len(outcomes_B)) * 100
                     los_B = np.mean(dias_global_num[idx_B])
                     multi_B = np.mean([str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'] for x in pluri_global[idx_B]]) * 100
+                    
                     diags_B = [format_clinical_value('CIE10_MACRO', d) for d in diag_global[idx_B]]
-                    diag_dom_B = pd.Series(diags_B).mode()[0] if diags_B else "Unknown"
+                    if diags_B:
+                        top3_B_counts = pd.Series(diags_B).value_counts().head(3)
+                        diag_dom_B_str = ", ".join([f"{k} ({v/len(diags_B)*100:.0f}%)" for k, v in top3_B_counts.items()])
+                        diag_dom_B_first = top3_B_counts.index[0]
+                    else:
+                        diag_dom_B_str = "Unknown"
+                        diag_dom_B_first = "Unknown"
                     
                     st.markdown(
                         f"""
@@ -3084,14 +3098,14 @@ with tab_umap:
                     c_g3.metric("Neighborhood A", f"{los_A:.1f} d")
                     c_g4.metric("Neighborhood B", f"{los_B:.1f} d", delta=f"{los_B - los_A:+.1f} days vs A", delta_color="inverse")
                     
-                    st.markdown("#### 3. Multimorbidity & Dominant Diagnosis")
-                    st.markdown(f"- **Zone A:** `{multi_A:.0f}%` Multimorbidity | Dom. Diag: *{diag_dom_A}*")
-                    st.markdown(f"- **Zone B:** `{multi_B:.0f}%` Multimorbidity | Dom. Diag: *{diag_dom_B}*")
+                    st.markdown("#### 3. Multimorbidity & Top Diagnoses")
+                    st.markdown(f"- **Zone A:** `{multi_A:.0f}%` Multimorbidity<br>🧬 **Top 3:** *{diag_dom_A_str}*", unsafe_allow_html=True)
+                    st.markdown(f"- **Zone B:** `{multi_B:.0f}%` Multimorbidity<br>🧬 **Top 3:** *{diag_dom_B_str}*", unsafe_allow_html=True)
                     
                     st.markdown("---")
                     st.markdown("**Descriptive Observation:**")
                     if abs(tasa_A - tasa_B) > 10:
-                        insight_gap = f"The selected regions show a critical divergence in risk profiles (Gap: {abs(tasa_A - tasa_B):.1f}%). The geometry explicitly maps the phenomenological gap between {diag_dom_A} and {diag_dom_B}."
+                        insight_gap = f"The selected regions show a critical divergence in risk profiles (Gap: {abs(tasa_A - tasa_B):.1f}%). The geometry explicitly maps the phenomenological gap between {diag_dom_A_first} and {diag_dom_B_first}."
                     elif abs(multi_A - multi_B) > 25:
                         insight_gap = f"While readmission risks may be comparable, the underlying mechanisms differ drastically. Zone A holds {multi_A:.0f}% complex multimorbidity vs {multi_B:.0f}% in Zone B, pointing to distinct stabilization routes."
                     else:
@@ -3195,7 +3209,11 @@ with tab_umap:
                         pct_pluri_local_str = f"{(np.sum(local_pluri_vals) / len(local_pluri_vals)) * 100:.0f}%"
                         
                         diags_locales = [format_clinical_value('CIE10_MACRO', d) for d in diag_global[local_idx]]
-                        diag_dominante = pd.Series(diags_locales).mode()[0] if diags_locales else "Unknown"
+                        if diags_locales:
+                            top3_local_counts = pd.Series(diags_locales).value_counts().head(3)
+                            diag_dominante_str = ", ".join([f"{k} ({v/len(diags_locales)*100:.0f}%)" for k, v in top3_local_counts.items()])
+                        else:
+                            diag_dominante_str = "Unknown"
                         
                         los_global_mean = np.mean(dias_global_num)
                         los_local_mean = np.mean(dias_global_num[local_idx])
@@ -3203,7 +3221,7 @@ with tab_umap:
                         visitas_local_mean = np.mean(visitas_global_num[local_idx])
                     else:
                         pct_pluri_local_str = "N/A"
-                        diag_dominante = "Unknown"
+                        diag_dominante_str = "Unknown"
                         los_global_mean, los_local_mean, visitas_local_mean = 0.0, 0.0, 0.0
                     
                     st.markdown(f"#### 📋 {box_title}")
@@ -3213,7 +3231,7 @@ with tab_umap:
                             <p style='margin: 0 0 8px 0; font-size:13px;'>The current admission aligns with a topological neighborhood characterized by:</p>
                             <ul style='margin: 0 0 8px 0; font-size:13px; padding-left: 20px;'>
                                 <li>A historical readmission rate of <b>{tasa_reingreso_local:.1f}%</b>.</li>
-                                <li>A dominant primary diagnosis of <b>{diag_dominante}</b>.</li>
+                                <li>Top primary diagnoses: <b>{diag_dominante_str}</b>.</li>
                                 <li>A multimorbidity prevalence of <b>{pct_pluri_local_str}</b> among nearby cases.</li>
                                 <li>An average Length of Stay of <b>{los_local_mean:.1f} days</b> (vs. Global Hospital Mean: {los_global_mean:.1f} days).</li>
                                 <li>An average of <b>{visitas_local_mean:.1f} ER visits</b> within the 6 months prior to admission.</li>
@@ -3227,6 +3245,7 @@ with tab_umap:
     except Exception as e:
         st.error("Error generating UMAP projection and insights.")
         st.warning(f"Technical Detail: {str(e)}")
+
 # ==========================================
 # 10. EXPLORATORY DATA ANALYSIS (EDA)
 # ==========================================
