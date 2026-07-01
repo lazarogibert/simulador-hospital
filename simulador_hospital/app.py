@@ -1793,7 +1793,7 @@ with tab_estrategia:
                         cf_local['DELTA_dependencia_funcional'] = cf_local['EVO_dependencia_funcional'] - df_paciente.iloc[0]['ING_dependencia_funcional']
                         cf_local['DELTA_portador_dispositivos'] = cf_local['EVO_portador_dispositivos'] - df_paciente.iloc[0]['ING_portador_dispositivos']
                             
-                    return cf_local
+                     return cf_local
 
                         etapas = [(umbral - MARGEN_BUSQUEDA, umbral, True)]
                         distancia_riesgo = riesgo - umbral
