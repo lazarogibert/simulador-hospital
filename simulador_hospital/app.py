@@ -2544,10 +2544,10 @@ with tab_evidencia:
                         """)
                 
                 with col_panel:
-                    sub_tab_global, sub_tab_inspector = st.tabs(["📊 Gap Analysis", "🔍 Case Inspector"])
+                    sub_tab_global, sub_tab_inspector = st.tabs(["📊 Comparative Analysis", "🔍 Case Inspector"])
                     
                     with sub_tab_global:
-                        st.markdown(f"##### Gap Analysis: Current Patient vs. Neighborhood (n={len(vecinos_idx)})")
+                        st.markdown(f"##### Comparative Analysis: Current Patient vs. Neighborhood (n={len(vecinos_idx)})")
                         st.markdown("""
                                     <style>
                                     div[data-testid="stMetricValue"] {
@@ -3070,7 +3070,7 @@ with tab_umap:
                     # ----------------------------------------------------
                     # MODE 1: DUAL NEIGHBORHOOD SPATIAL CONTRAST
                     # ----------------------------------------------------
-                    st.markdown("### ⚖️ Gap Analysis: Spatial Contrast")
+                    st.markdown("#### Comparative Analysis")
                     idx_A = st.session_state.cluster_A
                     idx_B = st.session_state.cluster_B
                     
