@@ -2830,7 +2830,8 @@ with tab_umap:
 
             col_inter = col_idx.get('cantidad_interconsultas')
             inter_global_raw = matriz_extended[:, col_inter] if col_inter is not None else np.zeros(total_internaciones)
-            inter_global_num = pd.to_numeric(inter_global_raw, errors='coerce').fillna(0.0)
+            inter_global_num = pd.to_numeric(inter_global_raw, errors='coerce')
+            inter_global_num = np.nan_to_num(inter_global_num, nan=0.0)
 
             col_amb = col_idx.get('EST_ingreso_ambulancia')
             amb_global = matriz_extended[:, col_amb] if col_amb is not None else np.zeros(total_internaciones)
