@@ -1518,10 +1518,11 @@ with tab_estrategia:
             """Recalibra la probabilidad real para que el corte 'umbral' quede en 0.5,
             como exige el criterio desired_class='opposite' de DiCE."""
 
-            def __init__(self, pipeline_original, columnas_modelo, umbral_real):
+            def __init__(self, pipeline_original, columnas_modelo, umbral_real, columnas_categoricas):
                 self.pipeline = pipeline_original
                 self.columnas_modelo = columnas_modelo
                 self.umbral = umbral_real
+                self.columnas_categoricas = set(columnas_categoricas)
 
             def predict_proba(self, X):
                 if isinstance(X, np.ndarray):
@@ -1529,13 +1530,13 @@ with tab_estrategia:
                 else:
                     X_sync = X.copy()
 
-                # --- ✅ Las binarias EVO pueden venir como string ('0'/'1') desde DiCE,
-                # las re-convertimos a numérico antes de pasarlas al pipeline real ---
+                # --- ✅ CONVERSIÓN INCONDICIONAL A NUMÉRICO ---
+                # DiCE (genetic/random) puede devolver columnas como 'category', 'object'
+                # o 'str' internamente. En vez de detectar cada dtype problemático,
+                # forzamos a numérico TODO lo que no sea explícitamente categórico real.
                 for col in self.columnas_modelo:
-                    if col in X_sync.columns and X_sync[col].dtype == object:
-                        convertido = pd.to_numeric(X_sync[col], errors='coerce')
-                        if convertido.notna().all():
-                            X_sync[col] = convertido
+                    if col in X_sync.columns and col not in self.columnas_categoricas:
+                        X_sync[col] = pd.to_numeric(X_sync[col], errors='coerce')
 
                 sincronizar_deltas(X_sync)  # única fuente de verdad
 
@@ -1599,7 +1600,6 @@ with tab_estrategia:
                     importancia_map = calcular_importancia_por_variable(pipeline, columnas_modelo)
 
                     def es_relevante(col):
-                        """Relevante si la EVO cruda o su DELTA asociado tienen peso real."""
                         imp_cruda = importancia_map.get(col, 0.0)
                         col_delta = {
                             'EVO_dolor_eva': 'DELTA_dolor_eva',
@@ -1625,13 +1625,9 @@ with tab_estrategia:
                     ]
 
                     # --- ✅ CASTEO EXPLÍCITO Y CONSISTENTE DE BINARIAS A STRING ---
-                    # Controlamos el formato exacto ('0'/'1') en vez de dejar que dice_ml
-                    # lo infiera implícito desde un float (lo que generaba '0.0'/'1.0').
                     for col in features_binarias_evo:
                         df_dice_train[col] = df_dice_train[col].round().astype('Int64').astype(str)
 
-                    # Fila del paciente que se le pasa a DiCE: mismo formato de string
-                    # en esas columnas, si no, DiCE no reconoce el punto de partida.
                     df_paciente_dice_query = df_paciente.copy()
                     for col in features_binarias_evo:
                         df_paciente_dice_query[col] = df_paciente_dice_query[col].round().astype('Int64').astype(str)
@@ -1662,7 +1658,6 @@ with tab_estrategia:
                     rangos_permitidos = {}
                     vars_a_variar = []
 
-                    # --- CORRECCIÓN VITAL: BÚSQUEDA ASIMÉTRICA ---
                     for col in variables_accionables:
                         val_actual = float(df_paciente[col].iloc[0])
 
@@ -1675,8 +1670,6 @@ with tab_estrategia:
                                 rangos_permitidos[col] = [0.0, float(val_actual)]
                                 vars_a_variar.append(col)
                         else:
-                            # REGLA: Si la complicación existe (1), DiCE intenta curarla (0)
-                            # Formato STRING '0'/'1' para matchear con df_dice_train
                             if val_actual == 1.0:
                                 rangos_permitidos[col] = ['0', '1']
                                 vars_a_variar.append(col)
@@ -1691,19 +1684,18 @@ with tab_estrategia:
                     else:
                         MARGEN_BUSQUEDA = 0.005
 
-                        # --- ✅ LOG DE ERRORES REALES (debug, no se muestra por defecto) ---
                         if 'debug_dice_errors' not in st.session_state:
                             st.session_state['debug_dice_errors'] = []
                         st.session_state['debug_dice_errors'].clear()
 
                         def generar_y_validar(umbral_calibracion, umbral_validacion, total_cfs=20):
-                            modelo_sinc = ModeloSincronizado(pipeline, columnas_modelo, umbral_calibracion)
+                            modelo_sinc = ModeloSincronizado(
+                                pipeline, columnas_modelo, umbral_calibracion, variables_categoricas_train
+                            )
                             m_local = dice_ml.Model(model=modelo_sinc, backend="sklearn")
 
                             cf_local = None
 
-                            # --- ✅ kdtree EXCLUIDO: bug conocido con dtype category ---
-                            # genetic: optimiza directamente, no depende de un punto real en la muestra.
                             try:
                                 exp_local = dice_ml.Dice(d, m_local, method="genetic")
                                 dice_exp_local = exp_local.generate_counterfactuals(
@@ -1733,8 +1725,6 @@ with tab_estrategia:
 
                             cf_local = cf_local.copy()
 
-                            # Redondeo seguro a tipos nativos
-                            # (pd.to_numeric maneja tanto '0'/'1' string como floats sin problema)
                             for col in vars_a_variar:
                                 if col not in ['EVO_dolor_eva', 'EVO_gravedad_percibida', 'dias_internados']:
                                     cf_local[col] = pd.to_numeric(cf_local[col], errors='coerce').fillna(0)
@@ -1744,7 +1734,6 @@ with tab_estrategia:
 
                             cf_local = cf_local.drop_duplicates(subset=vars_a_variar).reset_index(drop=True)
 
-                            # --- VALIDACIÓN FINAL ---
                             riesgos_reales = []
                             es_valida = []
                             for idx_row in range(len(cf_local)):
@@ -1760,7 +1749,6 @@ with tab_estrategia:
                             if cf_local.empty:
                                 return None
 
-                            # Deduplicar por firma
                             firmas_vistas = {}
                             rutas_unicas = []
                             for idx_row, row in cf_local.iterrows():
@@ -1814,14 +1802,12 @@ with tab_estrategia:
                                 umbral_logrado = umbral_valid
                                 break
 
-                        # --- ✅ Aviso de variables activas sin impacto medible ---
                         if variables_sin_impacto_activas:
                             nombres_legibles = ", ".join(
                                 v.replace('EVO_', '').replace('_', ' ').title() for v in variables_sin_impacto_activas
                             )
                             st.caption(f"ℹ️ Active conditions excluded as targets (no measurable model impact): {nombres_legibles}")
 
-                        # --- ✅ Debug expander: solo errores reales ---
                         if st.session_state['debug_dice_errors']:
                             with st.expander("🔬 DEBUG: DiCE search errors", expanded=False):
                                 for err in st.session_state['debug_dice_errors']:
