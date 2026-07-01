@@ -1777,23 +1777,23 @@ with tab_estrategia:
 
                             # --- ✅ Aseguramos numérico ANTES de calcular deltas, cubriendo columnas
                             # que DiCE devolvió intactas (como string) por no estar en vars_a_variar ---
-                        columnas_para_delta = [
+                            columnas_para_delta = [
                                 'EVO_dolor_eva', 'EVO_gravedad_percibida',
                                 'EVO_alteracion_mental', 'EVO_dependencia_funcional', 'EVO_portador_dispositivos'
                             ]
-                        for col_d in columnas_para_delta:
-                            if col_d in cf_local.columns:
-                                cf_local[col_d] = pd.to_numeric(cf_local[col_d], errors='coerce').fillna(
-                                    float(df_paciente.iloc[0][col_d])
-                                )
+                            for col_d in columnas_para_delta:
+                                if col_d in cf_local.columns:
+                                    cf_local[col_d] = pd.to_numeric(cf_local[col_d], errors='coerce').fillna(
+                                        float(df_paciente.iloc[0][col_d])
+                                    )
                             
-                        cf_local['DELTA_dolor_eva'] = cf_local['EVO_dolor_eva'] - df_paciente.iloc[0]['ING_dolor_eva']
-                        cf_local['DELTA_gravedad_percibida'] = cf_local['EVO_gravedad_percibida'] - df_paciente.iloc[0]['ING_gravedad_percibida']
-                        cf_local['DELTA_alteracion_mental'] = cf_local['EVO_alteracion_mental'] - df_paciente.iloc[0]['ING_alteracion_mental']
-                        cf_local['DELTA_dependencia_funcional'] = cf_local['EVO_dependencia_funcional'] - df_paciente.iloc[0]['ING_dependencia_funcional']
-                        cf_local['DELTA_portador_dispositivos'] = cf_local['EVO_portador_dispositivos'] - df_paciente.iloc[0]['ING_portador_dispositivos']
+                            cf_local['DELTA_dolor_eva'] = cf_local['EVO_dolor_eva'] - df_paciente.iloc[0]['ING_dolor_eva']
+                            cf_local['DELTA_gravedad_percibida'] = cf_local['EVO_gravedad_percibida'] - df_paciente.iloc[0]['ING_gravedad_percibida']
+                            cf_local['DELTA_alteracion_mental'] = cf_local['EVO_alteracion_mental'] - df_paciente.iloc[0]['ING_alteracion_mental']
+                            cf_local['DELTA_dependencia_funcional'] = cf_local['EVO_dependencia_funcional'] - df_paciente.iloc[0]['ING_dependencia_funcional']
+                            cf_local['DELTA_portador_dispositivos'] = cf_local['EVO_portador_dispositivos'] - df_paciente.iloc[0]['ING_portador_dispositivos']
                             
-                     return cf_local
+                            return cf_local
 
                         etapas = [(umbral - MARGEN_BUSQUEDA, umbral, True)]
                         distancia_riesgo = riesgo - umbral
