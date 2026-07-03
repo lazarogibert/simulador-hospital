@@ -991,7 +991,7 @@ tab_diagnostico, tab_estrategia, tab_evidencia, tab_umap, tab_eda = st.tabs([
     "📊 1. Current Risk & Audit", 
     "🧭 2. Stabilization & Simulation", 
     "🧬 3. Cohort & Inspector (KNN)",
-    "🌌 4. Global Universe (UMAP)",
+    "🌌 4. Global Visualization (UMAP)",
     "📈 5. Exploratory Data"
 ])
 
@@ -2774,10 +2774,10 @@ with tab_evidencia:
         st.warning(f"Technical Detail: {str(e)}")
 
 # ==========================================
-# 9. GLOBAL UNIVERSE (UMAP) IN NEW TAB
+# 9. GLOBAL Visualization (UMAP) IN NEW TAB
 # ==========================================
 with tab_umap:
-    st.markdown("#### Global Clinical Universe Mapping (UMAP)")
+    st.markdown("#### Global Clinical Visualization Mapping (UMAP)")
     try:
         with st.spinner("Projecting multi-dimensional space and calculating topological insights..."):
             modo_color = st.radio(
