@@ -1379,16 +1379,16 @@ with tab_diagnostico:
                 st.warning(str(e))
 
 # ==========================================================================
-# tab_estrategia — VERSIÓN OPTIMIZADA PARA RENDIMIENTO Y ESTABILIDAD
+# tab_estrategia — VERSIÓN CON MOTOR DE CONTRAFACTUALES NATIVO (SIN DICE)
 # ==========================================================================
+import itertools
 
 with tab_estrategia:
     # ----------------------------------------------------------------
-    # HELPERS COMPARTIDOS (una sola fuente de verdad para los deltas)
+    # HELPERS COMPARTIDOS
     # ----------------------------------------------------------------
     @st.cache_resource
     def calcular_importancia_por_variable(_pipeline, _columnas_modelo):
-        """Mapea cada variable cruda a su importancia real en el modelo final."""
         prep = _pipeline.named_steps['preprocesador']
         clf = _pipeline.named_steps['clasificador']
         nombres_prep = prep.get_feature_names_out()
@@ -1412,14 +1412,12 @@ with tab_estrategia:
     }
 
     def sincronizar_deltas(df):
-        """Recalcula las columnas DELTA_* in-place a partir de EVO_ - ING_."""
         for col_delta, (col_evo, col_ing) in PARES_DELTA.items():
             if col_evo in df.columns and col_ing in df.columns:
                 df[col_delta] = df[col_evo] - df[col_ing]
         return df
 
     def construir_fila_simulada(df_base, overrides=None):
-        """Clona la fila base del paciente, aplica overrides y resincroniza deltas."""
         fila = df_base.copy()
         if overrides:
             for col, val in overrides.items():
@@ -1442,378 +1440,181 @@ with tab_estrategia:
             dias_sim = st.slider(
                 label="Hospitalization Stay (Days):",
                 min_value=0, max_value=max_permitido, value=dias_base, step=1,
-                key=f"sim_dias_base_{dias_base}",
-                help="Drag left to simulate premature discharge or right to project extended stay impacts."
+                key=f"sim_dias_base_{dias_base}"
             )
             st.markdown("---")
 
-            st.markdown("**Continuous Evolution Metrics** - *Simulate symptom progression*")
             col_dolor, col_severidad = st.columns(2)
-
             with col_dolor:
-                dolor_crudo = df_paciente['EVO_dolor_eva'].iloc[0] if 'EVO_dolor_eva' in df_paciente.columns else 0.0
-                dolor_base = int(float(dolor_crudo))
-                dolor_sim = st.slider("Current Pain Level (VAS 0-10):", min_value=0, max_value=10, value=dolor_base, step=1, key=f"sim_dolor_base_{dolor_base}")
-
+                dolor_base = int(float(df_paciente['EVO_dolor_eva'].iloc[0] if 'EVO_dolor_eva' in df_paciente.columns else 0.0))
+                dolor_sim = st.slider("Current Pain Level (VAS 0-10):", min_value=0, max_value=10, value=dolor_base, step=1)
             with col_severidad:
-                sev_crudo = df_paciente['EVO_gravedad_percibida'].iloc[0] if 'EVO_gravedad_percibida' in df_paciente.columns else 0.0
-                sev_base = int(float(sev_crudo))
-                severidad_sim = st.slider("Current Perceived Severity (0-10):", min_value=0, max_value=10, value=sev_base, step=1, key=f"sim_sev_base_{sev_base}")
+                sev_base = int(float(df_paciente['EVO_gravedad_percibida'].iloc[0] if 'EVO_gravedad_percibida' in df_paciente.columns else 0.0))
+                severidad_sim = st.slider("Current Perceived Severity (0-10):", min_value=0, max_value=10, value=sev_base, step=1)
 
             st.markdown("---")
-            st.markdown("**Evolution Status (EVO)** - *Toggle acquired complications or resolved states*")
             sim_evo_map = {
-                'Mental Alteration': 'EVO_alteracion_mental',
-                'Functional Dependency': 'EVO_dependencia_funcional',
-                'Medical Devices': 'EVO_portador_dispositivos',
-                'Infectious Isolation': 'EVO_aislamiento_infeccioso',
-                'Hosp. Complication': 'EVO_complicacion_internacion',
-                'Major Ther. Change': 'EVO_cambio_terapeutico_mayor',
-                'Surgical Interv.': 'EVO_intervencion_quirurgica',
-                'Transfusion Support': 'EVO_soporte_transfusional',
-                'Prolonged IV Therapy': 'EVO_terapia_endovenosa_prolongada',
-                'Residual Instability': 'EVO_inestabilidad_residual'
+                'Mental Alteration': 'EVO_alteracion_mental', 'Functional Dependency': 'EVO_dependencia_funcional',
+                'Medical Devices': 'EVO_portador_dispositivos', 'Infectious Isolation': 'EVO_aislamiento_infeccioso',
+                'Hosp. Complication': 'EVO_complicacion_internacion', 'Major Ther. Change': 'EVO_cambio_terapeutico_mayor',
+                'Surgical Interv.': 'EVO_intervencion_quirurgica', 'Transfusion Support': 'EVO_soporte_transfusional',
+                'Prolonged IV Therapy': 'EVO_terapia_endovenosa_prolongada', 'Residual Instability': 'EVO_inestabilidad_residual'
             }
 
             cols_evo = st.columns(4)
             status_evo_sim = {}
-
             for i, (label, col) in enumerate(sim_evo_map.items()):
                 with cols_evo[i % 4]:
-                    val_raw = df_paciente[col].iloc[0] if col in df_paciente.columns else 0
-                    val_str = str(val_raw).strip().upper()
-                    val_init = True if val_str in ['1', '1.0', 'TRUE', 'YES'] else False
-                    status_evo_sim[col] = st.toggle(label, value=val_init, key=f"sim_{col}_base_{val_init}")
+                    val_init = str(df_paciente.get(col, pd.Series([0])).iloc[0]).strip().upper() in ['1', '1.0', 'TRUE', 'YES']
+                    status_evo_sim[col] = st.toggle(label, value=val_init)
 
     # ==================================================================
-    # COLUMNA DERECHA: RUTAS DE ESTABILIZACIÓN (DiCE OPTIMIZADO)
+    # COLUMNA DERECHA: MOTOR DE CONTRAFACTUALES NATIVO
     # ==================================================================
     with col_rutas:
         st.markdown("---")
         st.markdown("#### Clinical Stabilization Routes")
 
-        class ModeloSincronizado:
-            def __init__(self, pipeline_original, columnas_modelo, umbral_real, columnas_categoricas):
-                self.pipeline = pipeline_original
-                self.columnas_modelo = columnas_modelo
-                self.umbral = umbral_real
-                self.columnas_categoricas = set(columnas_categoricas)
-
-            def predict_proba(self, X):
-                if isinstance(X, np.ndarray):
-                    X_sync = pd.DataFrame(X, columns=self.columnas_modelo)
-                else:
-                    X_sync = X.copy()
-
-                for col in self.columnas_modelo:
-                    if col in X_sync.columns and col not in self.columnas_categoricas:
-                        X_sync[col] = pd.to_numeric(X_sync[col], errors='coerce')
-
-                sincronizar_deltas(X_sync) 
-
-                probas_originales = self.pipeline.predict_proba(X_sync)
-                probas_calibradas = np.zeros_like(probas_originales)
-                p1 = probas_originales[:, 1]
-
-                mask_low = p1 <= self.umbral
-                mask_high = p1 > self.umbral
-
-                p1_calib = np.zeros_like(p1)
-                if np.any(mask_low):
-                    p1_calib[mask_low] = p1[mask_low] * (0.5 / self.umbral)
-                if np.any(mask_high):
-                    p1_calib[mask_high] = 0.5 + ((p1[mask_high] - self.umbral) * (0.5 / (1.0 - self.umbral)))
-
-                probas_calibradas[:, 1] = p1_calib
-                probas_calibradas[:, 0] = 1.0 - p1_calib
-                return probas_calibradas
-
         if riesgo <= umbral:
             st.info("The patient is in optimal condition for discharge. No stabilization targets required.")
         else:
-            with st.spinner("Calculating optimal stabilization routes (Performance Mode)..."):
-                try:
-                    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-                    ruta_ext = os.path.join(BASE_DIR, 'matriz_extended_display_llm.npy')
-                    ruta_cols = os.path.join(BASE_DIR, 'columnas_display_llm.npy')
+            with st.spinner("Calculating deterministic clinical pathways..."):
+                columnas_modelo = df_paciente.columns.tolist()
+                importancia_map = calcular_importancia_por_variable(pipeline, columnas_modelo)
 
-                    if not os.path.exists(ruta_ext) or not os.path.exists(ruta_cols):
-                        raise FileNotFoundError("Historical data matrices are missing.")
+                def es_relevante(col):
+                    imp_cruda = importancia_map.get(col, 0.0)
+                    col_delta = PARES_DELTA.get(col)
+                    imp_delta = importancia_map.get(col_delta, 0.0) if col_delta else 0.0
+                    return max(imp_cruda, imp_delta) > 1e-5
 
-                    matriz_extended = np.load(ruta_ext, allow_pickle=True)
-                    nombres_columnas = np.load(ruta_cols, allow_pickle=True)
+                variables_accionables = [col for col in columnas_modelo if col.startswith('EVO_') and es_relevante(col)]
+                if 'dias_internados' in df_paciente.columns:
+                    variables_accionables.append('dias_internados')
 
-                    df_background_raw = pd.DataFrame(matriz_extended, columns=nombres_columnas)
-                    columnas_modelo = df_paciente.columns.tolist()
-
-                    for col in columnas_modelo:
-                        if col not in df_background_raw.columns:
-                            df_background_raw[col] = 0.0
-
-                    df_dice_train = df_background_raw[columnas_modelo].copy()
-                    df_dice_train['target'] = df_background_raw['target'].astype(int)
-
-                    for col in columnas_modelo:
-                        if df_paciente[col].dtype == object:
-                            df_dice_train[col] = df_background_raw[col].astype(str).str.strip().str.upper()
-                        else:
-                            df_dice_train[col] = pd.to_numeric(df_background_raw[col], errors='coerce')
-
-                    # 🚀 OPTIMIZACIÓN 1: Reducimos la muestra de background de 1000 a 300 para acelerar la varianza de DiCE
-                    df_dice_train = df_dice_train.sample(n=min(300, len(df_dice_train)), random_state=42)
-
-                    df_paciente_para_dice = df_paciente.copy()
-                    df_paciente_para_dice['target'] = 1
-                    df_dice_train = pd.concat([df_dice_train, df_paciente_para_dice], ignore_index=True)
-
-                    UMBRAL_IMPORTANCIA = 1e-6
-                    importancia_map = calcular_importancia_por_variable(pipeline, columnas_modelo)
-
-                    def es_relevante(col):
-                        imp_cruda = importancia_map.get(col, 0.0)
-                        col_delta = {
-                            'EVO_dolor_eva': 'DELTA_dolor_eva',
-                            'EVO_gravedad_percibida': 'DELTA_gravedad_percibida',
-                            'EVO_alteracion_mental': 'DELTA_alteracion_mental',
-                            'EVO_dependencia_funcional': 'DELTA_dependencia_funcional',
-                            'EVO_portador_dispositivos': 'DELTA_portador_dispositivos',
-                        }.get(col)
-                        imp_delta = importancia_map.get(col_delta, 0.0) if col_delta else 0.0
-                        return max(imp_cruda, imp_delta) > UMBRAL_IMPORTANCIA
-
-                    variables_accionables_todas = [col for col in columnas_modelo if col.startswith('EVO_')]
-                    variables_accionables = [col for col in variables_accionables_todas if es_relevante(col)]
-
-                    variables_sin_impacto_activas = [
-                        col for col in variables_accionables_todas
-                        if col not in variables_accionables and float(df_paciente[col].iloc[0]) == 1.0
-                    ]
-
-                    features_binarias_evo = [
-                        col for col in variables_accionables
-                        if 'dolor' not in col and 'gravedad' not in col
-                    ]
-
-                    for col in features_binarias_evo:
-                        df_dice_train[col] = df_dice_train[col].round().astype('Int64').astype(str)
-
-                    df_paciente_dice_query = df_paciente.copy()
-                    for col in features_binarias_evo:
-                        df_paciente_dice_query[col] = df_paciente_dice_query[col].round().astype('Int64').astype(str)
-
-                    features_continuas = [
-                        col for col in df_paciente.select_dtypes(include=[np.number]).columns.tolist()
-                        if col not in features_binarias_evo
-                    ]
-
-                    precisiones_enteras = {
-                        'dias_internados': 0, 'EVO_dolor_eva': 0, 'EVO_gravedad_percibida': 0,
-                        'ING_dolor_eva': 0, 'ING_gravedad_percibida': 0,
-                    }
-                    precisiones_aplicables = {k: v for k, v in precisiones_enteras.items() if k in features_continuas}
-
-                    d = dice_ml.Data(
-                        dataframe=df_dice_train, continuous_features=features_continuas,
-                        outcome_name='target', continuous_features_precision=precisiones_aplicables
-                    )
-
-                    rangos_permitidos = {}
-                    vars_a_variar = []
-
-                    for col in variables_accionables:
-                        val_actual = float(df_paciente[col].iloc[0])
-                        if 'gravedad' in col or 'dolor' in col:
-                            if val_actual > 0.0: # Simplificado para abarcar ambos
-                                rangos_permitidos[col] = [0.0, float(val_actual)] if 'dolor' in col else [1.0, float(val_actual)]
-                                vars_a_variar.append(col)
-                        else:
-                            if val_actual == 1.0:
-                                rangos_permitidos[col] = ['0', '1']
-                                vars_a_variar.append(col)
-
-                    if 'dias_internados' in df_paciente.columns:
-                        val_dias = float(df_paciente['dias_internados'].iloc[0])
-                        rangos_permitidos['dias_internados'] = [val_dias, val_dias + 10.0]
-                        vars_a_variar.append('dias_internados')
-
-                    if not vars_a_variar:
-                        st.error("There are no modifiable clinical targets in the patient's current evolution.")
+                # Definir el espacio de búsqueda (qué valores probar para cada variable)
+                espacio_busqueda = {}
+                vars_a_variar = []
+                
+                for col in variables_accionables:
+                    val_actual = float(df_paciente[col].iloc[0])
+                    
+                    if col == 'dias_internados':
+                        # Explorar estancias desde el día actual hasta +7 días
+                        espacio_busqueda[col] = list(range(int(val_actual), int(val_actual) + 8, 1))
+                        vars_a_variar.append(col)
+                    elif 'dolor' in col or 'gravedad' in col:
+                        if val_actual > 0:
+                            # Explorar reducciones de dolor/severidad, de 1 en 1, hasta 0.
+                            espacio_busqueda[col] = list(range(int(val_actual), -1, -1))
+                            vars_a_variar.append(col)
                     else:
-                        if 'debug_dice_errors' not in st.session_state:
-                            st.session_state['debug_dice_errors'] = []
-                        st.session_state['debug_dice_errors'].clear()
+                        if val_actual == 1.0:
+                            # Si tiene complicación (1), explorar la posibilidad de que se resuelva (0) y quedarse igual (1)
+                            espacio_busqueda[col] = [1.0, 0.0]
+                            vars_a_variar.append(col)
 
-                        # 🚀 OPTIMIZACIÓN 2: Limitamos total_cfs a 5 (Suficiente para uso clínico)
-                        def generar_y_validar(umbral_calibracion, umbral_validacion, total_cfs=5):
-                            modelo_sinc = ModeloSincronizado(pipeline, columnas_modelo, umbral_calibracion, variables_categoricas_train)
-                            m_local = dice_ml.Model(model=modelo_sinc, backend="sklearn")
-                            cf_local = None
+                if not vars_a_variar:
+                    st.error("No modifiable clinical targets detected.")
+                else:
+                    # Ordenar el espacio de búsqueda para no estallar la memoria (Límite dinámico)
+                    # Tomar solo las 5 o 6 variables más importantes
+                    vars_a_variar = sorted(vars_a_variar, key=lambda x: importancia_map.get(x, 0), reverse=True)[:6]
+                    llaves = vars_a_variar
+                    valores = [espacio_busqueda[k] for k in llaves]
+                    
+                    # Generar todas las combinaciones posibles
+                    combinaciones = list(itertools.product(*valores))
+                    
+                    # Para optimizar, no evaluamos más de 1000 combinaciones
+                    if len(combinaciones) > 1000:
+                        import random
+                        random.seed(42)
+                        combinaciones = random.sample(combinaciones, 1000)
 
-                            try:
-                                exp_local = dice_ml.Dice(d, m_local, method="genetic")
-                                dice_exp_local = exp_local.generate_counterfactuals(
-                                    df_paciente_dice_query, total_CFs=total_cfs, desired_class="opposite",
-                                    features_to_vary=vars_a_variar, permitted_range=rangos_permitidos,
-                                )
-                                cf_local = dice_exp_local.cf_examples_list[0].final_cfs_df
-                            except Exception as e1:
-                                st.session_state['debug_dice_errors'].append(f"genetic: {e1}")
-
-                            # 🚀 OPTIMIZACIÓN 3: Si falla genetic, usamos random con los MISMOS 5 cfs (no 3x)
-                            if cf_local is None or cf_local.empty:
-                                try:
-                                    exp_local = dice_ml.Dice(d, m_local, method="random")
-                                    dice_exp_local = exp_local.generate_counterfactuals(
-                                        df_paciente_dice_query, total_CFs=total_cfs, desired_class="opposite",
-                                        features_to_vary=vars_a_variar, permitted_range=rangos_permitidos, random_seed=42
-                                    )
-                                    cf_local = dice_exp_local.cf_examples_list[0].final_cfs_df
-                                except Exception as e2:
-                                    st.session_state['debug_dice_errors'].append(f"random: {e2}")
-                                    return None
-
-                            if cf_local is None or cf_local.empty:
-                                return None
-
-                            cf_local = cf_local.copy()
-
-                            for col in vars_a_variar:
-                                if col not in ['EVO_dolor_eva', 'EVO_gravedad_percibida', 'dias_internados']:
-                                    cf_local[col] = pd.to_numeric(cf_local[col], errors='coerce').fillna(0)
-                                    cf_local[col] = (cf_local[col] >= 0.5).astype(int)
-                                else:
-                                    cf_local[col] = pd.to_numeric(cf_local[col], errors='coerce').fillna(0).round()
-
-                            cf_local = cf_local.drop_duplicates(subset=vars_a_variar).reset_index(drop=True)
-
-                            riesgos_reales = []
-                            es_valida = []
-                            for idx_row in range(len(cf_local)):
-                                overrides = {col: cf_local.iloc[idx_row][col] for col in vars_a_variar}
-                                fila_sim = construir_fila_simulada(df_paciente, overrides)
-                                riesgo_real_ruta = pipeline.predict_proba(fila_sim)[0][1]
-                                riesgos_reales.append(riesgo_real_ruta)
-                                
-                                # 🚀 OPTIMIZACIÓN 4: Tolerancia metodológica del 2% (+ 0.02)
-                                # Evita descartar rutas viables por diferencias de redondeo float
-                                es_valida.append(riesgo_real_ruta <= (umbral_validacion + 0.02))
-
-                            cf_local['riesgo_real_post_redondeo'] = riesgos_reales
-                            cf_local = cf_local[es_valida].reset_index(drop=True)
-
-                            if cf_local.empty: return None
-
-                            # Filtrar subóptimas
-                            firmas_vistas = {}
-                            rutas_unicas = []
-                            for idx_row, row in cf_local.iterrows():
-                                firma_cualitativa = []
-                                esfuerzo_clinico = 0
-                                for col in vars_a_variar:
-                                    val_orig = df_paciente.iloc[0][col]
-                                    val_cf = row[col]
-                                    if val_orig != val_cf:
-                                        firma_cualitativa.append(col)
-                                        if 'dolor' in col or 'gravedad' in col:
-                                            esfuerzo_clinico += abs(val_orig - val_cf)
-
-                                firma_str = str(sorted(firma_cualitativa))
-                                if firma_str not in firmas_vistas:
-                                    firmas_vistas[firma_str] = (idx_row, esfuerzo_clinico)
-                                    rutas_unicas.append(idx_row)
-                                else:
-                                    idx_previo, esfuerzo_previo = firmas_vistas[firma_str]
-                                    if esfuerzo_clinico < esfuerzo_previo:
-                                        firmas_vistas[firma_str] = (idx_row, esfuerzo_clinico)
-                                        rutas_unicas.remove(idx_previo)
-                                        rutas_unicas.append(idx_row)
-
-                            cf_local = cf_local.loc[rutas_unicas].reset_index(drop=True)
-
-                            columnas_para_delta = ['EVO_dolor_eva', 'EVO_gravedad_percibida', 'EVO_alteracion_mental', 'EVO_dependencia_funcional', 'EVO_portador_dispositivos']
-                            for col_d in columnas_para_delta:
-                                if col_d in cf_local.columns:
-                                    cf_local[col_d] = pd.to_numeric(cf_local[col_d], errors='coerce').fillna(float(df_paciente.iloc[0][col_d]))
-                            
-                            cf_local['DELTA_dolor_eva'] = cf_local['EVO_dolor_eva'] - df_paciente.iloc[0]['ING_dolor_eva']
-                            cf_local['DELTA_gravedad_percibida'] = cf_local['EVO_gravedad_percibida'] - df_paciente.iloc[0]['ING_gravedad_percibida']
-                            cf_local['DELTA_alteracion_mental'] = cf_local['EVO_alteracion_mental'] - df_paciente.iloc[0]['ING_alteracion_mental']
-                            cf_local['DELTA_dependencia_funcional'] = cf_local['EVO_dependencia_funcional'] - df_paciente.iloc[0]['ING_dependencia_funcional']
-                            cf_local['DELTA_portador_dispositivos'] = cf_local['EVO_portador_dispositivos'] - df_paciente.iloc[0]['ING_portador_dispositivos']
-                            
-                            return cf_local
-
-                        # 🚀 OPTIMIZACIÓN 5: Bucle Reducido. MÁXIMO 2 INTENTOS en lugar de 7.
-                        etapas = [(umbral, umbral, True)] # Intento 1: Alta segura estricta
-                        distancia_riesgo = riesgo - umbral
+                    df_candidatos = pd.DataFrame(combinaciones, columns=llaves)
+                    
+                    # Calcular el riesgo para todas las combinaciones generadas
+                    riesgos_calculados = []
+                    esfuerzos_clinicos = []
+                    
+                    # Para hacerlo súper rápido, construimos el DataFrame con todos los candidatos 
+                    # clonando el df base y reemplazando valores
+                    df_bulk = pd.concat([df_paciente]*len(df_candidatos), ignore_index=True)
+                    for col in llaves:
+                        df_bulk[col] = df_candidatos[col]
+                    
+                    df_bulk = sincronizar_deltas(df_bulk)
+                    probas = pipeline.predict_proba(df_bulk)[:, 1]
+                    
+                    df_candidatos['riesgo_simulado'] = probas
+                    
+                    # Calcular "esfuerzo clínico" (cuánto cambia respecto a la base)
+                    def calc_esfuerzo(row):
+                        esfuerzo = 0
+                        for col in llaves:
+                            val_base = float(df_paciente[col].iloc[0])
+                            esfuerzo += abs(row[col] - val_base)
+                        return esfuerzo
                         
-                        if distancia_riesgo > 0.03:
-                            # Intento 2: Reducción de daño (Mitad del camino hacia el umbral)
-                            meta_intermedia = umbral + (distancia_riesgo / 2.0)
-                            etapas.append((meta_intermedia, meta_intermedia, False))
-                        elif distancia_riesgo > 0.01:
-                            etapas.append((riesgo - 0.01, riesgo - 0.01, False))
+                    df_candidatos['esfuerzo'] = df_candidatos.apply(calc_esfuerzo, axis=1)
+                    
+                    # Filtrar las que logran mejorar el riesgo base
+                    # Intentamos buscar debajo del umbral seguro, si no hay, buscamos mitigación
+                    cf_seguros = df_candidatos[df_candidatos['riesgo_simulado'] <= umbral + 0.02]
+                    modo_mitigacion = False
+                    
+                    if cf_seguros.empty:
+                        modo_mitigacion = True
+                        meta_mitigacion = riesgo - ((riesgo - umbral) / 2) # Reducción a la mitad de la brecha
+                        cf_seguros = df_candidatos[df_candidatos['riesgo_simulado'] <= meta_mitigacion]
+                    
+                    if cf_seguros.empty:
+                        # Si aún así no hay, simplemente tomar los mejores
+                        cf_seguros = df_candidatos[df_candidatos['riesgo_simulado'] < riesgo - 0.02]
+                        modo_mitigacion = True
 
-                        cf_df = None
-                        modo_mitigacion = False
-                        umbral_logrado = None
+                    if cf_seguros.empty:
+                        st.error("No viable target routes were found to reduce risk.")
+                    else:
+                        # Seleccionar las mejores (menor riesgo y menor esfuerzo)
+                        # Removemos la fila "sin cambios" (esfuerzo == 0)
+                        cf_seguros = cf_seguros[cf_seguros['esfuerzo'] > 0]
+                        cf_seguros = cf_seguros.sort_values(by=['riesgo_simulado', 'esfuerzo']).head(5).reset_index(drop=True)
 
-                        for umbral_calib, umbral_valid, es_alta_segura in etapas:
-                            resultado = generar_y_validar(umbral_calib, umbral_valid, total_cfs=5)
-                            if resultado is not None and not resultado.empty:
-                                cf_df = resultado
-                                modo_mitigacion = not es_alta_segura
-                                umbral_logrado = umbral_valid
-                                break
-
-                        if variables_sin_impacto_activas:
-                            nombres_legibles = ", ".join(v.replace('EVO_', '').replace('_', ' ').title() for v in variables_sin_impacto_activas)
-                            st.caption(f"ℹ️ Active conditions excluded as targets (no measurable model impact): {nombres_legibles}")
-
-                        if st.session_state['debug_dice_errors']:
-                            with st.expander("🔬 DEBUG: DiCE search errors", expanded=False):
-                                for err in st.session_state['debug_dice_errors']:
-                                    st.code(err)
-
-                        if cf_df is None or cf_df.empty:
-                            st.error("No mathematically viable target routes were found for discharge or mitigation.")
+                        if cf_seguros.empty:
+                            st.warning("Only the baseline trajectory was found.")
                         else:
                             if modo_mitigacion:
                                 st.warning(
-                                    f"⚠️ **{len(cf_df)} HARM REDUCTION ROUTES FOUND:**\n"
-                                    f"Safe discharge (< {umbral*100:.1f}%) is not mathematically viable in one step. "
-                                    f"Showing realistic intermediate targets to bring risk below {umbral_logrado*100:.1f}%."
+                                    f"⚠️ **{len(cf_seguros)} HARM REDUCTION ROUTES FOUND:**\n"
+                                    f"Safe discharge (< {umbral*100:.1f}%) is not mathematically viable. "
+                                    f"Showing optimal intermediate targets."
                                 )
                             else:
-                                st.success(f"✅ **{len(cf_df)} UNIQUE CLINICAL STABILIZATION TARGETS FOUND:**")
+                                st.success(f"✅ **{len(cf_seguros)} STABILIZATION TARGETS FOUND:**")
 
                             evo_output_dict = {
                                 'EVO_dolor_eva': 'Current Pain', 'EVO_gravedad_percibida': 'Current Severity',
                                 'EVO_aislamiento_infeccioso': 'Infectious Isolation', 'EVO_alteracion_mental': 'Mental Alteration',
-                                'EVO_complicacion_internacion': 'Hospitalization Complication', 'EVO_dependencia_funcional': 'Functional Dependency',
-                                'EVO_portador_dispositivos': 'Device Bearer', 'EVO_cambio_terapeutico_mayor': 'Major Therapeutic Change',
-                                'EVO_intervencion_quirurgica': 'Surgical Intervention', 'EVO_soporte_transfusional': 'Transfusion Support',
-                                'dias_internados': 'Additional Hospitalization Days', 'EVO_terapia_endovenosa_prolongada': 'Prolonged IV Therapy',
-                                'EVO_inestabilidad_residual': 'Residual Instability'
+                                'EVO_complicacion_internacion': 'Hospital Complication', 'EVO_dependencia_funcional': 'Functional Dependency',
+                                'EVO_portador_dispositivos': 'Device Bearer', 'dias_internados': 'Additional Hospitalization Days',
                             }
 
                             with st.container(height=500):
-                                for r_idx in range(len(cf_df)):
+                                for r_idx, row in cf_seguros.iterrows():
                                     with st.expander(f"➔ 🛤️ Alternative Target Route {r_idx + 1}", expanded=(r_idx == 0)):
-                                        cambios_detectados = 0
                                         st.markdown("##### 🎯 Stabilization Actions:")
-
-                                        for col in vars_a_variar:
-                                            val_orig = df_paciente.iloc[0][col]
-                                            val_cf = cf_df.iloc[r_idx][col]
+                                        
+                                        for col in llaves:
+                                            val_orig = float(df_paciente.iloc[0][col])
+                                            val_cf = float(row[col])
 
                                             if val_orig != val_cf:
-                                                cambios_detectados += 1
-                                                col_en = evo_output_dict.get(col, col)
+                                                col_en = evo_output_dict.get(col, col.replace('EVO_', '').replace('_', ' ').title())
 
                                                 if 'dolor' in col or 'gravedad' in col:
-                                                    direccion = "reduction" if val_cf < val_orig else "adjustment"
-                                                    st.write(f"- 💊 **{col_en}**: Target {direccion} ➔ **[{val_cf:.0f}]** (Currently: {val_orig:.0f})")
+                                                    st.write(f"- 💊 **{col_en}**: Target reduction ➔ **[{val_cf:.0f}]** (Currently: {val_orig:.0f})")
                                                 elif col == 'dias_internados':
                                                     dias_extra = val_cf - val_orig
                                                     st.write(f"- ⏳ **{col_en}**: Extend stay by ➔ **[+{dias_extra:.0f} days]** (Total target: {val_cf:.0f})")
@@ -1822,67 +1623,62 @@ with tab_estrategia:
                                                     estado_actual_str = "Present" if val_orig == 1 else "Absent"
                                                     st.write(f"- 🛡️ **{col_en}**: Target status ➔ **[{status_en}]** (Currently: {estado_actual_str})")
 
-                                        riesgo_ruta = cf_df.iloc[r_idx]['riesgo_real_post_redondeo']
+                                        riesgo_ruta = row['riesgo_simulado']
                                         st.markdown(
-                                            f"📉 **Verified real risk after this route: "
-                                            f"{riesgo_ruta*100:.1f}%** &nbsp; (safe-discharge threshold: {umbral*100:.1f}%)"
+                                            f"📉 **Verified real risk after this route: {riesgo_ruta*100:.1f}%** "
+                                            f"&nbsp; (Threshold: {umbral*100:.1f}%)"
                                         )
 
-                                        if cambios_detectados == 0:
-                                            st.write("Maintains current parameters based on marginal risk stability.")
-                                        else:
-                                            radar_map = {
-                                                'Δ Pain': ('EVO_dolor_eva', 'ING_dolor_eva'),
-                                                'Δ Severity': ('EVO_gravedad_percibida', 'ING_gravedad_percibida'),
-                                                'Δ Mental Alt.': ('EVO_alteracion_mental', 'ING_alteracion_mental'),
-                                                'Δ Func. Dep.': ('EVO_dependencia_funcional', 'ING_dependencia_funcional'),
-                                                'Δ Devices': ('EVO_portador_dispositivos', 'ING_portador_dispositivos')
-                                            }
+                                        # --- Gráfico de Radar ---
+                                        radar_map = {
+                                            'Δ Pain': ('EVO_dolor_eva', 'ING_dolor_eva'),
+                                            'Δ Severity': ('EVO_gravedad_percibida', 'ING_gravedad_percibida'),
+                                            'Δ Mental Alt.': ('EVO_alteracion_mental', 'ING_alteracion_mental'),
+                                            'Δ Func. Dep.': ('EVO_dependencia_funcional', 'ING_dependencia_funcional'),
+                                            'Δ Devices': ('EVO_portador_dispositivos', 'ING_portador_dispositivos')
+                                        }
 
-                                            categorias_radar = list(radar_map.keys())
-                                            valores_actuales_radar = []
-                                            valores_meta_radar = []
+                                        categorias_radar, valores_actuales_radar, valores_meta_radar = [], [], []
 
-                                            for cat, (col_evo, col_ing) in radar_map.items():
-                                                v_ing = df_paciente.iloc[0].get(col_ing, 0)
-                                                v_evo_act = df_paciente.iloc[0].get(col_evo, 0)
-                                                valores_actuales_radar.append(v_evo_act - v_ing)
-                                                v_evo_meta = cf_df.iloc[r_idx].get(col_evo, v_evo_act)
-                                                valores_meta_radar.append(v_evo_meta - v_ing)
+                                        for cat, (col_evo, col_ing) in radar_map.items():
+                                            v_ing = float(df_paciente.iloc[0].get(col_ing, 0))
+                                            v_evo_act = float(df_paciente.iloc[0].get(col_evo, 0))
+                                            v_evo_meta = row.get(col_evo, v_evo_act)
+                                            
+                                            categorias_radar.append(cat)
+                                            valores_actuales_radar.append(v_evo_act - v_ing)
+                                            valores_meta_radar.append(v_evo_meta - v_ing)
 
-                                            cat_cerradas = categorias_radar + [categorias_radar[0]]
-                                            val_act_cerrados = valores_actuales_radar + [valores_actuales_radar[0]]
-                                            val_meta_cerrados = valores_meta_radar + [valores_meta_radar[0]]
+                                        cat_cerradas = categorias_radar + [categorias_radar[0]]
+                                        val_act_cerrados = valores_actuales_radar + [valores_actuales_radar[0]]
+                                        val_meta_cerrados = valores_meta_radar + [valores_meta_radar[0]]
 
-                                            fig_radar = go.Figure()
-                                            fig_radar.add_trace(go.Scatterpolar(
-                                                r=val_act_cerrados, theta=cat_cerradas,
-                                                fill='toself', fillcolor='rgba(214, 39, 40, 0.25)',
-                                                line=dict(color='#D62728', width=2.5), name='Current State'
-                                            ))
-                                            color_target = '#FF8C00' if modo_mitigacion else '#2CA02C'
-                                            fill_target = 'rgba(255, 140, 0, 0.25)' if modo_mitigacion else 'rgba(44, 160, 44, 0.25)'
-                                            fig_radar.add_trace(go.Scatterpolar(
-                                                r=val_meta_cerrados, theta=cat_cerradas,
-                                                fill='toself', fillcolor=fill_target,
-                                                line=dict(color=color_target, width=2.5), name='DiCE Target'
-                                            ))
+                                        fig_radar = go.Figure()
+                                        fig_radar.add_trace(go.Scatterpolar(
+                                            r=val_act_cerrados, theta=cat_cerradas,
+                                            fill='toself', fillcolor='rgba(214, 39, 40, 0.25)',
+                                            line=dict(color='#D62728', width=2.5), name='Current State'
+                                        ))
+                                        
+                                        color_target = '#FF8C00' if modo_mitigacion else '#2CA02C'
+                                        fill_target = 'rgba(255, 140, 0, 0.25)' if modo_mitigacion else 'rgba(44, 160, 44, 0.25)'
+                                        fig_radar.add_trace(go.Scatterpolar(
+                                            r=val_meta_cerrados, theta=cat_cerradas,
+                                            fill='toself', fillcolor=fill_target,
+                                            line=dict(color=color_target, width=2.5), name='Target'
+                                        ))
 
-                                            fig_radar.update_layout(
-                                                polar=dict(radialaxis=dict(visible=True, range=[-2, 8]), bgcolor='rgba(0,0,0,0)'),
-                                                paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-                                                margin=dict(l=40, r=40, t=40, b=40), height=450,
-                                                legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="center", x=0.5)
-                                            )
-                                            st.plotly_chart(fig_radar, use_container_width=True, key=f"dice_radar_ruta_cf_{r_idx}")
+                                        fig_radar.update_layout(
+                                            polar=dict(radialaxis=dict(visible=True, range=[-2, 8]), bgcolor='rgba(0,0,0,0)'),
+                                            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                                            margin=dict(l=40, r=40, t=40, b=40), height=450,
+                                            legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="center", x=0.5)
+                                        )
+                                        st.plotly_chart(fig_radar, use_container_width=True, key=f"radar_ruta_{r_idx}")
 
-                except Exception as e:
-                    st.error("Counterfactual engine is currently unavailable.")
-                    st.warning(f"Technical Context: {str(e)}")
-
-    # ==========================================
-    # --- MOTOR DE IMPACTO CLÍNICO ACCIONABLE (SHAP ENGINE) ---
-    # ==========================================
+    # ==================================================================
+    # MOTOR SHAP PARA EL SANDBOX
+    # ==================================================================
     st.markdown("---")
     try:
         with st.spinner("Analyzing precise clinical impacts of simulated trajectory..."):
@@ -1905,7 +1701,6 @@ with tab_estrategia:
 
             X_sim_proc = prep.transform(df_sim)
             X_sim_dense = X_sim_proc.toarray() if hasattr(X_sim_proc, 'toarray') else np.array(X_sim_proc)
-
             columnas_modelo_final = list(prep.get_feature_names_out())
 
             ui_dict = {
@@ -1922,14 +1717,10 @@ with tab_estrategia:
                 'EVO_alteracion_mental': 'Active Delirium / Mental Alteration',
                 'EVO_dependencia_funcional': 'Severe Functional Dependency',
                 'EVO_portador_dispositivos': 'Active Medical Device Bearer',
-                'EVO_cambio_terapeutico_mayor': 'Major Therapeutic Change',
-                'EVO_intervencion_quirurgica': 'Surgical Intervention Performed',
-                'EVO_soporte_transfusional': 'Transfusion Support Required',
-                'EVO_terapia_endovenosa_prolongada': 'Prolonged IV Therapy',
-                'EVO_inestabilidad_residual': 'Residual Instability'
             }
 
             nombre_modelo = type(clf).__name__
+            import shap
             if 'XGB' in nombre_modelo:
                 explainer = shap.TreeExplainer(clf.get_booster())
                 shap_sim = explainer.shap_values(X_sim_dense, check_additivity=False)
@@ -1953,58 +1744,37 @@ with tab_estrategia:
 
                 if n_clean.startswith(('EVO_', 'DELTA_')) or n_clean == 'dias_internados':
                     peso_pct = shap_sim[i] * 100
-                    es_valido = True
-
+                    
                     val_orig = float(df_paciente.get(n_clean, pd.Series([0.0])).iloc[0])
                     val_sim = float(df_sim.get(n_clean, pd.Series([0.0])).iloc[0])
 
-                    if val_orig == 0.0 and val_sim == 0.0:
-                        es_valido = False
-
-                    if es_valido and abs(peso_pct) > 0.01:
+                    if not (val_orig == 0.0 and val_sim == 0.0) and abs(peso_pct) > 0.01:
                         label_display = ui_dict.get(n_clean, n_clean.replace('_', ' ').title())
                         cambios_impacto.append((label_display, peso_pct))
 
             if not cambios_impacto:
-                st.info("The current configuration of evolutionary variables has a neutral impact on risk.")
+                st.info("The current configuration has a neutral impact on risk.")
             else:
                 cambios_impacto = sorted(cambios_impacto, key=lambda x: x[1])
 
                 fig_delta = go.Figure(go.Bar(
-                    x=[x[1] for x in cambios_impacto],
-                    y=[x[0] for x in cambios_impacto],
-                    orientation='h',
-                    marker_color=['#FF4444' if x[1] > 0 else '#00C851' for x in cambios_impacto],
-                    text=[f"+{x[1]:.1f}%" if x[1] > 0 else f"{x[1]:.1f}%" for x in cambios_impacto],
-                    textposition='outside',
-                    textfont=dict(size=12)
+                    x=[x[1] for x in cambios_impacto], y=[x[0] for x in cambios_impacto],
+                    orientation='h', marker_color=['#FF4444' if x[1] > 0 else '#00C851' for x in cambios_impacto],
+                    text=[f"+{x[1]:.1f}%" if x[1] > 0 else f"{x[1]:.1f}%" for x in cambios_impacto], textposition='outside'
                 ))
 
                 fig_delta.update_layout(
-                    title="Actionable Phenotype Risk Contributions",
-                    xaxis_title="Impact on Readmission Probability (%)",
-                    plot_bgcolor='rgba(0,0,0,0)',
-                    paper_bgcolor='rgba(0,0,0,0)',
-                    margin=dict(l=10, r=50, t=40, b=10),
-                    height=max(320, len(cambios_impacto) * 42),
-                    xaxis=dict(
-                        showgrid=True, gridcolor='rgba(128,128,128,0.2)',
-                        zeroline=True, zerolinecolor='rgba(128,128,128,0.6)', zerolinewidth=1.5
-                    )
+                    title="Actionable Phenotype Risk Contributions", xaxis_title="Impact on Probability (%)",
+                    plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', margin=dict(l=10, r=50, t=40, b=10),
+                    height=max(320, len(cambios_impacto) * 42), xaxis=dict(zeroline=True, zerolinecolor='rgba(128,128,128,0.6)')
                 )
 
                 col_l1, col_l2 = st.columns([1, 3])
                 with col_l2:
                     st.plotly_chart(fig_delta, use_container_width=True)
-
                 with col_l1:
                     st.markdown("### 📊 Target Risk")
-                    st.metric(
-                        label="Hypothetical Prob.",
-                        value=f"{riesgo_simulado*100:.1f}%",
-                        delta=f"{variacion_riesgo:+.1f}% vs Admission",
-                        delta_color="inverse"
-                    )
+                    st.metric("Hypothetical Prob.", f"{riesgo_simulado*100:.1f}%", f"{variacion_riesgo:+.1f}% vs Admission", delta_color="inverse")
                     st.markdown("---")
 
     except Exception as e:
