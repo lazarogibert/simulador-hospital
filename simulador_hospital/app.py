@@ -2916,13 +2916,12 @@ with tab_umap:
             # DYNAMIC UMAP CALCULATION (FILTERING LOW VARIANCE & LOW IMPORTANCE)
             # ==========================================
             @st.cache_data
-            def get_dynamic_umap_embeddings(X_train_proc, _pipeline, _best_model):
+            def get_dynamic_umap_embeddings(X_train_proc, _pipeline):
                 """Calculates UMAP embeddings by dynamically filtering features based on variance and model importance."""
                 prep = _pipeline.named_steps['preprocesador']
                 nombres_expandidos = list(prep.get_feature_names_out())
                 
                 # 1. Filtro de Varianza (Eliminar columnas donde el 99% de los valores son idénticos)
-                # X_train_proc is already sparse or dense. 
                 from sklearn.feature_selection import VarianceThreshold
                 var_selector = VarianceThreshold(threshold=(.99 * (1 - .99))) # Permite max 99% de ceros
                 
@@ -2934,21 +2933,19 @@ with tab_umap:
                 nombres_high_var = np.array(nombres_expandidos)[mask_varianza]
                 
                 # 2. Filtro por Importancia del Modelo (Feature Selection)
-                # Extraer la importancia de las características del modelo
                 try:
-                    # Intenta extraer la importancia directamente del clasificador final
-                    clasificador = _best_model.named_steps.get('classifier') or _best_model.named_steps.get('clf') or _best_model.steps[-1][1]
+                    # Extraer el clasificador directamente del pipeline (es el último paso)
+                    clasificador = _pipeline.named_steps.get('classifier') or _pipeline.named_steps.get('clf') or _pipeline.steps[-1][1]
                     importancias = clasificador.feature_importances_
                     
                     # Filtrar las importancias para que coincidan solo con las columnas que sobrevivieron a la varianza
                     importancias_high_var = importancias[mask_varianza]
                     
-                    # Seleccionar el Top N características más importantes (ej. Top 50, o aquellas con importancia > 0)
+                    # Seleccionar el Top N características más importantes
                     TOP_N = 50
-                    # Obtener los índices de las TOP_N características más importantes
                     indices_top_importancia = np.argsort(importancias_high_var)[-TOP_N:]
                     
-                    # Crear máscara final (de la longitud de X_high_var)
+                    # Crear máscara final
                     mask_importancia = np.zeros(X_high_var.shape[1], dtype=bool)
                     mask_importancia[indices_top_importancia] = True
                     
@@ -2961,9 +2958,7 @@ with tab_umap:
                     mask_combinada[indices_supervivientes] = True
                     
                 except Exception as e:
-                    # Fallback de seguridad: si no puede extraer importancias (ej. modelo no basado en árboles), 
-                    # usar solo el filtro de varianza.
-                    st.warning(f"Could not extract feature importances for UMAP projection. Falling back to Variance filtering only. ({e})")
+                    # Fallback de seguridad si falla la extracción de importancia
                     X_final_limpio = X_high_var
                     mask_combinada = mask_varianza
 
@@ -2975,13 +2970,12 @@ with tab_umap:
                 return umap_embeddings, mask_combinada
 
             # Execute dynamic embedding generation
-            # Note: X_train_proc should be available from the global scope (loaded earlier in your script)
-            # If it's not, you might need to re-load it or pass it correctly.
             BASE_DIR = os.path.dirname(os.path.abspath(__file__))
             ruta_x = os.path.join(BASE_DIR, 'X_train_proc_llm.npy')
             X_train_proc_raw = np.load(ruta_x)
             
-            umap_embeddings, mask_limpia_umap = get_dynamic_umap_embeddings(X_train_proc_raw, pipeline, best_model_llm)
+            # ---> CORRECCIÓN: LLAMAMOS A LA FUNCIÓN SOLO CON EL PIPELINE <---
+            umap_embeddings, mask_limpia_umap = get_dynamic_umap_embeddings(X_train_proc_raw, pipeline)
 
             if 'vecinos_idx_pool' not in locals() and 'vecinos_idx_pool' not in globals():
                 # SAFETY RESCUE: If not calculated in tab_evidencia, handle scope mapping locally
