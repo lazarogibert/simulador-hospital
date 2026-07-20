@@ -2912,14 +2912,91 @@ with tab_umap:
                     marker=dict(color=COLOR_READMIT, size=8, opacity=0.9, symbol=symbol_categoria, line=dict(color='white', width=0.8))
                 ))
             
+            # ==========================================
+            # DYNAMIC UMAP CALCULATION (FILTERING LOW VARIANCE & LOW IMPORTANCE)
+            # ==========================================
+            @st.cache_data
+            def get_dynamic_umap_embeddings(X_train_proc, _pipeline, _best_model):
+                """Calculates UMAP embeddings by dynamically filtering features based on variance and model importance."""
+                prep = _pipeline.named_steps['preprocesador']
+                nombres_expandidos = list(prep.get_feature_names_out())
+                
+                # 1. Filtro de Varianza (Eliminar columnas donde el 99% de los valores son idénticos)
+                # X_train_proc is already sparse or dense. 
+                from sklearn.feature_selection import VarianceThreshold
+                var_selector = VarianceThreshold(threshold=(.99 * (1 - .99))) # Permite max 99% de ceros
+                
+                # Aprender qué columnas pasan el filtro de varianza
+                X_high_var = var_selector.fit_transform(X_train_proc)
+                mask_varianza = var_selector.get_support()
+                
+                # Nombres de las columnas que sobrevivieron al filtro de varianza
+                nombres_high_var = np.array(nombres_expandidos)[mask_varianza]
+                
+                # 2. Filtro por Importancia del Modelo (Feature Selection)
+                # Extraer la importancia de las características del modelo
+                try:
+                    # Intenta extraer la importancia directamente del clasificador final
+                    clasificador = _best_model.named_steps.get('classifier') or _best_model.named_steps.get('clf') or _best_model.steps[-1][1]
+                    importancias = clasificador.feature_importances_
+                    
+                    # Filtrar las importancias para que coincidan solo con las columnas que sobrevivieron a la varianza
+                    importancias_high_var = importancias[mask_varianza]
+                    
+                    # Seleccionar el Top N características más importantes (ej. Top 50, o aquellas con importancia > 0)
+                    TOP_N = 50
+                    # Obtener los índices de las TOP_N características más importantes
+                    indices_top_importancia = np.argsort(importancias_high_var)[-TOP_N:]
+                    
+                    # Crear máscara final (de la longitud de X_high_var)
+                    mask_importancia = np.zeros(X_high_var.shape[1], dtype=bool)
+                    mask_importancia[indices_top_importancia] = True
+                    
+                    # Aplicar la máscara final
+                    X_final_limpio = X_high_var[:, mask_importancia]
+                    
+                    # Crear máscara combinada para usarla luego con el paciente
+                    mask_combinada = np.zeros(len(nombres_expandidos), dtype=bool)
+                    indices_supervivientes = np.where(mask_varianza)[0][mask_importancia]
+                    mask_combinada[indices_supervivientes] = True
+                    
+                except Exception as e:
+                    # Fallback de seguridad: si no puede extraer importancias (ej. modelo no basado en árboles), 
+                    # usar solo el filtro de varianza.
+                    st.warning(f"Could not extract feature importances for UMAP projection. Falling back to Variance filtering only. ({e})")
+                    X_final_limpio = X_high_var
+                    mask_combinada = mask_varianza
+
+                # 3. Entrenar UMAP con la matriz súper limpia
+                import umap
+                umap_reducer = umap.UMAP(n_neighbors=15, min_dist=0.1, metric='cosine', random_state=42)
+                umap_embeddings = umap_reducer.fit_transform(X_final_limpio)
+                
+                return umap_embeddings, mask_combinada
+
+            # Execute dynamic embedding generation
+            # Note: X_train_proc should be available from the global scope (loaded earlier in your script)
+            # If it's not, you might need to re-load it or pass it correctly.
+            BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+            ruta_x = os.path.join(BASE_DIR, 'X_train_proc_llm.npy')
+            X_train_proc_raw = np.load(ruta_x)
+            
+            umap_embeddings, mask_limpia_umap = get_dynamic_umap_embeddings(X_train_proc_raw, pipeline, best_model_llm)
+
             if 'vecinos_idx_pool' not in locals() and 'vecinos_idx_pool' not in globals():
                 # SAFETY RESCUE: If not calculated in tab_evidencia, handle scope mapping locally
                 prep = pipeline.named_steps['preprocesador']
                 X_pac_proc = prep.transform(df_paciente)
                 X_pac_dense = X_pac_proc.toarray() if hasattr(X_pac_proc, 'toarray') else np.array(X_pac_proc)
-                X_pac_limpio = X_pac_dense[:, mask_limpia]
+                X_pac_limpio_knn = X_pac_dense[:, mask_limpia_umap] # Use the new dynamic mask
                 
-                distancias_rescue, indices_rescue = knn_global.kneighbors(X_pac_limpio)
+                # We need to recreate the KNN engine for this specific cleaned space to find neighbors
+                from sklearn.neighbors import NearestNeighbors
+                X_train_limpio_knn = X_train_proc_raw[:, mask_limpia_umap]
+                knn_rescue = NearestNeighbors(n_neighbors=100, metric='cosine')
+                knn_rescue.fit(X_train_limpio_knn)
+                
+                distancias_rescue, indices_rescue = knn_rescue.kneighbors(X_pac_limpio_knn)
                 vecinos_idx_pool = indices_rescue[0]
                 
             local_idx = vecinos_idx_pool[:20] 
@@ -2965,8 +3042,8 @@ with tab_umap:
                 # ==========================================
                 # OUTLIER DETECTION & GEOMETRIC ISOLATION
                 # ==========================================
-                # Compute real neighborhood distances using the clean space
-                distancias_global, indices_global = knn_global.kneighbors(X_paciente_limpio)
+                # Usar el modelo KNN de rescate que creamos con la misma dimensionalidad del UMAP
+                distancias_global, indices_global = knn_rescue.kneighbors(X_pac_limpio_knn)
                 similitud_maxima = np.maximum(0, (1 - distancias_global[0][0])) * 100
                 
                 UMBRAL_OUTLIER = 40.0
