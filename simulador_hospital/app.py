@@ -2979,19 +2979,20 @@ with tab_umap:
 
             if 'vecinos_idx_pool' not in locals() and 'vecinos_idx_pool' not in globals():
                 # SAFETY RESCUE: If not calculated in tab_evidencia, handle scope mapping locally
-                prep = pipeline.named_steps['preprocesador']
-                X_pac_proc = prep.transform(df_paciente)
-                X_pac_dense = X_pac_proc.toarray() if hasattr(X_pac_proc, 'toarray') else np.array(X_pac_proc)
-                X_pac_limpio_knn = X_pac_dense[:, mask_limpia_umap] # Use the new dynamic mask
-                
-                # We need to recreate the KNN engine for this specific cleaned space to find neighbors
-                from sklearn.neighbors import NearestNeighbors
-                X_train_limpio_knn = X_train_proc_raw[:, mask_limpia_umap]
-                knn_rescue = NearestNeighbors(n_neighbors=100, metric='cosine')
-                knn_rescue.fit(X_train_limpio_knn)
-                
-                distancias_rescue, indices_rescue = knn_rescue.kneighbors(X_pac_limpio_knn)
-                vecinos_idx_pool = indices_rescue[0]
+                # Obtener prep y X para el rescate
+            prep = pipeline.named_steps['preprocesador']
+            X_pac_proc = prep.transform(df_paciente)
+            X_pac_dense = X_pac_proc.toarray() if hasattr(X_pac_proc, 'toarray') else np.array(X_pac_proc)
+            X_pac_limpio_knn = X_pac_dense[:, mask_limpia_umap] 
+            
+            # Recrear motor de búsqueda local si es necesario
+            from sklearn.neighbors import NearestNeighbors
+            X_train_limpio_knn = X_train_proc_raw[:, mask_limpia_umap]
+            knn_local_umap = NearestNeighbors(n_neighbors=100, metric='cosine')
+            knn_local_umap.fit(X_train_limpio_knn)
+            
+            distancias_rescue, indices_rescue = knn_local_umap.kneighbors(X_pac_limpio_knn)
+            vecinos_idx_pool = indices_rescue[0]
                 
             local_idx = vecinos_idx_pool[:20] 
             
