@@ -2096,10 +2096,7 @@ with tab_evidencia:
                 default_selections = list(opciones_multiselect.keys())[:5]
 
             # =====================================================================
-            # SOLUCIÓN DE LA LLAVE DINÁMICA (DYNAMIC KEY) PARA EVITAR CRASHEOS
-            # Creamos un hash basado exactamente en las opciones disponibles. 
-            # Si el médico apaga una variable, las opciones cambian, el hash cambia 
-            # y Streamlit renderiza un multiselect completamente nuevo y sin memoria corrupta.
+            # LLAVE DINÁMICA: EVITA CRASHEOS DE STREAMLIT AL CAMBIAR DE ESTADO
             # =====================================================================
             opciones_str = "".join(sorted(opciones_multiselect.keys()))
             hash_opciones = hashlib.md5(opciones_str.encode()).hexdigest()
@@ -2325,10 +2322,16 @@ with tab_evidencia:
                             pct_pluri = (pluri_count / len(cohort_multimorbidity)) * 100 if cohort_multimorbidity else 0.0
                             st.markdown(f"- **Multimorbidity Present:** {pct_pluri:.0f}%")
                             
+                            # =======================================================
+                            # RESTAURADO: Top 3 Diagnósticos de la Cohorte
+                            # =======================================================
                             diagnosticos_traducidos = [format_clinical_value('CIE10_MACRO', d) for d in cohort_diagnoses]
-                            top_diag = pd.Series(diagnosticos_traducidos).mode()[0] if cohort_diagnoses else "Unknown"
-                            pct_diag = (diagnosticos_traducidos.count(top_diag) / len(cohort_diagnoses)) * 100 if cohort_diagnoses else 0
-                            st.markdown(f"- **Diagnosis:** {top_diag} ({pct_diag:.0f}%)")
+                            if diagnosticos_traducidos:
+                                top3_counts = pd.Series(diagnosticos_traducidos).value_counts().head(3)
+                                diag_str = ", ".join([f"{k} ({v/len(diagnosticos_traducidos)*100:.0f}%)" for k, v in top3_counts.items()])
+                            else:
+                                diag_str = "Unknown"
+                            st.markdown(f"- **Top 3 Diagnoses:** {diag_str}")
 
                         st.markdown("##### Hospital Burden & Acuity Gap")
                         c1, c2, c3 = st.columns(3)
