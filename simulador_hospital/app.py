@@ -1379,9 +1379,10 @@ with tab_diagnostico:
                 st.warning(str(e))
 
 # ==========================================================================
-# tab_estrategia — VERSIÓN CON MOTOR DE CONTRAFACTUALES NATIVO (SIN DICE)
+# tab_estrategia — MOTOR DETERMINISTA CON FILTRO DE FIRMA CUALITATIVA
 # ==========================================================================
 import itertools
+import shap
 
 with tab_estrategia:
     # ----------------------------------------------------------------
@@ -1440,19 +1441,24 @@ with tab_estrategia:
             dias_sim = st.slider(
                 label="Hospitalization Stay (Days):",
                 min_value=0, max_value=max_permitido, value=dias_base, step=1,
-                key=f"sim_dias_base_{dias_base}"
+                key=f"sim_dias_base_{dias_base}",
+                help="Drag left to simulate premature discharge or right to project extended stay impacts."
             )
             st.markdown("---")
 
+            st.markdown("**Continuous Evolution Metrics** - *Simulate symptom progression*")
             col_dolor, col_severidad = st.columns(2)
+
             with col_dolor:
                 dolor_base = int(float(df_paciente['EVO_dolor_eva'].iloc[0] if 'EVO_dolor_eva' in df_paciente.columns else 0.0))
                 dolor_sim = st.slider("Current Pain Level (VAS 0-10):", min_value=0, max_value=10, value=dolor_base, step=1)
+            
             with col_severidad:
                 sev_base = int(float(df_paciente['EVO_gravedad_percibida'].iloc[0] if 'EVO_gravedad_percibida' in df_paciente.columns else 0.0))
                 severidad_sim = st.slider("Current Perceived Severity (0-10):", min_value=0, max_value=10, value=sev_base, step=1)
 
             st.markdown("---")
+            st.markdown("**Evolution Status (EVO)** - *Toggle acquired complications or resolved states*")
             sim_evo_map = {
                 'Mental Alteration': 'EVO_alteracion_mental', 'Functional Dependency': 'EVO_dependencia_funcional',
                 'Medical Devices': 'EVO_portador_dispositivos', 'Infectious Isolation': 'EVO_aislamiento_infeccioso',
@@ -1469,7 +1475,7 @@ with tab_estrategia:
                     status_evo_sim[col] = st.toggle(label, value=val_init)
 
     # ==================================================================
-    # COLUMNA DERECHA: MOTOR DE CONTRAFACTUALES NATIVO
+    # COLUMNA DERECHA: MOTOR NATIVO (CON FILTRO DE FIRMA CLÍNICA)
     # ==================================================================
     with col_rutas:
         st.markdown("---")
@@ -1492,7 +1498,6 @@ with tab_estrategia:
                 if 'dias_internados' in df_paciente.columns:
                     variables_accionables.append('dias_internados')
 
-                # Definir el espacio de búsqueda (qué valores probar para cada variable)
                 espacio_busqueda = {}
                 vars_a_variar = []
                 
@@ -1500,33 +1505,26 @@ with tab_estrategia:
                     val_actual = float(df_paciente[col].iloc[0])
                     
                     if col == 'dias_internados':
-                        # Explorar estancias desde el día actual hasta +7 días
                         espacio_busqueda[col] = list(range(int(val_actual), int(val_actual) + 8, 1))
                         vars_a_variar.append(col)
                     elif 'dolor' in col or 'gravedad' in col:
                         if val_actual > 0:
-                            # Explorar reducciones de dolor/severidad, de 1 en 1, hasta 0.
                             espacio_busqueda[col] = list(range(int(val_actual), -1, -1))
                             vars_a_variar.append(col)
                     else:
                         if val_actual == 1.0:
-                            # Si tiene complicación (1), explorar la posibilidad de que se resuelva (0) y quedarse igual (1)
                             espacio_busqueda[col] = [1.0, 0.0]
                             vars_a_variar.append(col)
 
                 if not vars_a_variar:
                     st.error("No modifiable clinical targets detected.")
                 else:
-                    # Ordenar el espacio de búsqueda para no estallar la memoria (Límite dinámico)
-                    # Tomar solo las 5 o 6 variables más importantes
                     vars_a_variar = sorted(vars_a_variar, key=lambda x: importancia_map.get(x, 0), reverse=True)[:6]
                     llaves = vars_a_variar
                     valores = [espacio_busqueda[k] for k in llaves]
                     
-                    # Generar todas las combinaciones posibles
                     combinaciones = list(itertools.product(*valores))
                     
-                    # Para optimizar, no evaluamos más de 1000 combinaciones
                     if len(combinaciones) > 1000:
                         import random
                         random.seed(42)
@@ -1534,12 +1532,7 @@ with tab_estrategia:
 
                     df_candidatos = pd.DataFrame(combinaciones, columns=llaves)
                     
-                    # Calcular el riesgo para todas las combinaciones generadas
-                    riesgos_calculados = []
-                    esfuerzos_clinicos = []
-                    
-                    # Para hacerlo súper rápido, construimos el DataFrame con todos los candidatos 
-                    # clonando el df base y reemplazando valores
+                    # Batch prediction 
                     df_bulk = pd.concat([df_paciente]*len(df_candidatos), ignore_index=True)
                     for col in llaves:
                         df_bulk[col] = df_candidatos[col]
@@ -1549,7 +1542,6 @@ with tab_estrategia:
                     
                     df_candidatos['riesgo_simulado'] = probas
                     
-                    # Calcular "esfuerzo clínico" (cuánto cambia respecto a la base)
                     def calc_esfuerzo(row):
                         esfuerzo = 0
                         for col in llaves:
@@ -1559,46 +1551,72 @@ with tab_estrategia:
                         
                     df_candidatos['esfuerzo'] = df_candidatos.apply(calc_esfuerzo, axis=1)
                     
-                    # Filtrar las que logran mejorar el riesgo base
-                    # Intentamos buscar debajo del umbral seguro, si no hay, buscamos mitigación
-                    cf_seguros = df_candidatos[df_candidatos['riesgo_simulado'] <= umbral + 0.02]
+                    # -------------------------------------------------------------
+                    # FILTRADO ESTRICTO DE UMBRAL
+                    # -------------------------------------------------------------
+                    cf_seguros = df_candidatos[df_candidatos['riesgo_simulado'] <= umbral]
                     modo_mitigacion = False
                     
                     if cf_seguros.empty:
                         modo_mitigacion = True
-                        meta_mitigacion = riesgo - ((riesgo - umbral) / 2) # Reducción a la mitad de la brecha
+                        meta_mitigacion = riesgo - ((riesgo - umbral) / 2.0)
                         cf_seguros = df_candidatos[df_candidatos['riesgo_simulado'] <= meta_mitigacion]
                     
                     if cf_seguros.empty:
-                        # Si aún así no hay, simplemente tomar los mejores
-                        cf_seguros = df_candidatos[df_candidatos['riesgo_simulado'] < riesgo - 0.02]
                         modo_mitigacion = True
+                        cf_seguros = df_candidatos[df_candidatos['riesgo_simulado'] <= (riesgo - 0.01)]
 
                     if cf_seguros.empty:
-                        st.error("No viable target routes were found to reduce risk.")
+                        st.error("No viable target routes were found to significantly reduce risk.")
                     else:
-                        # Seleccionar las mejores (menor riesgo y menor esfuerzo)
-                        # Removemos la fila "sin cambios" (esfuerzo == 0)
-                        cf_seguros = cf_seguros[cf_seguros['esfuerzo'] > 0]
-                        cf_seguros = cf_seguros.sort_values(by=['riesgo_simulado', 'esfuerzo']).head(5).reset_index(drop=True)
+                        # -------------------------------------------------------------
+                        # FILTRADO DE FIRMA CUALITATIVA (ELIMINAR SUBGRUPOS REDUNDANTES)
+                        # -------------------------------------------------------------
+                        # Primero descartamos las filas donde no hubo ningún cambio
+                        cf_seguros = cf_seguros[cf_seguros['esfuerzo'] > 0].copy()
+
+                        if not cf_seguros.empty:
+                            # Función para determinar la firma clínica (qué variables específicas se tocaron)
+                            def obtener_firma(row):
+                                cambios = []
+                                for col in llaves:
+                                    if row[col] != float(df_paciente.iloc[0][col]):
+                                        cambios.append(col)
+                                return "-".join(sorted(cambios))
+                            
+                            cf_seguros['firma_cualitativa'] = cf_seguros.apply(obtener_firma, axis=1)
+                            
+                            # Ordenar por esfuerzo primero. Esto garantiza que dentro del mismo subgrupo 
+                            # (ej: cambiar dolor y complicación), la ruta que dejemos sea la de MENOR intervención.
+                            cf_seguros = cf_seguros.sort_values(by=['esfuerzo', 'riesgo_simulado'])
+                            
+                            # Eliminar firmas duplicadas, conservando solo la de menor esfuerzo
+                            cf_seguros = cf_seguros.drop_duplicates(subset=['firma_cualitativa'], keep='first')
+                            
+                            # Finalmente, ordenamos las estrategias únicas sobrevivientes por riesgo simulado
+                            # para mostrarle al médico primero las rutas más seguras.
+                            cf_seguros = cf_seguros.sort_values(by=['riesgo_simulado']).head(5).reset_index(drop=True)
 
                         if cf_seguros.empty:
                             st.warning("Only the baseline trajectory was found.")
                         else:
                             if modo_mitigacion:
                                 st.warning(
-                                    f"⚠️ **{len(cf_seguros)} HARM REDUCTION ROUTES FOUND:**\n"
-                                    f"Safe discharge (< {umbral*100:.1f}%) is not mathematically viable. "
-                                    f"Showing optimal intermediate targets."
+                                    f"⚠️ **{len(cf_seguros)} HARM REDUCTION STRATEGIES FOUND:**\n"
+                                    f"Safe discharge (≤ {umbral*100:.1f}%) is not mathematically viable with available variables. "
+                                    f"Showing optimal intermediate strategies for risk mitigation."
                                 )
                             else:
-                                st.success(f"✅ **{len(cf_seguros)} STABILIZATION TARGETS FOUND:**")
+                                st.success(f"✅ **{len(cf_seguros)} UNIQUE STABILIZATION STRATEGIES FOUND:**")
 
                             evo_output_dict = {
                                 'EVO_dolor_eva': 'Current Pain', 'EVO_gravedad_percibida': 'Current Severity',
                                 'EVO_aislamiento_infeccioso': 'Infectious Isolation', 'EVO_alteracion_mental': 'Mental Alteration',
                                 'EVO_complicacion_internacion': 'Hospital Complication', 'EVO_dependencia_funcional': 'Functional Dependency',
                                 'EVO_portador_dispositivos': 'Device Bearer', 'dias_internados': 'Additional Hospitalization Days',
+                                'EVO_cambio_terapeutico_mayor': 'Major Therapeutic Change', 'EVO_intervencion_quirurgica': 'Surgical Intervention',
+                                'EVO_soporte_transfusional': 'Transfusion Support', 'EVO_terapia_endovenosa_prolongada': 'Prolonged IV Therapy',
+                                'EVO_inestabilidad_residual': 'Residual Instability'
                             }
 
                             with st.container(height=500):
@@ -1629,7 +1647,7 @@ with tab_estrategia:
                                             f"&nbsp; (Threshold: {umbral*100:.1f}%)"
                                         )
 
-                                        # --- Gráfico de Radar ---
+                                        # --- Radar Chart ---
                                         radar_map = {
                                             'Δ Pain': ('EVO_dolor_eva', 'ING_dolor_eva'),
                                             'Δ Severity': ('EVO_gravedad_percibida', 'ING_gravedad_percibida'),
@@ -1677,7 +1695,7 @@ with tab_estrategia:
                                         st.plotly_chart(fig_radar, use_container_width=True, key=f"radar_ruta_{r_idx}")
 
     # ==================================================================
-    # MOTOR SHAP PARA EL SANDBOX
+    # SANDBOX SHAP ENGINE (IMPACT ANALYSIS)
     # ==================================================================
     st.markdown("---")
     try:
@@ -1717,10 +1735,14 @@ with tab_estrategia:
                 'EVO_alteracion_mental': 'Active Delirium / Mental Alteration',
                 'EVO_dependencia_funcional': 'Severe Functional Dependency',
                 'EVO_portador_dispositivos': 'Active Medical Device Bearer',
+                'EVO_cambio_terapeutico_mayor': 'Major Therapeutic Change',
+                'EVO_intervencion_quirurgica': 'Surgical Intervention Performed',
+                'EVO_soporte_transfusional': 'Transfusion Support Required',
+                'EVO_terapia_endovenosa_prolongada': 'Prolonged IV Therapy',
+                'EVO_inestabilidad_residual': 'Residual Instability'
             }
 
             nombre_modelo = type(clf).__name__
-            import shap
             if 'XGB' in nombre_modelo:
                 explainer = shap.TreeExplainer(clf.get_booster())
                 shap_sim = explainer.shap_values(X_sim_dense, check_additivity=False)
