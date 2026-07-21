@@ -1804,8 +1804,9 @@ with tab_estrategia:
         st.warning(f"Error detail: {str(e)}") 
         
 # ==========================================
-# --- 8 TAB EVIDENCIA ---
+# --- 8 TAB EVIDENCIA (CORREGIDO) ---
 # ==========================================
+import hashlib
 
 with tab_evidencia:
     st.markdown("#### Clinical Similarity Network & Cohort Audit")
@@ -2009,10 +2010,7 @@ with tab_evidencia:
         prep = pipeline.named_steps['preprocesador']
         nombres_expandidos = list(prep.get_feature_names_out())
         
-        # Generar máscara para aislar variables predictivas reales
         mask_limpia = np.array([col not in VARIABLES_RUIDO for col in nombres_expandidos])
-        
-        # Extirpar las columnas sucias de la matriz de entrenamiento
         X_train_limpio = X_train_proc[:, mask_limpia]
         
         knn_engine = NearestNeighbors(n_neighbors=100, metric='cosine')
@@ -2036,8 +2034,6 @@ with tab_evidencia:
             # --- CORTAR LAS VARIABLES DE RUIDO DEL PACIENTE ACTUAL ---
             X_paciente_limpio = X_paciente_dense[:, mask_limpia]
             
-           
-
             # --- ESTRATEGIA 3: SELECCIÓN DINÁMICA DE VARIABLES (FILTRO ESTRICTO DE ACTIVACIÓN) ---
             nombres_expandidos = list(prep.get_feature_names_out())
             columnas_limpias = [col for col, is_clean in zip(nombres_expandidos, mask_limpia) if is_clean]
@@ -2056,7 +2052,6 @@ with tab_evidencia:
                 clean_col = col.replace('num__', '').replace('cat__', '')
                 matched_base = None
                 
-                # Sort descending length to catch full base variables before substrings
                 for base in sorted(TRANSLATION_DICT.keys(), key=len, reverse=True):
                     if clean_col.startswith(base):
                         matched_base = base
@@ -2067,9 +2062,8 @@ with tab_evidencia:
                     tag = get_category_tag(matched_base)
                     suffix = clean_col[len(matched_base):].strip('_')
                     
-                    if suffix: # Manejo de One-Hot Encoded (ej. rango_edad_ADULTO MAYOR)
+                    if suffix: 
                         translated_val = format_clinical_value(matched_base, suffix)
-                        # Si format_clinical_value no lo tradujo, lo formateamos limpio
                         if translated_val.upper() == suffix.upper():
                             translated_val = suffix.replace('_', ' ').title()
                         return f"{tag} {base_en}: {translated_val}"
@@ -2078,42 +2072,47 @@ with tab_evidencia:
                 else:
                     return f"📊 [Other] {clean_col.replace('_', ' ').title()}"
 
-            # --- NUEVO: FILTRO ESTRICTO DE OPCIONES DISPONIBLES ---
+            # --- FILTRO ESTRICTO DE OPCIONES DISPONIBLES ---
             opciones_multiselect = {}
             default_cols = []
             claves_prioridad = ['dias_internados', 'TR_Prioridad', 'rango_edad', 'EST_paso_por_uti', 'pluripatologico', 'DELTA_gravedad_percibida', 'cantidad_interconsultas', 'CIE10_MACRO', 'perfil_clinico']
             
             for idx_col, col_name in enumerate(columnas_limpias):
                 valor_paciente = X_paciente_limpio[0, idx_col]
-                
-                # Identificamos si es continua
                 es_continua = any(p in col_name for p in ['dias_internados', 'cantidad_interconsultas', 'DELTA_', 'dolor_eva'])
                 
-                # REGLA ESTRICTA: Solo guardamos la opción si el paciente la tiene activa (o si es continua)
+                # Solo guardamos la opción si el paciente la tiene activa (o si es continua)
                 if es_continua or valor_paciente > 0:
                     nombre_humano = humanize_col(col_name)
                     opciones_multiselect[nombre_humano] = col_name
                     
-                    # Además, si es de prioridad, la guardamos para las sugerencias por defecto
                     if any(k in col_name for k in claves_prioridad):
                         if col_name not in default_cols:
                             default_cols.append(col_name)
 
-            # Limitamos a las 6 más descriptivas para no saturar el selector inicial
             default_cols = default_cols[:6]
-            
             default_selections = [humanize_col(c) for c in default_cols if humanize_col(c) in opciones_multiselect]
             if not default_selections:
                 default_selections = list(opciones_multiselect.keys())[:5]
 
+            # =====================================================================
+            # SOLUCIÓN DE LA LLAVE DINÁMICA (DYNAMIC KEY) PARA EVITAR CRASHEOS
+            # Creamos un hash basado exactamente en las opciones disponibles. 
+            # Si el médico apaga una variable, las opciones cambian, el hash cambia 
+            # y Streamlit renderiza un multiselect completamente nuevo y sin memoria corrupta.
+            # =====================================================================
+            opciones_str = "".join(sorted(opciones_multiselect.keys()))
+            hash_opciones = hashlib.md5(opciones_str.encode()).hexdigest()
+            dynamic_multiselect_key = f"knn_selector_{hash_opciones}"
+
             st.info("🔬 **Active Similarity Variables:** The system pre-selected the active clinical features driving this patient's specific risk profile. Modify them below to adjust the neighborhood calculation.")
+            
             selected_human_names = st.multiselect(
                 "Select variables for KNN similarity (Dynamic Subspace):",
-                options=list(opciones_multiselect.keys()),  # AHORA LA LISTA ESTÁ LIMPIA DE OPCIONES INÚTILES
-                default=default_selections
+                options=list(opciones_multiselect.keys()),  
+                default=default_selections,
+                key=dynamic_multiselect_key
             )
-
-
             
             if not selected_human_names:
                 st.warning("Please select at least one variable to calculate similarity.")
@@ -2354,7 +2353,7 @@ with tab_evidencia:
                         pct_amb = (amb_count / len(cohort_ambulance)) * 100 if cohort_ambulance else 0.0
                         c4.metric("Ambulance Arrival", f"{p_amb}", delta=f"Cohort Rate: {pct_amb:.1f}%", delta_color="off")
                         
-                        triage_map = {
+                        triage_map_local = {
                             '0': '0: Non-Urgent', '0.0': '0: Non-Urgent',
                             '1': '1: Standard', '1.0': '1: Standard',
                             '2': '2: Urgent', '2.0': '2: Urgent',
@@ -2362,11 +2361,11 @@ with tab_evidencia:
                         }
                         if 'TR_Prioridad' in df_paciente.columns:
                             p_triage_raw = str(df_paciente['TR_Prioridad'].iloc[0]).strip()
-                            p_triage = triage_map.get(p_triage_raw, 'Unknown')
+                            p_triage = triage_map_local.get(p_triage_raw, 'Unknown')
                         else:
                             p_triage = 'Unknown'
                             
-                        triage_traducido = [triage_map.get(str(t).strip(), "Unknown") for t in cohort_triage] if cohort_triage else []
+                        triage_traducido = [triage_map_local.get(str(t).strip(), "Unknown") for t in cohort_triage] if cohort_triage else []
                         top_triage = pd.Series(triage_traducido).mode()[0] if triage_traducido else "Unknown"
                         pct_triage = (triage_traducido.count(top_triage) / len(triage_traducido)) * 100 if triage_traducido else 0
                         
