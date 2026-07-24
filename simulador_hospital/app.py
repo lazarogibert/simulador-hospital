@@ -1796,7 +1796,19 @@ with tab_estrategia:
                     st.plotly_chart(fig_delta, use_container_width=True)
                 with col_l1:
                     st.markdown("### 📊 Target Risk")
+                    
+                    # 1. Riesgo Simulado
                     st.metric("Hypothetical Prob.", f"{riesgo_simulado*100:.1f}%", f"{variacion_riesgo:+.1f}% vs Admission", delta_color="inverse")
+                    
+                    # 2. Umbral de Seguridad
+                    st.metric("Safe Discharge Threshold", f"{umbral*100:.1f}%")
+                    
+                    # 3. Alerta Visual de Estado
+                    if riesgo_simulado <= umbral:
+                        st.success("✅ Safe for Discharge")
+                    else:
+                        st.warning("⚠️ Above Safety Threshold")
+                        
                     st.markdown("---")
 
     except Exception as e:
