@@ -1015,6 +1015,183 @@ df_paciente = pd.DataFrame([paciente_data])[columnas_modelo]
 # ==========================================
 # TABS & DASHBOARD
 # ==========================================
+def format_clinical_value(key_es, value):
+            val_str = str(value).strip().upper()
+            if key_es == 'rango_edad':
+                traducciones_edad = {
+                    'ADULTO DE MEDIANA EDAD': 'Middle-Aged Adult', 
+                    'ADULTO MAYOR': 'Older Adult', 
+                    'ADULTO JOVEN': 'Young Adult'
+                }
+                return traducciones_edad.get(val_str, value)
+            if key_es == 'sexo':
+                return {'MASCULINO': 'Male', 'FEMENINO': 'Female'}.get(val_str, value)
+            if key_es == 'Area':
+                traduccion_area = {
+                    'CLINICA_MEDICA': 'Internal Medicine', 'CLINICA MEDICA': 'Internal Medicine', 
+                    'EMERG_GUARDIAS': 'ER', 'GUARDIA': 'ER'
+                }
+                return traduccion_area.get(val_str, value)
+            if key_es == 'perfil_clinico_ingreso':
+                traducciones_perfil = {
+                    'INTERNACION INICIAL': 'Initial Admission',
+                    'COMPLICACION ASOCIADA A LA INTERNECION': 'Admission-Associated Complication',
+                    'DESCOMPENSACION DE PLURIPATOLOGIA': 'Multimorbidity Decompensation',
+                    'MISMA CAUSA': 'Same Cause',
+                    'REINTERNACION NO ASOCIADA': 'Unrelated Readmission'
+                }
+                return traducciones_perfil.get(val_str, value)
+            if key_es == 'IN_COMPLEJIDAD':
+                traduccion_comp = {'ALTA': 'High', 'MEDIA': 'Medium', 'BAJA': 'Low'}
+                return traduccion_comp.get(val_str, value) if not val_str.isdigit() else str(int(float(value)))
+            if key_es == 'CIE10_MACRO':
+                cie10_ui_dict = {
+                    "Tuberculosis": "Tuberculosis", "Lepra": "Leprosy", "Sífilis": "Syphilis", 
+                    "Otras infecciosas (A)": "Other infectious (A)", "Hepatitis viral": "Viral hepatitis", 
+                    "Enfermedad por VIH": "HIV disease", "Enfermedad de Chagas": "Chagas disease", 
+                    "Toxoplasmosis": "Toxoplasmosis", "Equinococosis / Hidatidosis": "Echinococcosis / Hydatidosis", 
+                    "Secuelas de enfermedades infecciosas": "Sequelae of infectious diseases", "Otras infecciosas (B)": "Other infectious (B)",
+                    "Cáncer de labio / boca / faringe": "Lip / mouth / pharynx cancer", "Cáncer digestivo": "Digestive cancer", 
+                    "Cáncer respiratorio / intratorácico": "Respiratory / intrathoracic cancer", "Cáncer de hueso / cartílago": "Bone / cartilage cancer", 
+                    "Melanoma / Cáncer de piel": "Melanoma / Skin cancer", "Cáncer de mama": "Breast cancer", 
+                    "Cáncer genital femenino": "Female genital cancer", "Cáncer genital masculino": "Male genital cancer", 
+                    "Cáncer de vías urinarias": "Urinary tract cancer", "Cáncer de sistema nervioso central": "Central nervous system cancer", 
+                    "Cáncer linfoide / hematopoyético": "Lymphoid / hematopoietic cancer", "Otros tumores malignos": "Other malignant tumors", 
+                    "Tumores in situ o benignos": "In situ or benign tumors", "Anemias nutricionales": "Nutritional anemias", 
+                    "Anemias hemolíticas": "Hemolytic anemias", "Aplasias y otras anemias": "Aplasias and other anemias", 
+                    "Defectos de coagulación / púrpura": "Coagulation defects / purpura", "Trastornos de inmunodeficiencia": "Immunodeficiency disorders", 
+                    "Otros trastornos de la sangre": "Other blood disorders",
+                    "Tiroides": "Thyroid", "Diabetes": "Diabetes", "Glucosa / hipoglucemia": "Glucose / hypoglycemia", 
+                    "Otros endocrinos y metabólicos": "Other endocrine and metabolic", "Obesidad y trastornos de hiperalimentación": "Obesity and hyperalimentation disorders", 
+                    "Dislipidemia": "Dyslipidemia", "Fibrosis quística": "Cystic fibrosis", "Trastornos metabólicos": "Metabolic disorders", 
+                    "Otros metabólicos / nutricionales": "Other metabolic / nutritional",
+                    "Trastornos mentales orgánicos (Demencias)": "Organic mental disorders (Dementias)", "Trastornos por uso de sustancias": "Substance use disorders", 
+                    "Esquizofrenia y trastornos psicóticos": "Schizophrenia and psychotic disorders", "Trastornos del humor (Afectivos)": "Mood (Affective) disorders", 
+                    "Trastornos neuróticos y de ansiedad": "Neurotic and anxiety disorders", "Trastornos de la conducta alimentaria / sueño": "Eating / sleep disorders", 
+                    "Trastornos de la personalidad": "Personality disorders", "Discapacidad intelectual": "Intellectual disability", 
+                    "Trastornos del desarrollo psicobiológico (Autismo)": "Psychobiological development disorders (Autism)", "Otros trastornos mentales": "Other mental disorders",
+                    "Atrofias sistémicas del SNC": "Systemic atrophies of CNS", "Trastornos extrapiramidales y del movimiento (Parkinson)": "Extrapyramidal and movement disorders (Parkinson's)", 
+                    "Enfermedades degenerativas (Alzheimer)": "Degenerative diseases (Alzheimer's)", "Enfermedades desmielinizantes (Esclerosis Múltiple)": "Demyelinating diseases (Multiple Sclerosis)", 
+                    "Trastornos episódicos y paroxísticos (Epilepsia, Migraña)": "Episodic and paroxysmal disorders (Epilepsy, Migraine)", "Trastornos de nervios y plexos": "Nerve and plexus disorders", 
+                    "Polineuropatías": "Polyneuropathies", "Enfermedades de la unión neuromuscular (Miastenia)": "Diseases of the neuromuscular junction (Myasthenia)", 
+                    "Parálisis cerebral y síndromes paralíticos": "Cerebral palsy and paralytic syndromes", "Otros trastornos neurológicos": "Other neurological disorders",
+                    "Ojo": "Eye", "Oído": "Ear", "Otros órganos de los sentidos": "Other sense organs",
+                    "Hipertensión": "Hypertension", "Cardiopatía isquémica": "Ischemic heart disease", "Enfermedad cardiopulmonar": "Cardiopulmonary disease", 
+                    "Otras enfermedades del corazón (Insuficiencia Cardíaca)": "Other heart diseases (Heart Failure)", "Cerebrovascular": "Cerebrovascular", 
+                    "Enfermedades de arterias y capilares": "Diseases of arteries and capillaries", "Enfermedades de venas y vasos linfáticos": "Diseases of veins and lymphatic vessels", 
+                    "Otros circulatorios": "Other circulatory",
+                    "Vías respiratorias altas": "Upper respiratory tract", "Infecciones agudas / neumonía / influenza": "Acute infections / pneumonia / influenza", 
+                    "Infecciones respiratorias bajas": "Lower respiratory infections", "Enfermedades de vías respiratorias superiores": "Diseases of upper respiratory tract", 
+                    "Asma / EPOC / bronquitis": "Asthma / COPD / bronchitis", "Enfermedades del pulmón por agentes externos (Neumoconiosis)": "Lung diseases due to external agents (Pneumoconiosis)", 
+                    "Enfermedades pulmonares intersticiales": "Interstitial lung diseases", "Otros respiratorios": "Other respiratory",
+                    "Boca / dientes / faringe": "Mouth / teeth / pharynx", "Esófago / estómago / duodeno": "Esophagus / stomach / duodenum", 
+                    "Apendicitis": "Appendicitis", "Hernias": "Hernias", "Enfermedad de Crohn y colitis": "Crohn's disease and colitis", 
+                    "Otras enfermedades de los intestinos": "Other diseases of the intestines", "Hígado": "Liver", 
+                    "Vesícula / vías biliares / páncreas": "Gallbladder / biliary tract / pancreas", "Otros digestivos": "Other digestive",
+                    "Dermatitis y eczema": "Dermatitis and eczema", "Trastornos papuloescamosos (Psoriasis)": "Papulosquamous disorders (Psoriasis)", 
+                    "Urticaria y eritema": "Urticaria and erythema", "Trastornos de las faneras / Otros trastornos de piel": "Disorders of skin appendages / Other skin disorders", 
+                    "Otras enfermedades de la piel": "Other skin diseases",
+                    "Artropatías": "Arthropathies", "Tejido conectivo (Lupus, etc.)": "Connective tissue (Lupus, etc.)", "Dorsopatías": "Dorsopathies", 
+                    "Tejidos blandos": "Soft tissues", "Osteopatías y condropatías (Osteoporosis)": "Osteopathies and chondropathies (Osteoporosis)", 
+                    "Otros osteomusculares": "Other musculoskeletal",
+                    "Riñón (Insuficiencia Renal Crónica)": "Kidney (Chronic Renal Failure)", "Vías urinarias bajas": "Lower urinary tract", 
+                    "Genital masculino (Hiperplasia Prostática)": "Male genital (Prostatic Hyperplasia)", "Mama": "Breast", 
+                    "Genital femenino (Endometriosis, etc.)": "Female genital (Endometriosis, etc.)", "Otros genitourinarios": "Other genitourinary",
+                    "Malformaciones del sistema nervioso (Espina bífida)": "Malformations of the nervous system (Spina bifida)", "Malformaciones cardíacas congénitas": "Congenital heart malformations", 
+                    "Anomalías cromosómicas (Síndrome de Down)": "Chromosomal abnormalities (Down Syndrome)", "Otras malformaciones congénitas": "Other congenital malformations",
+                    "Enfermedad respiratoria crónica perinatal": "Chronic perinatal respiratory disease", 
+                    "Secuelas crónicas de traumatismos": "Chronic sequelae of injuries",
+                    "Síndrome Post-COVID (Long COVID)": "Post-COVID Syndrome (Long COVID)", "Otras condiciones especiales (U)": "Other special conditions (U)",
+                    "Historia personal de tumores / enfermedades": "Personal history of tumors / diseases", "Ausencia adquirida de miembros / órganos": "Acquired absence of limbs / organs", 
+                    "Aberturas artificiales (Ostomías)": "Artificial openings (Ostomies)", "Estado de órgano trasplantado": "Transplanted organ status", 
+                    "Presencia de implantes cardíacos / vasculares": "Presence of cardiac / vascular implants", "Dependencia de máquinas (diálisis, oxígeno)": "Machine dependence (dialysis, oxygen)", 
+                    "Otros factores de salud": "Other health factors",
+                    "DESCONOCIDO": "UNKNOWN"
+                }
+                traducciones_cie = {k.upper(): v for k, v in cie10_ui_dict.items()}
+                return traducciones_cie.get(val_str, value)
+            
+            bool_suffixes = ('_mental', '_funcional', '_dispositivos', '_reiteradas', '_hemorragico', '_internacion', '_infeccioso', '_activa', '_mayor', '_quirurgica', '_transfusional', '_prolongada', '_residual', '_severa')
+            if key_es.startswith('LLM_') or key_es.startswith('EST_') or key_es.startswith('Riesgo_') or key_es in ('pluripatologico') or (key_es.endswith(bool_suffixes) and not key_es.startswith('DELTA_')):
+                try:
+                    return "Yes" if float(value) == 1.0 else "No"
+                except ValueError:
+                    if val_str in ['TRUE', 'YES', '1']: return "Yes"
+                    if val_str in ['FALSE', 'NO', '0']: return "No"
+                    pass
+                    
+            try:
+                f_val = float(value)
+                if f_val.is_integer(): return str(int(f_val))
+            except ValueError:
+                pass
+            return value
+    
+        def safe_int(value, default="N/A"):
+            try:
+                if pd.isna(value) or value == "": return default
+                return int(float(value))
+            except (ValueError, TypeError):
+                return default
+    
+        def traducir_ninguno(texto):
+            texto_str = str(texto).strip()
+            if texto_str.upper() == 'NINGUNO': return 'None'
+            elif texto_str == '': return 'Unknown'
+            return texto_str
+    
+        def renderizar_notas_gemelo(texto_evolucion, citas_llm, lista_enfermedades):
+            if not isinstance(texto_evolucion, str) or not texto_evolucion:
+                return "No narrative context available."
+                
+            texto_resaltado = texto_evolucion
+            if isinstance(citas_llm, dict):
+                for cita, variable in citas_llm.items():
+                    if isinstance(cita, str) and cita.strip():
+                        cita_escapada = re.escape(cita)
+                        marcador = f"<mark style='background-color: #FFF2CC; color: #000000; border-radius: 3px; padding: 2px 4px;'><b>{cita}</b> <span style='font-size: 0.7em; background-color: #FFD966; padding: 2px 5px; border-radius: 8px; color: #594000; margin-left: 4px; display: inline-block; vertical-align: middle; line-height: 1;'>{variable}</span></mark>"
+                        texto_resaltado = re.sub(cita_escapada, marcador, texto_resaltado, flags=re.IGNORECASE)
+                        
+            if isinstance(lista_enfermedades, list):
+                for enfermedad in lista_enfermedades:
+                    if isinstance(enfermedad, str) and enfermedad.strip():
+                        patron = rf"\b({re.escape(enfermedad)})\b"
+                        marcador = r"<mark style='background-color: #FFCCCC; color: #000000; border-radius: 3px; padding: 0px 2px;'>\1</mark>"
+                        texto_resaltado = re.sub(patron, marcador, texto_resaltado, flags=re.IGNORECASE)
+                        
+            return f"""
+            <div style='line-height: 1.8; font-size: 14px; padding: 15px; background-color: var(--secondary-background-color, rgba(128, 128, 128, 0.1)); color: var(--text-color, inherit); border-radius: 8px; border: 1px solid rgba(128, 128, 128, 0.2);'>
+                {texto_resaltado}
+            </div>
+            """
+    
+        TRANSLATION_DICT = {
+            'dias_internados': 'Length of Stay (Days)', 'rango_edad': 'Age Range', 'pluripatologico': 'Multimorbidity',
+            'CIE10_MACRO': 'Primary Diagnosis (ICD-10)', 'LLM_tabaquismo_activo': 'Active Smoking', 
+            'LLM_polifarmacia': 'Polypharmacy',
+            'LLM_historial_caidas': 'History of Falls', 'LLM_abandono_medicacion': 'Medication Abandonment',
+            'ING_dolor_eva': 'Admission: Pain (VAS)', 'ING_gravedad_percibida': 'Admission: Perceived Severity',
+            'ING_alteracion_mental': 'Admission: Mental Alteration', 'ING_dependencia_funcional': 'Admission: Functional Dependency',
+            'ING_portador_dispositivos': 'Admission: Device Bearer', 'ING_consultas_reiteradas': 'Admission: Repeated Consultations',
+            'ING_riesgo_hemorragico': 'Admission: Hemorrhagic Risk', 'ING_infeccion_activa': 'Admission: Active Infection',
+            'EVO_dolor_eva': 'Evolution: Pain (VAS)', 'EVO_gravedad_percibida': 'Evolution: Perceived Severity', 
+            'EVO_alteracion_mental': 'Evolution: Mental Alteration', 'EVO_dependencia_funcional': 'Evolution: Functional Dependency', 
+            'EVO_portador_dispositivos': 'Evolution: Device Bearer', 'EVO_complicacion_internacion': 'Evolution: Hospital Complication', 
+            'EVO_aislamiento_infeccioso': 'Evolution: Infectious Isolation', 
+            'EVO_cambio_terapeutico_mayor': 'Evolution: Major Therapeutic Change', 'EVO_intervencion_quirurgica': 'Evolution: Surgical Intervention', 
+            'EVO_soporte_transfusional': 'Evolution: Transfusion Support', 'DELTA_dolor_eva': 'Δ Pain (VAS)',
+            'DELTA_gravedad_percibida': 'Δ Perceived Severity', 'DELTA_alteracion_mental': 'Δ Mental Alteration',
+            'DELTA_dependencia_funcional': 'Δ Functional Dependency', 'DELTA_portador_dispositivos': 'Δ Device Bearer',
+            'sexo': 'Sex', 'Area': 'Admission Area', 'IN_COMPLEJIDAD': 'Complexity Level', 'TR_Prioridad': 'Triage Priority',
+            'cantidad_interconsultas': 'Interconsultations', 'visitas_guardia_6meses_previos': 'ER Visits (6m)',
+            'EST_ingreso_ambulancia': 'Ambulance Arrival', 
+            'HIST_condicion_ultimo_egreso': 'Previous Discharge Condition',
+            'perfil_clinico_ingreso': 'Admission Profile',
+            'EST_paso_por_uti': 'ICU Stay (UTI)',
+            'Riesgo_Cardiovasculares_Inotropicos': 'High-Risk Meds: Cardiovascular/Inotropes',
+            'Riesgo_Psicofarmacos_Neurologicos': 'High-Risk Meds: Psychotropics/Neurological'
+        }
+
 @st.cache_resource
 def load_similarity_assets():
             BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1888,182 +2065,7 @@ if user_role == "Clinical Medic":
     with tab_evidencia:
         st.markdown("#### Clinical Similarity Network & Cohort Audit")
         
-        def format_clinical_value(key_es, value):
-            val_str = str(value).strip().upper()
-            if key_es == 'rango_edad':
-                traducciones_edad = {
-                    'ADULTO DE MEDIANA EDAD': 'Middle-Aged Adult', 
-                    'ADULTO MAYOR': 'Older Adult', 
-                    'ADULTO JOVEN': 'Young Adult'
-                }
-                return traducciones_edad.get(val_str, value)
-            if key_es == 'sexo':
-                return {'MASCULINO': 'Male', 'FEMENINO': 'Female'}.get(val_str, value)
-            if key_es == 'Area':
-                traduccion_area = {
-                    'CLINICA_MEDICA': 'Internal Medicine', 'CLINICA MEDICA': 'Internal Medicine', 
-                    'EMERG_GUARDIAS': 'ER', 'GUARDIA': 'ER'
-                }
-                return traduccion_area.get(val_str, value)
-            if key_es == 'perfil_clinico_ingreso':
-                traducciones_perfil = {
-                    'INTERNACION INICIAL': 'Initial Admission',
-                    'COMPLICACION ASOCIADA A LA INTERNECION': 'Admission-Associated Complication',
-                    'DESCOMPENSACION DE PLURIPATOLOGIA': 'Multimorbidity Decompensation',
-                    'MISMA CAUSA': 'Same Cause',
-                    'REINTERNACION NO ASOCIADA': 'Unrelated Readmission'
-                }
-                return traducciones_perfil.get(val_str, value)
-            if key_es == 'IN_COMPLEJIDAD':
-                traduccion_comp = {'ALTA': 'High', 'MEDIA': 'Medium', 'BAJA': 'Low'}
-                return traduccion_comp.get(val_str, value) if not val_str.isdigit() else str(int(float(value)))
-            if key_es == 'CIE10_MACRO':
-                cie10_ui_dict = {
-                    "Tuberculosis": "Tuberculosis", "Lepra": "Leprosy", "Sífilis": "Syphilis", 
-                    "Otras infecciosas (A)": "Other infectious (A)", "Hepatitis viral": "Viral hepatitis", 
-                    "Enfermedad por VIH": "HIV disease", "Enfermedad de Chagas": "Chagas disease", 
-                    "Toxoplasmosis": "Toxoplasmosis", "Equinococosis / Hidatidosis": "Echinococcosis / Hydatidosis", 
-                    "Secuelas de enfermedades infecciosas": "Sequelae of infectious diseases", "Otras infecciosas (B)": "Other infectious (B)",
-                    "Cáncer de labio / boca / faringe": "Lip / mouth / pharynx cancer", "Cáncer digestivo": "Digestive cancer", 
-                    "Cáncer respiratorio / intratorácico": "Respiratory / intrathoracic cancer", "Cáncer de hueso / cartílago": "Bone / cartilage cancer", 
-                    "Melanoma / Cáncer de piel": "Melanoma / Skin cancer", "Cáncer de mama": "Breast cancer", 
-                    "Cáncer genital femenino": "Female genital cancer", "Cáncer genital masculino": "Male genital cancer", 
-                    "Cáncer de vías urinarias": "Urinary tract cancer", "Cáncer de sistema nervioso central": "Central nervous system cancer", 
-                    "Cáncer linfoide / hematopoyético": "Lymphoid / hematopoietic cancer", "Otros tumores malignos": "Other malignant tumors", 
-                    "Tumores in situ o benignos": "In situ or benign tumors", "Anemias nutricionales": "Nutritional anemias", 
-                    "Anemias hemolíticas": "Hemolytic anemias", "Aplasias y otras anemias": "Aplasias and other anemias", 
-                    "Defectos de coagulación / púrpura": "Coagulation defects / purpura", "Trastornos de inmunodeficiencia": "Immunodeficiency disorders", 
-                    "Otros trastornos de la sangre": "Other blood disorders",
-                    "Tiroides": "Thyroid", "Diabetes": "Diabetes", "Glucosa / hipoglucemia": "Glucose / hypoglycemia", 
-                    "Otros endocrinos y metabólicos": "Other endocrine and metabolic", "Obesidad y trastornos de hiperalimentación": "Obesity and hyperalimentation disorders", 
-                    "Dislipidemia": "Dyslipidemia", "Fibrosis quística": "Cystic fibrosis", "Trastornos metabólicos": "Metabolic disorders", 
-                    "Otros metabólicos / nutricionales": "Other metabolic / nutritional",
-                    "Trastornos mentales orgánicos (Demencias)": "Organic mental disorders (Dementias)", "Trastornos por uso de sustancias": "Substance use disorders", 
-                    "Esquizofrenia y trastornos psicóticos": "Schizophrenia and psychotic disorders", "Trastornos del humor (Afectivos)": "Mood (Affective) disorders", 
-                    "Trastornos neuróticos y de ansiedad": "Neurotic and anxiety disorders", "Trastornos de la conducta alimentaria / sueño": "Eating / sleep disorders", 
-                    "Trastornos de la personalidad": "Personality disorders", "Discapacidad intelectual": "Intellectual disability", 
-                    "Trastornos del desarrollo psicobiológico (Autismo)": "Psychobiological development disorders (Autism)", "Otros trastornos mentales": "Other mental disorders",
-                    "Atrofias sistémicas del SNC": "Systemic atrophies of CNS", "Trastornos extrapiramidales y del movimiento (Parkinson)": "Extrapyramidal and movement disorders (Parkinson's)", 
-                    "Enfermedades degenerativas (Alzheimer)": "Degenerative diseases (Alzheimer's)", "Enfermedades desmielinizantes (Esclerosis Múltiple)": "Demyelinating diseases (Multiple Sclerosis)", 
-                    "Trastornos episódicos y paroxísticos (Epilepsia, Migraña)": "Episodic and paroxysmal disorders (Epilepsy, Migraine)", "Trastornos de nervios y plexos": "Nerve and plexus disorders", 
-                    "Polineuropatías": "Polyneuropathies", "Enfermedades de la unión neuromuscular (Miastenia)": "Diseases of the neuromuscular junction (Myasthenia)", 
-                    "Parálisis cerebral y síndromes paralíticos": "Cerebral palsy and paralytic syndromes", "Otros trastornos neurológicos": "Other neurological disorders",
-                    "Ojo": "Eye", "Oído": "Ear", "Otros órganos de los sentidos": "Other sense organs",
-                    "Hipertensión": "Hypertension", "Cardiopatía isquémica": "Ischemic heart disease", "Enfermedad cardiopulmonar": "Cardiopulmonary disease", 
-                    "Otras enfermedades del corazón (Insuficiencia Cardíaca)": "Other heart diseases (Heart Failure)", "Cerebrovascular": "Cerebrovascular", 
-                    "Enfermedades de arterias y capilares": "Diseases of arteries and capillaries", "Enfermedades de venas y vasos linfáticos": "Diseases of veins and lymphatic vessels", 
-                    "Otros circulatorios": "Other circulatory",
-                    "Vías respiratorias altas": "Upper respiratory tract", "Infecciones agudas / neumonía / influenza": "Acute infections / pneumonia / influenza", 
-                    "Infecciones respiratorias bajas": "Lower respiratory infections", "Enfermedades de vías respiratorias superiores": "Diseases of upper respiratory tract", 
-                    "Asma / EPOC / bronquitis": "Asthma / COPD / bronchitis", "Enfermedades del pulmón por agentes externos (Neumoconiosis)": "Lung diseases due to external agents (Pneumoconiosis)", 
-                    "Enfermedades pulmonares intersticiales": "Interstitial lung diseases", "Otros respiratorios": "Other respiratory",
-                    "Boca / dientes / faringe": "Mouth / teeth / pharynx", "Esófago / estómago / duodeno": "Esophagus / stomach / duodenum", 
-                    "Apendicitis": "Appendicitis", "Hernias": "Hernias", "Enfermedad de Crohn y colitis": "Crohn's disease and colitis", 
-                    "Otras enfermedades de los intestinos": "Other diseases of the intestines", "Hígado": "Liver", 
-                    "Vesícula / vías biliares / páncreas": "Gallbladder / biliary tract / pancreas", "Otros digestivos": "Other digestive",
-                    "Dermatitis y eczema": "Dermatitis and eczema", "Trastornos papuloescamosos (Psoriasis)": "Papulosquamous disorders (Psoriasis)", 
-                    "Urticaria y eritema": "Urticaria and erythema", "Trastornos de las faneras / Otros trastornos de piel": "Disorders of skin appendages / Other skin disorders", 
-                    "Otras enfermedades de la piel": "Other skin diseases",
-                    "Artropatías": "Arthropathies", "Tejido conectivo (Lupus, etc.)": "Connective tissue (Lupus, etc.)", "Dorsopatías": "Dorsopathies", 
-                    "Tejidos blandos": "Soft tissues", "Osteopatías y condropatías (Osteoporosis)": "Osteopathies and chondropathies (Osteoporosis)", 
-                    "Otros osteomusculares": "Other musculoskeletal",
-                    "Riñón (Insuficiencia Renal Crónica)": "Kidney (Chronic Renal Failure)", "Vías urinarias bajas": "Lower urinary tract", 
-                    "Genital masculino (Hiperplasia Prostática)": "Male genital (Prostatic Hyperplasia)", "Mama": "Breast", 
-                    "Genital femenino (Endometriosis, etc.)": "Female genital (Endometriosis, etc.)", "Otros genitourinarios": "Other genitourinary",
-                    "Malformaciones del sistema nervioso (Espina bífida)": "Malformations of the nervous system (Spina bifida)", "Malformaciones cardíacas congénitas": "Congenital heart malformations", 
-                    "Anomalías cromosómicas (Síndrome de Down)": "Chromosomal abnormalities (Down Syndrome)", "Otras malformaciones congénitas": "Other congenital malformations",
-                    "Enfermedad respiratoria crónica perinatal": "Chronic perinatal respiratory disease", 
-                    "Secuelas crónicas de traumatismos": "Chronic sequelae of injuries",
-                    "Síndrome Post-COVID (Long COVID)": "Post-COVID Syndrome (Long COVID)", "Otras condiciones especiales (U)": "Other special conditions (U)",
-                    "Historia personal de tumores / enfermedades": "Personal history of tumors / diseases", "Ausencia adquirida de miembros / órganos": "Acquired absence of limbs / organs", 
-                    "Aberturas artificiales (Ostomías)": "Artificial openings (Ostomies)", "Estado de órgano trasplantado": "Transplanted organ status", 
-                    "Presencia de implantes cardíacos / vasculares": "Presence of cardiac / vascular implants", "Dependencia de máquinas (diálisis, oxígeno)": "Machine dependence (dialysis, oxygen)", 
-                    "Otros factores de salud": "Other health factors",
-                    "DESCONOCIDO": "UNKNOWN"
-                }
-                traducciones_cie = {k.upper(): v for k, v in cie10_ui_dict.items()}
-                return traducciones_cie.get(val_str, value)
-            
-            bool_suffixes = ('_mental', '_funcional', '_dispositivos', '_reiteradas', '_hemorragico', '_internacion', '_infeccioso', '_activa', '_mayor', '_quirurgica', '_transfusional', '_prolongada', '_residual', '_severa')
-            if key_es.startswith('LLM_') or key_es.startswith('EST_') or key_es.startswith('Riesgo_') or key_es in ('pluripatologico') or (key_es.endswith(bool_suffixes) and not key_es.startswith('DELTA_')):
-                try:
-                    return "Yes" if float(value) == 1.0 else "No"
-                except ValueError:
-                    if val_str in ['TRUE', 'YES', '1']: return "Yes"
-                    if val_str in ['FALSE', 'NO', '0']: return "No"
-                    pass
-                    
-            try:
-                f_val = float(value)
-                if f_val.is_integer(): return str(int(f_val))
-            except ValueError:
-                pass
-            return value
-    
-        def safe_int(value, default="N/A"):
-            try:
-                if pd.isna(value) or value == "": return default
-                return int(float(value))
-            except (ValueError, TypeError):
-                return default
-    
-        def traducir_ninguno(texto):
-            texto_str = str(texto).strip()
-            if texto_str.upper() == 'NINGUNO': return 'None'
-            elif texto_str == '': return 'Unknown'
-            return texto_str
-    
-        def renderizar_notas_gemelo(texto_evolucion, citas_llm, lista_enfermedades):
-            if not isinstance(texto_evolucion, str) or not texto_evolucion:
-                return "No narrative context available."
-                
-            texto_resaltado = texto_evolucion
-            if isinstance(citas_llm, dict):
-                for cita, variable in citas_llm.items():
-                    if isinstance(cita, str) and cita.strip():
-                        cita_escapada = re.escape(cita)
-                        marcador = f"<mark style='background-color: #FFF2CC; color: #000000; border-radius: 3px; padding: 2px 4px;'><b>{cita}</b> <span style='font-size: 0.7em; background-color: #FFD966; padding: 2px 5px; border-radius: 8px; color: #594000; margin-left: 4px; display: inline-block; vertical-align: middle; line-height: 1;'>{variable}</span></mark>"
-                        texto_resaltado = re.sub(cita_escapada, marcador, texto_resaltado, flags=re.IGNORECASE)
-                        
-            if isinstance(lista_enfermedades, list):
-                for enfermedad in lista_enfermedades:
-                    if isinstance(enfermedad, str) and enfermedad.strip():
-                        patron = rf"\b({re.escape(enfermedad)})\b"
-                        marcador = r"<mark style='background-color: #FFCCCC; color: #000000; border-radius: 3px; padding: 0px 2px;'>\1</mark>"
-                        texto_resaltado = re.sub(patron, marcador, texto_resaltado, flags=re.IGNORECASE)
-                        
-            return f"""
-            <div style='line-height: 1.8; font-size: 14px; padding: 15px; background-color: var(--secondary-background-color, rgba(128, 128, 128, 0.1)); color: var(--text-color, inherit); border-radius: 8px; border: 1px solid rgba(128, 128, 128, 0.2);'>
-                {texto_resaltado}
-            </div>
-            """
-    
-        TRANSLATION_DICT = {
-            'dias_internados': 'Length of Stay (Days)', 'rango_edad': 'Age Range', 'pluripatologico': 'Multimorbidity',
-            'CIE10_MACRO': 'Primary Diagnosis (ICD-10)', 'LLM_tabaquismo_activo': 'Active Smoking', 
-            'LLM_polifarmacia': 'Polypharmacy',
-            'LLM_historial_caidas': 'History of Falls', 'LLM_abandono_medicacion': 'Medication Abandonment',
-            'ING_dolor_eva': 'Admission: Pain (VAS)', 'ING_gravedad_percibida': 'Admission: Perceived Severity',
-            'ING_alteracion_mental': 'Admission: Mental Alteration', 'ING_dependencia_funcional': 'Admission: Functional Dependency',
-            'ING_portador_dispositivos': 'Admission: Device Bearer', 'ING_consultas_reiteradas': 'Admission: Repeated Consultations',
-            'ING_riesgo_hemorragico': 'Admission: Hemorrhagic Risk', 'ING_infeccion_activa': 'Admission: Active Infection',
-            'EVO_dolor_eva': 'Evolution: Pain (VAS)', 'EVO_gravedad_percibida': 'Evolution: Perceived Severity', 
-            'EVO_alteracion_mental': 'Evolution: Mental Alteration', 'EVO_dependencia_funcional': 'Evolution: Functional Dependency', 
-            'EVO_portador_dispositivos': 'Evolution: Device Bearer', 'EVO_complicacion_internacion': 'Evolution: Hospital Complication', 
-            'EVO_aislamiento_infeccioso': 'Evolution: Infectious Isolation', 
-            'EVO_cambio_terapeutico_mayor': 'Evolution: Major Therapeutic Change', 'EVO_intervencion_quirurgica': 'Evolution: Surgical Intervention', 
-            'EVO_soporte_transfusional': 'Evolution: Transfusion Support', 'DELTA_dolor_eva': 'Δ Pain (VAS)',
-            'DELTA_gravedad_percibida': 'Δ Perceived Severity', 'DELTA_alteracion_mental': 'Δ Mental Alteration',
-            'DELTA_dependencia_funcional': 'Δ Functional Dependency', 'DELTA_portador_dispositivos': 'Δ Device Bearer',
-            'sexo': 'Sex', 'Area': 'Admission Area', 'IN_COMPLEJIDAD': 'Complexity Level', 'TR_Prioridad': 'Triage Priority',
-            'cantidad_interconsultas': 'Interconsultations', 'visitas_guardia_6meses_previos': 'ER Visits (6m)',
-            'EST_ingreso_ambulancia': 'Ambulance Arrival', 
-            'HIST_condicion_ultimo_egreso': 'Previous Discharge Condition',
-            'perfil_clinico_ingreso': 'Admission Profile',
-            'EST_paso_por_uti': 'ICU Stay (UTI)',
-            'Riesgo_Cardiovasculares_Inotropicos': 'High-Risk Meds: Cardiovascular/Inotropes',
-            'Riesgo_Psicofarmacos_Neurologicos': 'High-Risk Meds: Psychotropics/Neurological'
-        }
+        
     
         
     
