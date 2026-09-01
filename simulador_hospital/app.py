@@ -2243,14 +2243,7 @@ with tab_evidencia:
                                 peso_interno = max(0.1, 1 - dist_gemelos[i, j])
                                 G.add_edge(nodos_gemelos[i], nodos_gemelos[j], weight=peso_interno * 2)
                 
-                arquetipo_label = None
-                centrality = nx.harmonic_centrality(G)
-                centrality.pop(nodo_paciente, None) 
-                if centrality:
-                    arquetipo_label = max(centrality, key=centrality.get)
-                    G.nodes[arquetipo_label]['edge_color'] = COLOR_ARCHETYPE
-                    G.nodes[arquetipo_label]['line_width'] = 4.5
-                    info_inspeccion[arquetipo_label]["is_archetype"] = True
+                
         
                 fig, ax = plt.subplots(figsize=(8, 6))
                 pos = nx.spring_layout(G, seed=42, k=0.85)
@@ -2274,7 +2267,7 @@ with tab_evidencia:
                         st.markdown("""
                         - 🫧 **Node Size:** Proportional to the match percentage.
                         - 🎨 **Node Colors:** 🟢 **Safe Discharge** | 🔴 **Readmitted** | 🔵 **Current Admission**
-                        - 🌟 **Gold Border:** The **Archetypal Admission** (Local cluster anchor).
+                        
                         """)
                 
                 with col_panel:
@@ -2409,8 +2402,7 @@ with tab_evidencia:
                         if not lista_nodos:
                             st.info("No admissions available to inspect.")
                         else:
-                            idx_arquetipo_selector = lista_nodos.index(arquetipo_label) if arquetipo_label in lista_nodos else 0
-                            seleccion = st.selectbox("Inspect Similar Admission:", lista_nodos, index=idx_arquetipo_selector)
+                            seleccion = st.selectbox("Inspect Similar Admission:", lista_nodos, index=0)
                             
                             if seleccion:
                                 data = info_inspeccion[seleccion]
