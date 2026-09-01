@@ -1016,7 +1016,7 @@ df_paciente = pd.DataFrame([paciente_data])[columnas_modelo]
 # TABS & DASHBOARD
 # ==========================================
 @st.cache_resource
-        def load_similarity_assets():
+def load_similarity_assets():
             BASE_DIR = os.path.dirname(os.path.abspath(__file__))
             ruta_x = os.path.join(BASE_DIR, 'X_train_proc_llm.npy')
             ruta_ext = os.path.join(BASE_DIR, 'matriz_extended_display_llm.npy')
@@ -1046,7 +1046,7 @@ df_paciente = pd.DataFrame([paciente_data])[columnas_modelo]
             umap_reducer = umap.UMAP(n_neighbors=15, min_dist=0.1, metric='cosine', random_state=42)
             umap_embeddings = umap_reducer.fit_transform(X_train_limpio)
             
-            return knn_engine, matriz_ext, nombres_columnas, X_train_limpio, umap_embeddings, mask_limpia
+            return knn_engine, matriz_ext, nombres_columnas, X_train_limpio, umap_embeddings, mask_limpia       
 
 if user_role == "Clinical Medic":
     tab_diagnostico, tab_estrategia, tab_evidencia = st.tabs([
