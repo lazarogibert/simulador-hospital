@@ -3071,7 +3071,7 @@ if user_role == "Hospital Management":
                             unsafe_allow_html=True
                         )
                 
-                else:
+            else:
                     # ----------------------------------------------------
                     # MODE 3: EMPTY STATE (NO SELECTION)
                     # ----------------------------------------------------
