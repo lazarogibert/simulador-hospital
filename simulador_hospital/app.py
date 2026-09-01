@@ -2822,7 +2822,7 @@ if user_role == "Hospital Management":
                         st.markdown("#### Comparative Analysis")
                         idx_A = st.session_state.cluster_A
                         idx_B = st.session_state.cluster_B
-    
+                
                         # Extracting dynamic stats for Cluster A
                         outcomes_A = y_hist_global[idx_A]
                         tasa_A = (np.sum(outcomes_A) / len(outcomes_A)) * 100
@@ -2832,20 +2832,20 @@ if user_role == "Hospital Management":
                         inter_A = np.mean(inter_global_num[idx_A])
                         amb_A = np.mean([str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'] for x in amb_global[idx_A]]) * 100
                         uti_A = np.mean([str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'] for x in uti_global[idx_A]]) * 100
-    
+                
                         triages_A = [triage_map.get(str(t).strip(), "Unknown") for t in triage_global[idx_A]]
                         if triages_A:
                             triage_dist_A_str = ", ".join([f"{k} ({v/len(triages_A)*100:.0f}%)" for k, v in pd.Series(triages_A).value_counts().items()])
                         else:
                             triage_dist_A_str = "Unknown"
-    
+                
                         perfiles_A = [format_clinical_value('perfil_clinico_ingreso', p) for p in perfil_global[idx_A]]
                         perfiles_validos_A = [p for p in perfiles_A if str(p).strip() not in ["N/A", "-1", "UNKNOWN", "Unknown"]]
                         if perfiles_validos_A:
                             perfil_dist_A_str = ", ".join([f"{k} ({v/len(perfiles_validos_A)*100:.0f}%)" for k, v in pd.Series(perfiles_validos_A).value_counts().items()])
                         else:
                             perfil_dist_A_str = "Unknown"
-    
+                
                         diags_A = [format_clinical_value('CIE10_MACRO', d) for d in diag_global[idx_A]]
                         if diags_A:
                             top3_A_counts = pd.Series(diags_A).value_counts().head(3)
@@ -2854,7 +2854,7 @@ if user_role == "Hospital Management":
                         else:
                             diag_dom_A_str = "Unknown"
                             diag_dom_A_first = "Unknown"
-    
+                
                         # Extracting dynamic stats for Cluster B
                         outcomes_B = y_hist_global[idx_B]
                         tasa_B = (np.sum(outcomes_B) / len(outcomes_B)) * 100
@@ -2864,20 +2864,20 @@ if user_role == "Hospital Management":
                         inter_B = np.mean(inter_global_num[idx_B])
                         amb_B = np.mean([str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'] for x in amb_global[idx_B]]) * 100
                         uti_B = np.mean([str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'] for x in uti_global[idx_B]]) * 100
-    
+                
                         triages_B = [triage_map.get(str(t).strip(), "Unknown") for t in triage_global[idx_B]]
                         if triages_B:
                             triage_dist_B_str = ", ".join([f"{k} ({v/len(triages_B)*100:.0f}%)" for k, v in pd.Series(triages_B).value_counts().items()])
                         else:
                             triage_dist_B_str = "Unknown"
-    
+                
                         perfiles_B = [format_clinical_value('perfil_clinico_ingreso', p) for p in perfil_global[idx_B]]
                         perfiles_validos_B = [p for p in perfiles_B if str(p).strip() not in ["N/A", "-1", "UNKNOWN", "Unknown"]]
                         if perfiles_validos_B:
                             perfil_dist_B_str = ", ".join([f"{k} ({v/len(perfiles_validos_B)*100:.0f}%)" for k, v in pd.Series(perfiles_validos_B).value_counts().items()])
                         else:
                             perfil_dist_B_str = "Unknown"
-    
+                
                         diags_B = [format_clinical_value('CIE10_MACRO', d) for d in diag_global[idx_B]]
                         if diags_B:
                             top3_B_counts = pd.Series(diags_B).value_counts().head(3)
@@ -2886,7 +2886,7 @@ if user_role == "Hospital Management":
                         else:
                             diag_dom_B_str = "Unknown"
                             diag_dom_B_first = "Unknown"
-    
+                
                         st.markdown(
                             f"""
                             <div style='padding:10px; background-color:rgba(128,128,128,0.1); border-radius:5px; margin-bottom:15px; border-left: 4px solid #9C27B0;'>
@@ -2895,32 +2895,32 @@ if user_role == "Hospital Management":
                             </div>
                             """, unsafe_allow_html=True
                         )
-    
+                
                         st.markdown("#### 1. Readmission Rate Risk")
                         c_g1, c_g2 = st.columns(2)
                         c_g1.metric("Neighborhood A", f"{tasa_A:.1f}%")
                         c_g2.metric("Neighborhood B", f"{tasa_B:.1f}%", delta=f"{tasa_B - tasa_A:+.1f}% vs A", delta_color="inverse")
-    
+                
                         st.markdown("#### 2. Median Length of Stay (LOS)")
                         c_g3, c_g4 = st.columns(2)
                         c_g3.metric("Neighborhood A", f"{los_A:.1f} d")
                         c_g4.metric("Neighborhood B", f"{los_B:.1f} d", delta=f"{los_B - los_A:+.1f} days vs A", delta_color="inverse")
-    
+                
                         st.markdown("#### 3. Multimorbidity & Top Diagnoses")
                         st.markdown(f"- **Zone A:** `{multi_A:.0f}%` Multimorbidity<br>🧬 **Top 3:** *{diag_dom_A_str}*", unsafe_allow_html=True)
                         st.markdown(f"- **Zone B:** `{multi_B:.0f}%` Multimorbidity<br>🧬 **Top 3:** *{diag_dom_B_str}*", unsafe_allow_html=True)
-    
+                
                         st.markdown("#### 4. Healthcare Utilization (Means)")
                         c_u1, c_u2, c_u3, c_u4 = st.columns(4)
                         c_u1.metric("ER Visits A", f"{visitas_A:.1f}")
                         c_u2.metric("ER Visits B", f"{visitas_B:.1f}", delta=f"{visitas_B - visitas_A:+.1f} vs A", delta_color="inverse")
                         c_u3.metric("Interconsults A", f"{inter_A:.1f}")
                         c_u4.metric("Interconsults B", f"{inter_B:.1f}", delta=f"{inter_B - inter_A:+.1f} vs A", delta_color="inverse")
-    
+                
                         st.markdown("#### 5. Admission Acuity & Profile")
                         st.markdown(f"- **Zone A:** `ICU: {uti_A:.0f}%` | `Ambulance: {amb_A:.0f}%`<br>🚦 **Triage:** *{triage_dist_A_str}*<br>📋 **Profile:** *{perfil_dist_A_str}*", unsafe_allow_html=True)
                         st.markdown(f"- **Zone B:** `ICU: {uti_B:.0f}%` | `Ambulance: {amb_B:.0f}%`<br>🚦 **Triage:** *{triage_dist_B_str}*<br>📋 **Profile:** *{perfil_dist_B_str}*", unsafe_allow_html=True)
-    
+                
                         st.markdown("---")
                         st.markdown("**Descriptive Observation:**")
                         if abs(tasa_A - tasa_B) > 10:
@@ -2929,19 +2929,19 @@ if user_role == "Hospital Management":
                             insight_gap = f"While readmission risks may be comparable, the underlying mechanisms differ drastically. Zone A holds {multi_A:.0f}% complex multimorbidity vs {multi_B:.0f}% in Zone B, pointing to distinct stabilization routes."
                         else:
                             insight_gap = "The selected zones share similar statistical outcomes despite potentially different coordinates. Explore individual parameters in the Sandbox for precise differentiators."
-    
+                
                         st.markdown(f"<div style='font-size:14px; line-height:1.5;'>{insight_gap}</div>", unsafe_allow_html=True)
-    
+                
                     elif len(current_selection_idx) > 0:
                         # ----------------------------------------------------
                         # MODE 2: INTERACTIVE CLUSTER ANALYSIS
                         # ----------------------------------------------------
                         st.markdown(f"### 📊 Selected Cluster Analysis (n={len(current_selection_idx)})")
                         local_idx = current_selection_idx
-    
+                
                         outcomes_locales = y_hist_global[local_idx]
                         tasa_reingreso_local = (np.sum(outcomes_locales) / len(outcomes_locales)) * 100 if len(outcomes_locales) > 0 else tasa_reingreso_base
-    
+                
                         st.markdown(
                             f"""
                             <div style='padding:10px; background-color:rgba(128,128,128,0.1); border-radius:5px; margin-bottom:15px; border-left: 4px solid #1E90FF;'>
@@ -2950,7 +2950,7 @@ if user_role == "Hospital Management":
                             </div>
                             """, unsafe_allow_html=True
                         )
-    
+                
                         if modo_color == "Readmitted vs Safe Discharge":
                             st.markdown("#### 📍 Selected Cohort Outcomes")
                             st.markdown(f"- **Cluster Readmission Rate:** `{tasa_reingreso_local:.1f}%`")
@@ -2964,32 +2964,32 @@ if user_role == "Hospital Management":
                                 insight_txt = f"This selected cluster closely follows the hospital average ({tasa_reingreso_local:.1f}%), showing a mixed distribution of outcomes."
                                 
                             st.markdown(f"<div style='font-size:14px; line-height:1.5;'>{insight_txt}</div>", unsafe_allow_html=True)
-    
+                
                         elif modo_color == "Age Distribution":
                             edades_trad_global = np.array([format_clinical_value('rango_edad', e) for e in edades_global])
                             edades_locales = np.array([format_clinical_value('rango_edad', e) for e in edades_global[local_idx]])
                             serie_edades_locales = pd.Series(edades_locales)
                             distribucion_local = serie_edades_locales.value_counts(normalize=True) * 100
-    
+                
                             st.markdown("#### ⏳ Age Cohort Distribution")
                             st.markdown("**Selected Cluster Breakdown:**")
                             for edad_cat, pct_local in distribucion_local.items():
                                 pct_global = (np.sum(edades_trad_global == edad_cat) / total_internaciones) * 100 if total_internaciones > 0 else 0
                                 st.markdown(f"- {edad_cat}: `{pct_local:.1f}%` *(Global: {pct_global:.1f}%)*")
-    
+                
                             st.markdown("---")
                             edad_dominante_local = serie_edades_locales.mode()[0] if not serie_edades_locales.empty else "Unknown"
                             insight_txt = f"The dominant demographic in this specific region of the clinical map is **{edad_dominante_local}**. The grouping is driven by statistical similarities across clinical text and multi-dimensional factors."
                             st.markdown(f"<div style='font-size:14px; line-height:1.5;'>{insight_txt}</div>", unsafe_allow_html=True)
-    
+                
                         elif modo_color == "Multimorbidity":
                             mask_multi_yes = np.array([str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'] for x in pluri_global])
                             pct_pluri_global = (np.sum(mask_multi_yes) / total_internaciones) * 100 if total_internaciones > 0 else 0
-    
+                
                             pluri_local_raw = pluri_global[local_idx]
                             mask_multi_local = np.array([str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'] for x in pluri_local_raw])
                             pct_pluri_local = np.mean(mask_multi_local) * 100 if len(mask_multi_local) > 0 else 0
-    
+                
                             st.markdown("#### 🏥 Multimorbidity Context")
                             st.markdown(f"- **Selected Cluster Multimorbidity Density:** `{pct_pluri_local:.1f}%`")
                             st.markdown(f"- **Global Hospital Multimorbidity Rate:** `{pct_pluri_global:.1f}%`")
@@ -3001,11 +3001,11 @@ if user_role == "Hospital Management":
                                 insight_txt = f"This neighborhood is heavily saturated with multimorbidity ({pct_pluri_local:.1f}%), historically associated with complex longitudinal management."
                             else:
                                 insight_txt = f"The selected cluster contains a balanced distribution of chronic complexity, suggesting outcomes are shaped by a combination of acute severity and underlying chronic baselines."
-    
+                
                             st.markdown(f"<div style='font-size:14px; line-height:1.5;'>{insight_txt}</div>", unsafe_allow_html=True)
-    
+                
                         st.markdown("---")
-    
+                
                         if tasa_reingreso_local > tasa_reingreso_base + 5:
                             box_color = "#FFBB33"
                             box_title = "Cluster Summary: Elevated Historical Risk"
@@ -3015,42 +3015,42 @@ if user_role == "Hospital Management":
                         else:
                             box_color = "#33b5e5"
                             box_title = "Cluster Summary: Average Historical Risk"
-    
+                
                         if len(local_idx) > 0:
                             local_pluri_vals = [str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'] for x in pluri_global[local_idx]]
                             pct_pluri_local_str = f"{(np.sum(local_pluri_vals) / len(local_pluri_vals)) * 100:.0f}%"
-    
+                
                             diags_locales = [format_clinical_value('CIE10_MACRO', d) for d in diag_global[local_idx]]
                             if diags_locales:
                                 top3_local_counts = pd.Series(diags_locales).value_counts().head(3)
                                 diag_dominante_str = ", ".join([f"{k} ({v/len(diags_locales)*100:.0f}%)" for k, v in top3_local_counts.items()])
                             else:
                                 diag_dominante_str = "Unknown"
-    
+                
                             los_global_mean = np.mean(dias_global_num)
                             los_local_mean = np.mean(dias_global_num[local_idx])
                             visitas_local_mean = np.mean(visitas_global_num[local_idx])
                             inter_local_mean = np.mean(inter_global_num[local_idx])
-    
+                
                             local_uti_vals = [str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'] for x in uti_global[local_idx]]
                             pct_uti_local_str = f"{(np.sum(local_uti_vals) / len(local_uti_vals)) * 100:.0f}%"
-    
+                
                             local_amb_vals = [str(x).strip().upper() in ['1', '1.0', 'TRUE', 'YES'] for x in amb_global[local_idx]]
                             pct_amb_local_str = f"{(np.sum(local_amb_vals) / len(local_amb_vals)) * 100:.0f}%"
-    
+                
                             triage_locales = [triage_map.get(str(t).strip(), "Unknown") for t in triage_global[local_idx]]
                             if triage_locales:
                                 triage_dist_str = ", ".join([f"{k} ({v/len(triage_locales)*100:.0f}%)" for k, v in pd.Series(triage_locales).value_counts().items()])
                             else:
                                 triage_dist_str = "Unknown"
-    
+                
                             perfiles_locales = [format_clinical_value('perfil_clinico_ingreso', p) for p in perfil_global[local_idx]]
                             perfiles_validos = [p for p in perfiles_locales if str(p).strip() not in ["N/A", "-1", "UNKNOWN", "Unknown"]]
                             if perfiles_validos:
                                 perfil_dist_str = ", ".join([f"{k} ({v/len(perfiles_validos)*100:.0f}%)" for k, v in pd.Series(perfiles_validos).value_counts().items()])
                             else:
                                 perfil_dist_str = "Unknown"
-    
+                
                         st.markdown(f"#### 📋 {box_title}")
                         st.markdown(
                             f"""
@@ -3071,14 +3071,16 @@ if user_role == "Hospital Management":
                             unsafe_allow_html=True
                         )
                 
-            else:
-                    # ----------------------------------------------------
-                    # MODE 3: EMPTY STATE (NO SELECTION)
-                    # ----------------------------------------------------
-                    st.info("👈 **Select a Cohort**\n\nUse the Lasso or Box Select tool on the UMAP graph to highlight a cluster of patients and instantly view their clinical and statistical profile.")    
-        except Exception as e:
-            st.error("Error generating UMAP projection and insights.")
-            st.warning(f"Technical Detail: {str(e)}")
+                    else:
+                        # ----------------------------------------------------
+                        # MODE 3: EMPTY STATE (NO SELECTION)
+                        # ----------------------------------------------------
+                        st.info("👈 **Select a Cohort**\n\nUse the Lasso or Box Select tool on the UMAP graph to highlight a cluster of patients and instantly view their clinical and statistical profile.")    
+                
+                # Note: The 'except' block should be aligned to match the 'try' statement that wraps the main UMAP rendering logic (typically outdented relative to 'with col_insights:')
+                except Exception as e:
+                    st.error("Error generating UMAP projection and insights.")
+                    st.warning(f"Technical Detail: {str(e)}")
     # ==========================================
     # 10. EXPLORATORY DATA ANALYSIS (EDA)
     # ==========================================
