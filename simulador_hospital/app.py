@@ -1127,71 +1127,74 @@ def format_clinical_value(key_es, value):
                 pass
             return value
     
-        def safe_int(value, default="N/A"):
-            try:
-                if pd.isna(value) or value == "": return default
-                return int(float(value))
-            except (ValueError, TypeError):
-                return default
-    
-        def traducir_ninguno(texto):
-            texto_str = str(texto).strip()
-            if texto_str.upper() == 'NINGUNO': return 'None'
-            elif texto_str == '': return 'Unknown'
-            return texto_str
-    
-        def renderizar_notas_gemelo(texto_evolucion, citas_llm, lista_enfermedades):
-            if not isinstance(texto_evolucion, str) or not texto_evolucion:
-                return "No narrative context available."
-                
-            texto_resaltado = texto_evolucion
-            if isinstance(citas_llm, dict):
-                for cita, variable in citas_llm.items():
-                    if isinstance(cita, str) and cita.strip():
-                        cita_escapada = re.escape(cita)
-                        marcador = f"<mark style='background-color: #FFF2CC; color: #000000; border-radius: 3px; padding: 2px 4px;'><b>{cita}</b> <span style='font-size: 0.7em; background-color: #FFD966; padding: 2px 5px; border-radius: 8px; color: #594000; margin-left: 4px; display: inline-block; vertical-align: middle; line-height: 1;'>{variable}</span></mark>"
-                        texto_resaltado = re.sub(cita_escapada, marcador, texto_resaltado, flags=re.IGNORECASE)
-                        
-            if isinstance(lista_enfermedades, list):
-                for enfermedad in lista_enfermedades:
-                    if isinstance(enfermedad, str) and enfermedad.strip():
-                        patron = rf"\b({re.escape(enfermedad)})\b"
-                        marcador = r"<mark style='background-color: #FFCCCC; color: #000000; border-radius: 3px; padding: 0px 2px;'>\1</mark>"
-                        texto_resaltado = re.sub(patron, marcador, texto_resaltado, flags=re.IGNORECASE)
-                        
-            return f"""
-            <div style='line-height: 1.8; font-size: 14px; padding: 15px; background-color: var(--secondary-background-color, rgba(128, 128, 128, 0.1)); color: var(--text-color, inherit); border-radius: 8px; border: 1px solid rgba(128, 128, 128, 0.2);'>
-                {texto_resaltado}
-            </div>
-            """
-    
-        TRANSLATION_DICT = {
-            'dias_internados': 'Length of Stay (Days)', 'rango_edad': 'Age Range', 'pluripatologico': 'Multimorbidity',
-            'CIE10_MACRO': 'Primary Diagnosis (ICD-10)', 'LLM_tabaquismo_activo': 'Active Smoking', 
-            'LLM_polifarmacia': 'Polypharmacy',
-            'LLM_historial_caidas': 'History of Falls', 'LLM_abandono_medicacion': 'Medication Abandonment',
-            'ING_dolor_eva': 'Admission: Pain (VAS)', 'ING_gravedad_percibida': 'Admission: Perceived Severity',
-            'ING_alteracion_mental': 'Admission: Mental Alteration', 'ING_dependencia_funcional': 'Admission: Functional Dependency',
-            'ING_portador_dispositivos': 'Admission: Device Bearer', 'ING_consultas_reiteradas': 'Admission: Repeated Consultations',
-            'ING_riesgo_hemorragico': 'Admission: Hemorrhagic Risk', 'ING_infeccion_activa': 'Admission: Active Infection',
-            'EVO_dolor_eva': 'Evolution: Pain (VAS)', 'EVO_gravedad_percibida': 'Evolution: Perceived Severity', 
-            'EVO_alteracion_mental': 'Evolution: Mental Alteration', 'EVO_dependencia_funcional': 'Evolution: Functional Dependency', 
-            'EVO_portador_dispositivos': 'Evolution: Device Bearer', 'EVO_complicacion_internacion': 'Evolution: Hospital Complication', 
-            'EVO_aislamiento_infeccioso': 'Evolution: Infectious Isolation', 
-            'EVO_cambio_terapeutico_mayor': 'Evolution: Major Therapeutic Change', 'EVO_intervencion_quirurgica': 'Evolution: Surgical Intervention', 
-            'EVO_soporte_transfusional': 'Evolution: Transfusion Support', 'DELTA_dolor_eva': 'Δ Pain (VAS)',
-            'DELTA_gravedad_percibida': 'Δ Perceived Severity', 'DELTA_alteracion_mental': 'Δ Mental Alteration',
-            'DELTA_dependencia_funcional': 'Δ Functional Dependency', 'DELTA_portador_dispositivos': 'Δ Device Bearer',
-            'sexo': 'Sex', 'Area': 'Admission Area', 'IN_COMPLEJIDAD': 'Complexity Level', 'TR_Prioridad': 'Triage Priority',
-            'cantidad_interconsultas': 'Interconsultations', 'visitas_guardia_6meses_previos': 'ER Visits (6m)',
-            'EST_ingreso_ambulancia': 'Ambulance Arrival', 
-            'HIST_condicion_ultimo_egreso': 'Previous Discharge Condition',
-            'perfil_clinico_ingreso': 'Admission Profile',
-            'EST_paso_por_uti': 'ICU Stay (UTI)',
-            'Riesgo_Cardiovasculares_Inotropicos': 'High-Risk Meds: Cardiovascular/Inotropes',
-            'Riesgo_Psicofarmacos_Neurologicos': 'High-Risk Meds: Psychotropics/Neurological'
-        }
+        
+def safe_int(value, default="N/A"):
+    try:
+        if pd.isna(value) or value == "": 
+            return default
+        return int(float(value))
+    except (ValueError, TypeError):
+        return default
 
+def traducir_ninguno(texto):
+    texto_str = str(texto).strip()
+    if texto_str.upper() == 'NINGUNO': 
+        return 'None'
+    elif texto_str == '': 
+        return 'Unknown'
+    return texto_str
+
+def renderizar_notas_gemelo(texto_evolucion, citas_llm, lista_enfermedades):
+    if not isinstance(texto_evolucion, str) or not texto_evolucion:
+        return "No narrative context available."
+        
+    texto_resaltado = texto_evolucion
+    if isinstance(citas_llm, dict):
+        for cita, variable in citas_llm.items():
+            if isinstance(cita, str) and cita.strip():
+                cita_escapada = re.escape(cita)
+                marcador = f"<mark style='background-color: #FFF2CC; color: #000000; border-radius: 3px; padding: 2px 4px;'><b>{cita}</b> <span style='font-size: 0.7em; background-color: #FFD966; padding: 2px 5px; border-radius: 8px; color: #594000; margin-left: 4px; display: inline-block; vertical-align: middle; line-height: 1;'>{variable}</span></mark>"
+                texto_resaltado = re.sub(cita_escapada, marcador, texto_resaltado, flags=re.IGNORECASE)
+                
+    if isinstance(lista_enfermedades, list):
+        for enfermedad in lista_enfermedades:
+            if isinstance(enfermedad, str) and enfermedad.strip():
+                patron = rf"\b({re.escape(enfermedad)})\b"
+                marcador = r"<mark style='background-color: #FFCCCC; color: #000000; border-radius: 3px; padding: 0px 2px;'>\1</mark>"
+                texto_resaltado = re.sub(patron, marcador, texto_resaltado, flags=re.IGNORECASE)
+                
+    return f"""
+    <div style='line-height: 1.8; font-size: 14px; padding: 15px; background-color: var(--secondary-background-color, rgba(128, 128, 128, 0.1)); color: var(--text-color, inherit); border-radius: 8px; border: 1px solid rgba(128, 128, 128, 0.2);'>
+        {texto_resaltado}
+    </div>
+    """
+
+TRANSLATION_DICT = {
+    'dias_internados': 'Length of Stay (Days)', 'rango_edad': 'Age Range', 'pluripatologico': 'Multimorbidity',
+    'CIE10_MACRO': 'Primary Diagnosis (ICD-10)', 'LLM_tabaquismo_activo': 'Active Smoking', 
+    'LLM_polifarmacia': 'Polypharmacy',
+    'LLM_historial_caidas': 'History of Falls', 'LLM_abandono_medicacion': 'Medication Abandonment',
+    'ING_dolor_eva': 'Admission: Pain (VAS)', 'ING_gravedad_percibida': 'Admission: Perceived Severity',
+    'ING_alteracion_mental': 'Admission: Mental Alteration', 'ING_dependencia_funcional': 'Admission: Functional Dependency',
+    'ING_portador_dispositivos': 'Admission: Device Bearer', 'ING_consultas_reiteradas': 'Admission: Repeated Consultations',
+    'ING_riesgo_hemorragico': 'Admission: Hemorrhagic Risk', 'ING_infeccion_activa': 'Admission: Active Infection',
+    'EVO_dolor_eva': 'Evolution: Pain (VAS)', 'EVO_gravedad_percibida': 'Evolution: Perceived Severity', 
+    'EVO_alteracion_mental': 'Evolution: Mental Alteration', 'EVO_dependencia_funcional': 'Evolution: Functional Dependency', 
+    'EVO_portador_dispositivos': 'Evolution: Device Bearer', 'EVO_complicacion_internacion': 'Evolution: Hospital Complication', 
+    'EVO_aislamiento_infeccioso': 'Evolution: Infectious Isolation', 
+    'EVO_cambio_terapeutico_mayor': 'Evolution: Major Therapeutic Change', 'EVO_intervencion_quirurgica': 'Evolution: Surgical Intervention', 
+    'EVO_soporte_transfusional': 'Evolution: Transfusion Support', 'DELTA_dolor_eva': 'Δ Pain (VAS)',
+    'DELTA_gravedad_percibida': 'Δ Perceived Severity', 'DELTA_alteracion_mental': 'Δ Mental Alteration',
+    'DELTA_dependencia_funcional': 'Δ Functional Dependency', 'DELTA_portador_dispositivos': 'Δ Device Bearer',
+    'sexo': 'Sex', 'Area': 'Admission Area', 'IN_COMPLEJIDAD': 'Complexity Level', 'TR_Prioridad': 'Triage Priority',
+    'cantidad_interconsultas': 'Interconsultations', 'visitas_guardia_6meses_previos': 'ER Visits (6m)',
+    'EST_ingreso_ambulancia': 'Ambulance Arrival', 
+    'HIST_condicion_ultimo_egreso': 'Previous Discharge Condition',
+    'perfil_clinico_ingreso': 'Admission Profile',
+    'EST_paso_por_uti': 'ICU Stay (UTI)',
+    'Riesgo_Cardiovasculares_Inotropicos': 'High-Risk Meds: Cardiovascular/Inotropes',
+    'Riesgo_Psicofarmacos_Neurologicos': 'High-Risk Meds: Psychotropics/Neurological'
+}
 @st.cache_resource
 def load_similarity_assets():
             BASE_DIR = os.path.dirname(os.path.abspath(__file__))
