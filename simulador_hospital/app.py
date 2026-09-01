@@ -1015,6 +1015,39 @@ df_paciente = pd.DataFrame([paciente_data])[columnas_modelo]
 # ==========================================
 # TABS & DASHBOARD
 # ==========================================
+@st.cache_resource
+        def load_similarity_assets():
+            BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+            ruta_x = os.path.join(BASE_DIR, 'X_train_proc_llm.npy')
+            ruta_ext = os.path.join(BASE_DIR, 'matriz_extended_display_llm.npy')
+            ruta_cols = os.path.join(BASE_DIR, 'columnas_display_llm.npy')
+            
+            if not all(os.path.exists(p) for p in [ruta_x, ruta_ext, ruta_cols]):
+                raise FileNotFoundError("Similarity assets missing. Ensure matrices are in the server volume.")
+                
+            X_train_proc = np.load(ruta_x)
+            matriz_ext = np.load(ruta_ext, allow_pickle=True)
+            nombres_columnas = np.load(ruta_cols, allow_pickle=True)
+            
+            # --- APLICACIÓN DEL FILTRO FORENSE (RUIDO TOPOLÓGICO) ---
+            VARIABLES_RUIDO = [
+                'cat__CIE10_MACRO_DERMATITIS Y ECZEMA', 'cat__CIE10_MACRO_OTROS TRASTORNOS NEUROLÓGICOS', 'cat__CIE10_MACRO_OTRAS INFECCIOSAS (B)', 'cat__CIE10_MACRO_TRASTORNOS DE LAS FANERAS / OTROS TRASTORNOS DE PIEL', 'cat__CIE10_MACRO_TEJIDO CONECTIVO (LUPUS, ETC.)', 'cat__CIE10_MACRO_OTROS TUMORES MALIGNOS', 'cat__CIE10_MACRO_OTRAS ENFERMEDADES DE LOS INTESTINOS', 'cat__CIE10_MACRO_HERNIAS', 'cat__CIE10_MACRO_ENFERMEDADES DE LA UNIÓN NEUROMUSCULAR (MIASTENIA)', 'cat__CIE10_MACRO_OTROS FACTORES DE SALUD', 'cat__CIE10_MACRO_ANEMIAS HEMOLÍTICAS', 'cat__CIE10_MACRO_OTROS OSTEOMUSCULARES', 'cat__CIE10_MACRO_VESÍCULA / VÍAS BILIARES / PÁNCREAS', 'cat__CIE10_MACRO_POLINEUROPATÍAS', 'cat__CIE10_MACRO_GENITAL MASCULINO (HIPERPLASIA PROSTÁTICA)', 'cat__CIE10_MACRO_ENFERMEDADES DESMIELINIZANTES (ESCLEROSIS MÚLTIPLE)', 'cat__CIE10_MACRO_TRASTORNOS EXTRAPIRAMIDALES Y DEL MOVIMIENTO (PARKINSON)', 'cat__CIE10_MACRO_CÁNCER DE SISTEMA NERVIOSO CENTRAL', 'cat__CIE10_MACRO_GLUCOSA / HIPOGLUCEMIA', 'cat__CIE10_MACRO_ARTROPATÍAS', 'cat__CIE10_MACRO_OTRAS MALFORMACIONES CONGÉNITAS', 'cat__CIE10_MACRO_OTROS TRASTORNOS MENTALES', 'cat__CIE10_MACRO_TRASTORNOS PAPULOESCAMOSOS (PSORIASIS)', 'cat__CIE10_MACRO_ENFERMEDADES DEGENERATIVAS (ALZHEIMER)', 'cat__CIE10_MACRO_ESQUIZOFRENIA Y TRASTORNOS PSICÓTICOS', 'cat__CIE10_MACRO_TRASTORNOS DE NERVIOS Y PLEXOS', 'cat__CIE10_MACRO_TUMORES IN SITU O BENIGNOS', 'cat__CIE10_MACRO_TRASTORNOS NEURÓTICOS Y DE ANSIEDAD', 'cat__CIE10_MACRO_ANEMIAS NUTRICIONALES', 'cat__CIE10_MACRO_CÁNCER DE VÍAS URINARIAS', 'cat__CIE10_MACRO_OSTEOPATÍAS Y CONDROPATÍAS (OSTEOPOROSIS)', 'cat__CIE10_MACRO_OTROS TRASTORNOS DE LA SANGRE', 'cat__CIE10_MACRO_OTRAS ENFERMEDADES DE LA PIEL', 'cat__CIE10_MACRO_GENITAL FEMENINO (ENDOMETRIOSIS, ETC.)', 'cat__CIE10_MACRO_ENFERMEDADES PULMONARES INTERSTICIALES', 'cat__CIE10_MACRO_CÁNCER DE LABIO / BOCA / FARINGE', 'cat__CIE10_MACRO_ESÓFAGO / ESTÓMAGO / DUODENO', 'cat__CIE10_MACRO_ENFERMEDAD DE CROHN Y COLITIS', 'cat__CIE10_MACRO_TRASTORNOS DE LA PERSONALIDAD', 'cat__CIE10_MACRO_OTROS ENDOCRINOS Y METABÓLICOS', 'cat__CIE10_MACRO_OJO', 'cat__CIE10_MACRO_DEFECTOS DE COAGULACIÓN / PÚRPURA', 'cat__CIE10_MACRO_ENFERMEDAD POR VIH', 'cat__CIE10_MACRO_TRASTORNOS DE LA CONDUCTA ALIMENTARIA / SUEÑO', 'cat__CIE10_MACRO_CÁNCER RESPIRATORIO / INTRATORÁCICO', 'cat__CIE10_MACRO_CÁNCER DE MAMA', 'cat__CIE10_MACRO_DISLIPIDEMIA', 'cat__CIE10_MACRO_ATROFIAS SISTÉMICAS DEL SNC', 'cat__CIE10_MACRO_OÍDO'
+            ]
+            
+            prep = pipeline.named_steps['preprocesador']
+            nombres_expandidos = list(prep.get_feature_names_out())
+            
+            mask_limpia = np.array([col not in VARIABLES_RUIDO for col in nombres_expandidos])
+            X_train_limpio = X_train_proc[:, mask_limpia]
+            
+            knn_engine = NearestNeighbors(n_neighbors=100, metric='cosine')
+            knn_engine.fit(X_train_limpio)
+            
+            umap_reducer = umap.UMAP(n_neighbors=15, min_dist=0.1, metric='cosine', random_state=42)
+            umap_embeddings = umap_reducer.fit_transform(X_train_limpio)
+            
+            return knn_engine, matriz_ext, nombres_columnas, X_train_limpio, umap_embeddings, mask_limpia
+
 if user_role == "Clinical Medic":
     tab_diagnostico, tab_estrategia, tab_evidencia = st.tabs([
         "📊 1. Current Risk & Audit", 
@@ -2032,38 +2065,7 @@ if user_role == "Clinical Medic":
             'Riesgo_Psicofarmacos_Neurologicos': 'High-Risk Meds: Psychotropics/Neurological'
         }
     
-        @st.cache_resource
-        def load_similarity_assets():
-            BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-            ruta_x = os.path.join(BASE_DIR, 'X_train_proc_llm.npy')
-            ruta_ext = os.path.join(BASE_DIR, 'matriz_extended_display_llm.npy')
-            ruta_cols = os.path.join(BASE_DIR, 'columnas_display_llm.npy')
-            
-            if not all(os.path.exists(p) for p in [ruta_x, ruta_ext, ruta_cols]):
-                raise FileNotFoundError("Similarity assets missing. Ensure matrices are in the server volume.")
-                
-            X_train_proc = np.load(ruta_x)
-            matriz_ext = np.load(ruta_ext, allow_pickle=True)
-            nombres_columnas = np.load(ruta_cols, allow_pickle=True)
-            
-            # --- APLICACIÓN DEL FILTRO FORENSE (RUIDO TOPOLÓGICO) ---
-            VARIABLES_RUIDO = [
-                'cat__CIE10_MACRO_DERMATITIS Y ECZEMA', 'cat__CIE10_MACRO_OTROS TRASTORNOS NEUROLÓGICOS', 'cat__CIE10_MACRO_OTRAS INFECCIOSAS (B)', 'cat__CIE10_MACRO_TRASTORNOS DE LAS FANERAS / OTROS TRASTORNOS DE PIEL', 'cat__CIE10_MACRO_TEJIDO CONECTIVO (LUPUS, ETC.)', 'cat__CIE10_MACRO_OTROS TUMORES MALIGNOS', 'cat__CIE10_MACRO_OTRAS ENFERMEDADES DE LOS INTESTINOS', 'cat__CIE10_MACRO_HERNIAS', 'cat__CIE10_MACRO_ENFERMEDADES DE LA UNIÓN NEUROMUSCULAR (MIASTENIA)', 'cat__CIE10_MACRO_OTROS FACTORES DE SALUD', 'cat__CIE10_MACRO_ANEMIAS HEMOLÍTICAS', 'cat__CIE10_MACRO_OTROS OSTEOMUSCULARES', 'cat__CIE10_MACRO_VESÍCULA / VÍAS BILIARES / PÁNCREAS', 'cat__CIE10_MACRO_POLINEUROPATÍAS', 'cat__CIE10_MACRO_GENITAL MASCULINO (HIPERPLASIA PROSTÁTICA)', 'cat__CIE10_MACRO_ENFERMEDADES DESMIELINIZANTES (ESCLEROSIS MÚLTIPLE)', 'cat__CIE10_MACRO_TRASTORNOS EXTRAPIRAMIDALES Y DEL MOVIMIENTO (PARKINSON)', 'cat__CIE10_MACRO_CÁNCER DE SISTEMA NERVIOSO CENTRAL', 'cat__CIE10_MACRO_GLUCOSA / HIPOGLUCEMIA', 'cat__CIE10_MACRO_ARTROPATÍAS', 'cat__CIE10_MACRO_OTRAS MALFORMACIONES CONGÉNITAS', 'cat__CIE10_MACRO_OTROS TRASTORNOS MENTALES', 'cat__CIE10_MACRO_TRASTORNOS PAPULOESCAMOSOS (PSORIASIS)', 'cat__CIE10_MACRO_ENFERMEDADES DEGENERATIVAS (ALZHEIMER)', 'cat__CIE10_MACRO_ESQUIZOFRENIA Y TRASTORNOS PSICÓTICOS', 'cat__CIE10_MACRO_TRASTORNOS DE NERVIOS Y PLEXOS', 'cat__CIE10_MACRO_TUMORES IN SITU O BENIGNOS', 'cat__CIE10_MACRO_TRASTORNOS NEURÓTICOS Y DE ANSIEDAD', 'cat__CIE10_MACRO_ANEMIAS NUTRICIONALES', 'cat__CIE10_MACRO_CÁNCER DE VÍAS URINARIAS', 'cat__CIE10_MACRO_OSTEOPATÍAS Y CONDROPATÍAS (OSTEOPOROSIS)', 'cat__CIE10_MACRO_OTROS TRASTORNOS DE LA SANGRE', 'cat__CIE10_MACRO_OTRAS ENFERMEDADES DE LA PIEL', 'cat__CIE10_MACRO_GENITAL FEMENINO (ENDOMETRIOSIS, ETC.)', 'cat__CIE10_MACRO_ENFERMEDADES PULMONARES INTERSTICIALES', 'cat__CIE10_MACRO_CÁNCER DE LABIO / BOCA / FARINGE', 'cat__CIE10_MACRO_ESÓFAGO / ESTÓMAGO / DUODENO', 'cat__CIE10_MACRO_ENFERMEDAD DE CROHN Y COLITIS', 'cat__CIE10_MACRO_TRASTORNOS DE LA PERSONALIDAD', 'cat__CIE10_MACRO_OTROS ENDOCRINOS Y METABÓLICOS', 'cat__CIE10_MACRO_OJO', 'cat__CIE10_MACRO_DEFECTOS DE COAGULACIÓN / PÚRPURA', 'cat__CIE10_MACRO_ENFERMEDAD POR VIH', 'cat__CIE10_MACRO_TRASTORNOS DE LA CONDUCTA ALIMENTARIA / SUEÑO', 'cat__CIE10_MACRO_CÁNCER RESPIRATORIO / INTRATORÁCICO', 'cat__CIE10_MACRO_CÁNCER DE MAMA', 'cat__CIE10_MACRO_DISLIPIDEMIA', 'cat__CIE10_MACRO_ATROFIAS SISTÉMICAS DEL SNC', 'cat__CIE10_MACRO_OÍDO'
-            ]
-            
-            prep = pipeline.named_steps['preprocesador']
-            nombres_expandidos = list(prep.get_feature_names_out())
-            
-            mask_limpia = np.array([col not in VARIABLES_RUIDO for col in nombres_expandidos])
-            X_train_limpio = X_train_proc[:, mask_limpia]
-            
-            knn_engine = NearestNeighbors(n_neighbors=100, metric='cosine')
-            knn_engine.fit(X_train_limpio)
-            
-            umap_reducer = umap.UMAP(n_neighbors=15, min_dist=0.1, metric='cosine', random_state=42)
-            umap_embeddings = umap_reducer.fit_transform(X_train_limpio)
-            
-            return knn_engine, matriz_ext, nombres_columnas, X_train_limpio, umap_embeddings, mask_limpia
+        
     
         plt.close('all') 
         
@@ -2556,7 +2558,7 @@ if user_role == "Hospital Management":
     
                 fig_umap = go.Figure()
                 borde_marcador = dict(width=0.6, color='rgba(255,255,255,0.6)')
-    
+                knn_global, matriz_extended, nombres_columnas, X_train_limpio, umap_embeddings_cached, mask_limpia = load_similarity_assets()
                 # --- FIXED SCHEME: COLOR = CLINICAL OUTCOME ---
                 COLOR_SAFE = '#00C851'      # Green -> Safe Discharge
                 COLOR_READMIT = '#FF4444'   # Red   -> Readmitted
