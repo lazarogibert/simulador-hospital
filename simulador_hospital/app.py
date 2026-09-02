@@ -1035,7 +1035,7 @@ def format_clinical_value(key_es, value):
             if key_es == 'perfil_clinico_ingreso':
                 traducciones_perfil = {
                     'INTERNACION INICIAL': 'Initial Admission',
-                    'COMPLICACION ASOCIADA A LA INTERNECION': 'Admission-Associated Complication',
+                    'COMPLICACION ASOCIADA A LA INTERNACION': 'Admission-Associated Complication',
                     'DESCOMPENSACION DE PLURIPATOLOGIA': 'Multimorbidity Decompensation',
                     'MISMA CAUSA': 'Same Cause',
                     'REINTERNACION NO ASOCIADA': 'Unrelated Readmission'
