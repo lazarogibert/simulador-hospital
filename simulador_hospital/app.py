@@ -1230,14 +1230,14 @@ def load_similarity_assets():
 
 if user_role == "Clinical Medic":
     tab_diagnostico, tab_estrategia, tab_evidencia = st.tabs([
-        "📊 1. Current Risk & Audit", 
-        "🧭 2. Stabilization & Simulation", 
-        "🧬 3. Cohort & Inspector (KNN)"
+        "🩺 1. Pre-Discharge Risk Assessment", 
+        "📋 2. Discharge Planning", 
+        "👥 3. Case Matching"
     ])
 elif user_role == "Hospital Management":
     tab_umap, tab_eda = st.tabs([
-        "🌌 4. Global Visualization (UMAP)",
-        "📈 5. Exploratory Data"
+        "🌐 4.Historical Patient Analysis",
+        "📊 5. Census Trends & Readmissions"
     ])
 if user_role == "Clinical Medic":    
     with tab_diagnostico:
