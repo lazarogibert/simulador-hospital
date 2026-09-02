@@ -641,7 +641,7 @@ if user_role == "Clinical Medic":
     
     perfil_clinico_map = {
         "Initial Admission": "Internacion inicial",
-        "Admission-Associated Complication": "Complicacion asociada a la internecion",
+        "Admission-Associated Complication": "Complicacion asociada a la internacion",
         "Multimorbidity Decompensation": "Descompensacion de pluripatologia",
         "Same Cause": "Misma causa",
         "Unrelated Readmission": "Reinternacion no asociada"
