@@ -2066,7 +2066,7 @@ if user_role == "Clinical Medic":
     import hashlib
     
     with tab_evidencia:
-        st.markdown("#### Clinical Similarity Network & Cohort Audit")
+        #st.markdown("#### Clinical Similarity Network & Cohort Audit")
         
         
     
