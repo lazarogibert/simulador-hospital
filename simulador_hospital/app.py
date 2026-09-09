@@ -603,7 +603,7 @@ st.markdown("<h2 style='font-size: 32px; font-weight: 600; margin-bottom: 20px;'
 @st.cache_resource
 def cargar_entorno():
     directorio_actual = os.path.dirname(os.path.abspath(__file__))
-    ruta_modelo = os.path.join(directorio_actual, 'modelo_reingreso_nlp_41vars_v2.pkl')
+    ruta_modelo = os.path.join(directorio_actual, 'modelo_reingreso_nlp_41vars_last.pkl')
     
     paquete = joblib.load(ruta_modelo)
     pipeline = paquete['pipeline']
