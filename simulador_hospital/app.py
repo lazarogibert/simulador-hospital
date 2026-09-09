@@ -625,7 +625,7 @@ user_role = st.sidebar.radio("Select View:", ["Clinical Medic", "Hospital Manage
 st.sidebar.markdown("---")
 
 if user_role == "Clinical Medic":
-    st.sidebar.header("🩺 Phenotype Loading")
+    st.sidebar.header("🩺 Patient Data Entry")
     
     # --- REFINED DICTIONARIES ---
     opciones_edad_dict = {
