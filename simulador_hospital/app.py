@@ -674,7 +674,7 @@ if user_role == "Clinical Medic":
         'Functional Dependency': 'dependencia_funcional', 
         'Device Bearer': 'portador_dispositivos', 
         'Major Therapeutic Change': 'cambio_terapeutico_mayor', 
-        'Surgical Intervention': 'intervencion_quirurgica', 
+         
         'Transfusion Support': 'soporte_transfusional',
         'Prolonged IV Therapy': 'terapia_endovenosa_prolongada',
         'Residual Instability': 'inestabilidad_residual'
@@ -799,7 +799,7 @@ if user_role == "Clinical Medic":
     - EVO_complicacion_internacion (bool): Infección intrahospitalaria, nueva caída, flebitis, intercurrencia nueva, shock, sepsis, descompensación hemodinámica, o necesidad de pase a UTI.
     - EVO_aislamiento_infeccioso (bool): Aislamiento de contacto o respiratorio.
     - EVO_cambio_terapeutico_mayor (bool): Inicio de insulina, anticoagulación, inotrópicos, o anticonvulsivantes durante la internación.
-    - EVO_intervencion_quirurgica (bool): Mención de paso por quirófano, cirugía, o procedimiento invasivo mayor (endoscopía, cateterismo).
+    
     - EVO_soporte_transfusional (bool): Requirió transfusión de hemoderivados durante su estadía.
     - EVO_terapia_endovenosa_prolongada (bool): Requirió medicación endovenosa por más de 3 días consecutivos.
     - EVO_inestabilidad_residual (bool): Alta con síntomas residuales documentados (ej. "febrícula", "disnea leve persistente").
@@ -809,7 +809,7 @@ if user_role == "Clinical Medic":
     - Booleanos no mencionados/negados: {"valor": false, "cita": ""}
     - Enteros no mencionados: {"valor": null, "cita": ""}
     Claves esperadas:
-    LLM_tabaquismo_activo, LLM_polifarmacia, LLM_historial_caidas, LLM_abandono_medicacion, LLM_fragilidad_geriatrica, LLM_red_apoyo_deficiente, LLM_barrera_comprension, ING_dolor_eva, ING_gravedad_percibida, ING_alteracion_mental, ING_dependencia_funcional, ING_portador_dispositivos, ING_consultas_reiteradas, ING_riesgo_hemorragico, ING_infeccion_activa, ING_multimorbilidad_severa, EVO_dolor_eva, EVO_gravedad_percibida, EVO_alteracion_mental, EVO_dependencia_funcional, EVO_portador_dispositivos, EVO_complicacion_internacion, EVO_aislamiento_infeccioso, EVO_cambio_terapeutico_mayor, EVO_intervencion_quirurgica, EVO_soporte_transfusional, EVO_terapia_endovenosa_prolongada, EVO_inestabilidad_residual.
+    LLM_tabaquismo_activo, LLM_polifarmacia, LLM_historial_caidas, LLM_abandono_medicacion, LLM_fragilidad_geriatrica, LLM_red_apoyo_deficiente, LLM_barrera_comprension, ING_dolor_eva, ING_gravedad_percibida, ING_alteracion_mental, ING_dependencia_funcional, ING_portador_dispositivos, ING_consultas_reiteradas, ING_riesgo_hemorragico, ING_infeccion_activa, ING_multimorbilidad_severa, EVO_dolor_eva, EVO_gravedad_percibida, EVO_alteracion_mental, EVO_dependencia_funcional, EVO_portador_dispositivos, EVO_complicacion_internacion, EVO_aislamiento_infeccioso, EVO_cambio_terapeutico_mayor, EVO_soporte_transfusional, EVO_terapia_endovenosa_prolongada, EVO_inestabilidad_residual.
     
     A continuación la historia clínica para auditar:
     """
@@ -1182,7 +1182,7 @@ TRANSLATION_DICT = {
     'EVO_alteracion_mental': 'Evolution: Mental Alteration', 'EVO_dependencia_funcional': 'Evolution: Functional Dependency', 
     'EVO_portador_dispositivos': 'Evolution: Device Bearer', 'EVO_complicacion_internacion': 'Evolution: Hospital Complication', 
     'EVO_aislamiento_infeccioso': 'Evolution: Infectious Isolation', 
-    'EVO_cambio_terapeutico_mayor': 'Evolution: Major Therapeutic Change', 'EVO_intervencion_quirurgica': 'Evolution: Surgical Intervention', 
+    'EVO_cambio_terapeutico_mayor': 'Evolution: Major Therapeutic Change',
     'EVO_soporte_transfusional': 'Evolution: Transfusion Support', 'DELTA_dolor_eva': 'Δ Pain (VAS)',
     'DELTA_gravedad_percibida': 'Δ Perceived Severity', 'DELTA_alteracion_mental': 'Δ Mental Alteration',
     'DELTA_dependencia_funcional': 'Δ Functional Dependency', 'DELTA_portador_dispositivos': 'Δ Device Bearer',
@@ -1374,7 +1374,7 @@ if user_role == "Clinical Medic":
                         'EVO_dependencia_funcional': 'Current Func. Dep.',
                         'EVO_portador_dispositivos': 'Current Device Bearer',
                         'EVO_cambio_terapeutico_mayor': 'Current Major Ther. Change',
-                        'EVO_intervencion_quirurgica': 'Current Surgical Interv.',
+                        
                         'EVO_soporte_transfusional': 'Current Transfusion Support',
                         'EVO_terapia_endovenosa_prolongada': 'Current Prolonged IV',
                         'EVO_inestabilidad_residual': 'Current Residual Instab.',
@@ -1708,7 +1708,7 @@ if user_role == "Clinical Medic":
                     'Mental Alteration': 'EVO_alteracion_mental', 'Functional Dependency': 'EVO_dependencia_funcional',
                     'Medical Devices': 'EVO_portador_dispositivos', 'Infectious Isolation': 'EVO_aislamiento_infeccioso',
                     'Hosp. Complication': 'EVO_complicacion_internacion', 'Major Ther. Change': 'EVO_cambio_terapeutico_mayor',
-                    'Surgical Interv.': 'EVO_intervencion_quirurgica', 'Transfusion Support': 'EVO_soporte_transfusional',
+                    'Transfusion Support': 'EVO_soporte_transfusional',
                     'Prolonged IV Therapy': 'EVO_terapia_endovenosa_prolongada', 'Residual Instability': 'EVO_inestabilidad_residual'
                 }
     
@@ -1859,7 +1859,7 @@ if user_role == "Clinical Medic":
                                     'EVO_aislamiento_infeccioso': 'Infectious Isolation', 'EVO_alteracion_mental': 'Mental Alteration',
                                     'EVO_complicacion_internacion': 'Hospital Complication', 'EVO_dependencia_funcional': 'Functional Dependency',
                                     'EVO_portador_dispositivos': 'Device Bearer', 'dias_internados': 'Additional Hospitalization Days',
-                                    'EVO_cambio_terapeutico_mayor': 'Major Therapeutic Change', 'EVO_intervencion_quirurgica': 'Surgical Intervention',
+                                    'EVO_cambio_terapeutico_mayor': 'Major Therapeutic Change',
                                     'EVO_soporte_transfusional': 'Transfusion Support', 'EVO_terapia_endovenosa_prolongada': 'Prolonged IV Therapy',
                                     'EVO_inestabilidad_residual': 'Residual Instability'
                                 }
@@ -1981,7 +1981,7 @@ if user_role == "Clinical Medic":
                     'EVO_dependencia_funcional': 'Severe Functional Dependency',
                     'EVO_portador_dispositivos': 'Active Medical Device Bearer',
                     'EVO_cambio_terapeutico_mayor': 'Major Therapeutic Change',
-                    'EVO_intervencion_quirurgica': 'Surgical Intervention Performed',
+                    
                     'EVO_soporte_transfusional': 'Transfusion Support Required',
                     'EVO_terapia_endovenosa_prolongada': 'Prolonged IV Therapy',
                     'EVO_inestabilidad_residual': 'Residual Instability'
