@@ -755,10 +755,8 @@ if user_role == "Clinical Medic":
     # NUEVO: Layout de columnas para colocar los botones juntos
     col_nlp_run, col_nlp_clear = st.sidebar.columns([2.5, 1])
     
-    with col_nlp_run:
-        btn_run_nlp = st.button("🧠 Run NLP", use_container_width=True)
-    with col_nlp_clear:
-        st.button("🗑️ Clear", on_click=limpiar_campos_nlp, use_container_width=True)
+    btn_run_nlp = col_nlp_run.button("🧠 Run NLP", use_container_width=True)
+    col_nlp_clear.button("🗑️ Clear", on_click=limpiar_campos_nlp, use_container_width=True)
 
     # MODIFICADO: Ahora evaluamos la variable del botón en lugar de st.sidebar.button directamente
     if btn_run_nlp:
