@@ -595,7 +595,7 @@ class MotorEDADinamico:
 # 1. PAGE CONFIGURATION
 # ==========================================
 st.set_page_config(page_title="Safe Discharge Simulator", layout="wide")
-st.markdown("<h2 style='font-size: 32px; font-weight: 600; margin-bottom: 20px;'>🏥 Clinical Safe Discharge Simulator (15 Days)</h2>", unsafe_allow_html=True)
+st.markdown("<h2 style='font-size: 32px; font-weight: 600; margin-bottom: 20px;'>🏥 Clinical Readmission Evaluation and Discharge Assessment Tool (15 Days)</h2>", unsafe_allow_html=True)
 
 # ==========================================
 # 2. MODEL AND DATA LOADING (CACHE)
