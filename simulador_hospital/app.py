@@ -735,17 +735,33 @@ if user_role == "Clinical Medic":
     except Exception:
         pass 
     
-    api_key = st.sidebar.text_input(
-        "Gemini API Key (Live Triage):", 
-        value=api_key_default,
-        type="password", 
-        help="Automatically loaded from Streamlit Secrets."
-    )
+    api_key = st.sidebar.text_input("Gemini API Key (Live Triage):", value=api_key_default, type="password")
     
-    ing_text = st.sidebar.text_area("Admission Notes:", height=100)
-    evo_text = st.sidebar.text_area("Evolution Notes:", height=100)
+    # NUEVO: Función callback para vaciar los campos y reiniciar el estado
+    def limpiar_campos_nlp():
+        st.session_state.text_ing_val = ""
+        st.session_state.text_evo_val = ""
+        st.session_state.nlp_processed = False
+        st.session_state.nlp_quotes = {}
+
+    # NUEVO: Inicializar las llaves en session_state si no existen
+    if "text_ing_val" not in st.session_state: st.session_state.text_ing_val = ""
+    if "text_evo_val" not in st.session_state: st.session_state.text_evo_val = ""
+
+    # MODIFICADO: Vincular los text_area al session_state mediante el parámetro 'key'
+    ing_text = st.sidebar.text_area("Admission Notes:", key="text_ing_val", height=100)
+    evo_text = st.sidebar.text_area("Evolution Notes:", key="text_evo_val", height=100)
     
-    if st.sidebar.button("🧠 Run NLP Extraction", use_container_width=True):
+    # NUEVO: Layout de columnas para colocar los botones juntos
+    col_nlp_run, col_nlp_clear = st.sidebar.columns([2.5, 1])
+    
+    with col_nlp_run:
+        btn_run_nlp = st.button("🧠 Run NLP", use_container_width=True)
+    with col_nlp_clear:
+        st.button("🗑️ Clear", on_click=limpiar_campos_nlp, use_container_width=True)
+
+    # MODIFICADO: Ahora evaluamos la variable del botón en lugar de st.sidebar.button directamente
+    if btn_run_nlp:
         if not api_key:
             st.sidebar.error("API Key required.")
         elif not ing_text and not evo_text:
@@ -753,6 +769,7 @@ if user_role == "Clinical Medic":
         else:
             with st.spinner("Forensic extraction in progress..."):
                 try:
+                    
                     genai.configure(api_key=api_key)
                     modelo_nlp = genai.GenerativeModel(
                         'models/gemini-2.5-flash', 
