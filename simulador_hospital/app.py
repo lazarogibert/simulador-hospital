@@ -683,15 +683,19 @@ if user_role == "Clinical Medic":
     # =================================================================
     # --- PRECARGA AUTOMATIZADA PARA ESTUDIO DE USUARIOS (URL PARAMS) ---
     # =================================================================
-    @st.cache_data
+    @st.cache_data(ttl=60) # Refresca caché cada 60s si hubo error
     def cargar_casos_estudio():
+        # Usamos la misma lógica infalible que usas para tu .pkl
+        directorio_actual = os.path.dirname(os.path.abspath(__file__))
+        ruta_csv = os.path.join(directorio_actual, 'casos_estudio.csv')
+        
         try:
-            df = pd.read_csv("casos_estudio.csv")
-            # Usamos directamente el id_internacion real como índice
+            df = pd.read_csv(ruta_csv)
             if 'id_internacion' in df.columns: 
                 df.set_index('id_internacion', inplace=True)
             return df
-        except Exception:
+        except Exception as e:
+            st.error(f"Error crítico leyendo el archivo de casos en {ruta_csv}: {e}")
             return pd.DataFrame()
 
     df_casos = cargar_casos_estudio()
