@@ -680,46 +680,112 @@ if user_role == "Clinical Medic":
         'Residual Instability': 'inestabilidad_residual'
     }
     
-    # State Initialization
-    for key in ["ui_cro_sel", "ui_ing_sel", "ui_evo_sel"]:
-        if key not in st.session_state: st.session_state[key] = []
-    for key in ["ui_ing_dolor", "ui_ing_grav", "ui_evo_dolor", "ui_evo_grav"]:
-        if key not in st.session_state: st.session_state[key] = 0 if 'dolor' in key else 5
-    if 'nlp_processed' not in st.session_state: st.session_state.nlp_processed = False
-    if 'nlp_quotes' not in st.session_state: st.session_state.nlp_quotes = {}
+    # =================================================================
+    # --- PRECARGA AUTOMATIZADA PARA ESTUDIO DE USUARIOS (URL PARAMS) ---
+    # =================================================================
+    @st.cache_data
+    def cargar_casos_estudio():
+        try:
+            df = pd.read_csv("casos_estudio.csv")
+            if 'id_internacion' in df.columns: df.set_index('id_internacion', inplace=True)
+            return df
+        except Exception:
+            return pd.DataFrame()
+
+    df_casos = cargar_casos_estudio()
+    params = st.query_params
+
+    # 1. State Initialization (Seguro)
+    default_states = {
+        "ui_cie10": "I10", "ui_dias": 5, "ui_edad": "Older Adult", "ui_sexo": "Male",
+        "ui_area": "Internal Medicine", "ui_perfil": "Initial Admission", "ui_complejidad": 1,
+        "ui_prioridad": 0, "ui_interconsultas": 0, "ui_visitas": 0, "ui_pluri": False,
+        "ui_ambulancia": False, "ui_uti": False, "ui_med_cardio": False, "ui_med_psico": False,
+        "ui_cro_sel": [], "ui_ing_sel": [], "ui_evo_sel": [],
+        "ui_ing_dolor": 0, "ui_ing_grav": 5, "ui_evo_dolor": 0, "ui_evo_grav": 5,
+        "nlp_processed": False, "nlp_quotes": {}, "text_ing_val": "", "text_evo_val": ""
+    }
+    for k, v in default_states.items():
+        if k not in st.session_state: st.session_state[k] = v
+
+    # 2. Lógica de Inyección de Caso
+    if 'caso' in params and st.session_state.get('caso_cargado') != params['caso']:
+        try:
+            idx = int(params['caso']) if df_casos.index.dtype in ['int64', 'float64'] else params['caso']
+            if idx in df_casos.index:
+                d_pac = df_casos.loc[idx]
+                
+                # Inputs directos
+                st.session_state.ui_cie10 = str(d_pac.get('IN_MOTING', 'I10'))
+                st.session_state.ui_dias = int(d_pac.get('dias_internados', 5))
+                st.session_state.ui_complejidad = int(d_pac.get('IN_COMPLEJIDAD', 1))
+                st.session_state.ui_prioridad = int(d_pac.get('TR_Prioridad', 0))
+                st.session_state.ui_interconsultas = int(d_pac.get('cantidad_interconsultas', 0))
+                st.session_state.ui_visitas = int(d_pac.get('visitas_guardia_6meses_previos', 0))
+                
+                # Checkboxes
+                st.session_state.ui_pluri = bool(d_pac.get('pluripatologico', 0))
+                st.session_state.ui_ambulancia = bool(d_pac.get('EST_ingreso_ambulancia', 0))
+                st.session_state.ui_uti = bool(d_pac.get('EST_paso_por_uti', 0))
+                st.session_state.ui_med_cardio = bool(d_pac.get('Riesgo_Cardiovasculares_Inotropicos', 0))
+                st.session_state.ui_med_psico = bool(d_pac.get('Riesgo_Psicofarmacos_Neurologicos', 0))
+
+                # Traducción a UI Dropdowns
+                st.session_state.ui_sexo = 'Male' if str(d_pac.get('sexo', 'M')).upper().startswith('M') else 'Female'
+                edad_csv = str(d_pac.get('rango_edad', '')).upper().strip()
+                st.session_state.ui_edad = {"ADULTO JOVEN": "Young Adult", "ADULTO DE MEDIANA EDAD": "Middle-aged Adult", "ADULTO MAYOR": "Older Adult"}.get(edad_csv, "Older Adult")
+                area_csv = str(d_pac.get('Area', '')).upper().strip()
+                st.session_state.ui_area = {"CLINICA_MEDICA": "Internal Medicine", "EMERG_GUARDIAS": "ER (Emergency Room)"}.get(area_csv, "Internal Medicine")
+                perf_csv = str(d_pac.get('perfil_clinico_ingreso', '')).upper().strip()
+                st.session_state.ui_perfil = {v.upper(): k for k, v in perfil_clinico_map.items()}.get(perf_csv, "Initial Admission")
+
+                # Sliders
+                st.session_state.ui_ing_dolor = int(d_pac.get('ING_dolor_eva', 0))
+                st.session_state.ui_ing_grav = int(d_pac.get('ING_gravedad_percibida', 5))
+                st.session_state.ui_evo_dolor = int(d_pac.get('EVO_dolor_eva', 0))
+                st.session_state.ui_evo_grav = int(d_pac.get('EVO_gravedad_percibida', 5))
+
+                # Multiselects (Arrays)
+                st.session_state.ui_cro_sel = [ui for db, ui in cro_dict.items() if bool(d_pac.get(f'LLM_{db}', 0))]
+                st.session_state.ui_ing_sel = [ui for db, ui in ing_dict.items() if bool(d_pac.get(f'ING_{db}', 0))]
+                st.session_state.ui_evo_sel = [ui for db, ui in evo_dict.items() if bool(d_pac.get(f'EVO_{db}', 0))]
+
+                st.session_state.caso_cargado = params['caso']
+                st.toast(f"✅ Patient Data Pre-loaded (Case #{idx})", icon="🏥")
+        except Exception as e:
+            st.sidebar.error(f"Error loading case: {e}")
     
     # --- BLOQUE 1: INPUT MANUAL OBLIGATORIO ---
     st.sidebar.subheader("1. Core Parameters (Manual Entry)")
-    cie10_input = st.sidebar.text_input("Reason for admission (ICD-10 Code):", value="I10", help="Example: I10, E11, J44")
-    dias_internados = st.sidebar.number_input("Number of days hospitalized:", min_value=0, max_value=150, value=5)
+    cie10_input = st.sidebar.text_input("Reason for admission (ICD-10 Code):", key="ui_cie10", help="Example: I10, E11, J44")
+    dias_internados = st.sidebar.number_input("Number of days hospitalized:", min_value=0, max_value=150, key="ui_dias")
     
-    rango_edad_ui = st.sidebar.selectbox("Patient Age Range:", list(opciones_edad_dict.keys()))
+    rango_edad_ui = st.sidebar.selectbox("Patient Age Range:", list(opciones_edad_dict.keys()), key="ui_edad")
     rango_edad = opciones_edad_dict[rango_edad_ui].upper()
     
     sexo_map = {"Male": "MASCULINO", "Female": "FEMENINO"}
-    sexo_ui = st.sidebar.selectbox("Sex:", list(sexo_map.keys()))
+    sexo_ui = st.sidebar.selectbox("Sex:", list(sexo_map.keys()), key="ui_sexo")
     sexo_input = sexo_map[sexo_ui]
     
-    area_ui = st.sidebar.selectbox("Admission Area:", list(area_map.keys()))
+    area_ui = st.sidebar.selectbox("Admission Area:", list(area_map.keys()), key="ui_area")
     area_input = area_map[area_ui]
     
-    perfil_ui = st.sidebar.selectbox("Admission Clinical Profile:", list(perfil_clinico_map.keys()))
+    perfil_ui = st.sidebar.selectbox("Admission Clinical Profile:", list(perfil_clinico_map.keys()), key="ui_perfil")
     perfil_input = perfil_clinico_map[perfil_ui].upper()
     
-    complejidad_input = st.sidebar.number_input("Complexity Level (IN_COMPLEJIDAD):", min_value=1, step=1, value=1)
-    # --- NUEVA LÍNEA ---
-    prioridad_input = st.sidebar.selectbox("Triage Priority (TR_Prioridad):", options=[0, 1, 2, 3], index=0, help="0: Non-urgent, 3: Resuscitation/Emergency")
+    complejidad_input = st.sidebar.number_input("Complexity Level (IN_COMPLEJIDAD):", min_value=1, step=1, key="ui_complejidad")
+    prioridad_input = st.sidebar.selectbox("Triage Priority (TR_Prioridad):", options=[0, 1, 2, 3], key="ui_prioridad", help="0: Non-urgent, 3: Resuscitation/Emergency")
     
-    interconsultas_input = st.sidebar.number_input("Interconsultations:", min_value=0, value=0)
-    visitas_guardia_input = st.sidebar.number_input("ER Visits (Previous 6 months):", min_value=0, value=0)
+    interconsultas_input = st.sidebar.number_input("Interconsultations:", min_value=0, key="ui_interconsultas")
+    visitas_guardia_input = st.sidebar.number_input("ER Visits (Previous 6 months):", min_value=0, key="ui_visitas")
     
-    es_pluripatologico = st.sidebar.checkbox("Has Multimorbidity (Pluripathological)?", value=False)
-    ingreso_ambulancia = st.sidebar.checkbox("Arrived by Ambulance?", value=False)
-    paso_por_uti = st.sidebar.checkbox("ICU Stay during admission?", value=False)
+    es_pluripatologico = st.sidebar.checkbox("Has Multimorbidity (Pluripathological)?", key="ui_pluri")
+    ingreso_ambulancia = st.sidebar.checkbox("Arrived by Ambulance?", key="ui_ambulancia")
+    paso_por_uti = st.sidebar.checkbox("ICU Stay during admission?", key="ui_uti")
     
     st.sidebar.markdown("#### High-Risk Medications")
-    med_cardio = st.sidebar.checkbox("Cardiovascular / Inotropes", value=False)
-    med_psico = st.sidebar.checkbox("Psychotropics / Neurologicals", value=False)
+    med_cardio = st.sidebar.checkbox("Cardiovascular / Inotropes", key="ui_med_cardio")
+    med_psico = st.sidebar.checkbox("Psychotropics / Neurologicals", key="ui_med_psico")
     
     st.sidebar.markdown("---")
     
