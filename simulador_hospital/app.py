@@ -717,10 +717,10 @@ if user_role == "Clinical Medic":
     for k, v in default_states.items():
         if k not in st.session_state: st.session_state[k] = v
 
-    # 2. Lógica de Inyección de Caso
-    if caso_param and st.session_state.caso_cargado != caso_param:
+    # 2. Lógica de Inyección de Caso (Con Hard Reset de Caché)
+    if caso_param and st.session_state.get('caso_cargado') != caso_param:
         try:
-            idx = int(caso_param) # Convertimos el "68800" de la URL a entero
+            idx = int(caso_param) # Convertimos el string de la URL a entero
             if idx in df_casos.index:
                 d_pac = df_casos.loc[idx]
                 
@@ -728,43 +728,56 @@ if user_role == "Clinical Medic":
                 def es_verdadero(val): 
                     return str(val).strip().lower() in ['1', '1.0', 'true', 'yes']
 
+                # --- HARD RESET: Forzamos la actualización de cada variable ---
+                
                 # Inputs directos
-                st.session_state.ui_cie10 = str(d_pac.get('IN_MOTING', 'I10'))
-                st.session_state.ui_dias = int(d_pac.get('dias_internados', 5))
-                st.session_state.ui_complejidad = int(d_pac.get('IN_COMPLEJIDAD', 1))
-                st.session_state.ui_prioridad = int(d_pac.get('TR_Prioridad', 0))
-                st.session_state.ui_interconsultas = int(d_pac.get('cantidad_interconsultas', 0))
-                st.session_state.ui_visitas = int(d_pac.get('visitas_guardia_6meses_previos', 0))
+                st.session_state['ui_cie10'] = str(d_pac.get('IN_MOTING', 'I10'))
+                st.session_state['ui_dias'] = int(d_pac.get('dias_internados', 5))
+                st.session_state['ui_complejidad'] = int(d_pac.get('IN_COMPLEJIDAD', 1))
+                st.session_state['ui_prioridad'] = int(d_pac.get('TR_Prioridad', 0))
+                st.session_state['ui_interconsultas'] = int(d_pac.get('cantidad_interconsultas', 0))
+                st.session_state['ui_visitas'] = int(d_pac.get('visitas_guardia_6meses_previos', 0))
                 
                 # Checkboxes
-                st.session_state.ui_pluri = es_verdadero(d_pac.get('pluripatologico', 0))
-                st.session_state.ui_ambulancia = es_verdadero(d_pac.get('EST_ingreso_ambulancia', 0))
-                st.session_state.ui_uti = es_verdadero(d_pac.get('EST_paso_por_uti', 0))
-                st.session_state.ui_med_cardio = es_verdadero(d_pac.get('Riesgo_Cardiovasculares_Inotropicos', 0))
-                st.session_state.ui_med_psico = es_verdadero(d_pac.get('Riesgo_Psicofarmacos_Neurologicos', 0))
+                st.session_state['ui_pluri'] = es_verdadero(d_pac.get('pluripatologico', 0))
+                st.session_state['ui_ambulancia'] = es_verdadero(d_pac.get('EST_ingreso_ambulancia', 0))
+                st.session_state['ui_uti'] = es_verdadero(d_pac.get('EST_paso_por_uti', 0))
+                st.session_state['ui_med_cardio'] = es_verdadero(d_pac.get('Riesgo_Cardiovasculares_Inotropicos', 0))
+                st.session_state['ui_med_psico'] = es_verdadero(d_pac.get('Riesgo_Psicofarmacos_Neurologicos', 0))
 
                 # Traducción a UI Dropdowns
-                st.session_state.ui_sexo = 'Male' if str(d_pac.get('sexo', 'M')).upper().startswith('M') else 'Female'
+                st.session_state['ui_sexo'] = 'Male' if str(d_pac.get('sexo', 'M')).upper().startswith('M') else 'Female'
+                
                 edad_csv = str(d_pac.get('rango_edad', '')).upper().strip()
-                st.session_state.ui_edad = {"ADULTO JOVEN": "Young Adult", "ADULTO DE MEDIANA EDAD": "Middle-aged Adult", "ADULTO MAYOR": "Older Adult"}.get(edad_csv, "Older Adult")
+                st.session_state['ui_edad'] = {"ADULTO JOVEN": "Young Adult", "ADULTO DE MEDIANA EDAD": "Middle-aged Adult", "ADULTO MAYOR": "Older Adult"}.get(edad_csv, "Older Adult")
+                
                 area_csv = str(d_pac.get('Area', '')).upper().strip()
-                st.session_state.ui_area = {"CLINICA_MEDICA": "Internal Medicine", "EMERG_GUARDIAS": "ER (Emergency Room)"}.get(area_csv, "Internal Medicine")
+                st.session_state['ui_area'] = {"CLINICA_MEDICA": "Internal Medicine", "EMERG_GUARDIAS": "ER (Emergency Room)"}.get(area_csv, "Internal Medicine")
+                
                 perf_csv = str(d_pac.get('perfil_clinico_ingreso', '')).upper().strip()
-                st.session_state.ui_perfil = {v.upper(): k for k, v in perfil_clinico_map.items()}.get(perf_csv, "Initial Admission")
+                st.session_state['ui_perfil'] = {v.upper(): k for k, v in perfil_clinico_map.items()}.get(perf_csv, "Initial Admission")
 
                 # Sliders
-                st.session_state.ui_ing_dolor = int(d_pac.get('ING_dolor_eva', 0))
-                st.session_state.ui_ing_grav = int(d_pac.get('ING_gravedad_percibida', 5))
-                st.session_state.ui_evo_dolor = int(d_pac.get('EVO_dolor_eva', 0))
-                st.session_state.ui_evo_grav = int(d_pac.get('EVO_gravedad_percibida', 5))
+                st.session_state['ui_ing_dolor'] = int(d_pac.get('ING_dolor_eva', 0))
+                st.session_state['ui_ing_grav'] = int(d_pac.get('ING_gravedad_percibida', 5))
+                st.session_state['ui_evo_dolor'] = int(d_pac.get('EVO_dolor_eva', 0))
+                st.session_state['ui_evo_grav'] = int(d_pac.get('EVO_gravedad_percibida', 5))
 
                 # Multiselects (Arrays)
-                st.session_state.ui_cro_sel = [ui for db, ui in cro_dict.items() if es_verdadero(d_pac.get(f'LLM_{db}', 0))]
-                st.session_state.ui_ing_sel = [ui for db, ui in ing_dict.items() if es_verdadero(d_pac.get(f'ING_{db}', 0))]
-                st.session_state.ui_evo_sel = [ui for db, ui in evo_dict.items() if es_verdadero(d_pac.get(f'EVO_{db}', 0))]
+                st.session_state['ui_cro_sel'] = [ui for db, ui in cro_dict.items() if es_verdadero(d_pac.get(f'LLM_{db}', 0))]
+                st.session_state['ui_ing_sel'] = [ui for db, ui in ing_dict.items() if es_verdadero(d_pac.get(f'ING_{db}', 0))]
+                st.session_state['ui_evo_sel'] = [ui for db, ui in evo_dict.items() if es_verdadero(d_pac.get(f'EVO_{db}', 0))]
 
-                st.session_state.caso_cargado = caso_param
+                # Actualizamos la bandera
+                st.session_state['caso_cargado'] = caso_param
                 st.toast(f"✅ Pre-carga exitosa: Historia Clínica #{idx}", icon="🏥")
+                
+                # --- FORZAR RECARGA ---
+                # Esto obliga a Streamlit a redibujar toda la UI con los nuevos valores de session_state
+                st.rerun()
+                
+            else:
+                st.sidebar.error(f"❌ ID {idx} no encontrado en el archivo de casos.")
         except Exception as e:
             st.sidebar.error(f"Error loading case: {e}")
     
