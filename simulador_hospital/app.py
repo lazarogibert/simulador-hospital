@@ -767,10 +767,10 @@ if user_role == "Clinical Medic":
                 st.session_state['ui_evo_dolor'] = int(d_pac.get('EVO_dolor_eva', 0))
                 st.session_state['ui_evo_grav'] = int(d_pac.get('EVO_gravedad_percibida', 5))
 
-                # Multiselects (Arrays)
-                st.session_state['ui_cro_sel'] = [ui for db, ui in cro_dict.items() if es_verdadero(d_pac.get(f'LLM_{db}', 0))]
-                st.session_state['ui_ing_sel'] = [ui for db, ui in ing_dict.items() if es_verdadero(d_pac.get(f'ING_{db}', 0))]
-                st.session_state['ui_evo_sel'] = [ui for db, ui in evo_dict.items() if es_verdadero(d_pac.get(f'EVO_{db}', 0))]
+                # Multiselects (Arrays) - FIX: Orden correcto de key (UI) y value (Base de Datos)
+                st.session_state['ui_cro_sel'] = [ui_label for ui_label, db_suffix in cro_dict.items() if es_verdadero(d_pac.get(f'LLM_{db_suffix}', 0))]
+                st.session_state['ui_ing_sel'] = [ui_label for ui_label, db_suffix in ing_dict.items() if es_verdadero(d_pac.get(f'ING_{db_suffix}', 0))]
+                st.session_state['ui_evo_sel'] = [ui_label for ui_label, db_suffix in evo_dict.items() if es_verdadero(d_pac.get(f'EVO_{db_suffix}', 0))]
 
                 # Actualizamos la bandera
                 st.session_state['caso_cargado'] = caso_param
