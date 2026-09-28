@@ -687,13 +687,21 @@ if user_role == "Clinical Medic":
     def cargar_casos_estudio():
         try:
             df = pd.read_csv("casos_estudio.csv")
-            if 'id_internacion' in df.columns: df.set_index('id_internacion', inplace=True)
+            # Usamos directamente el id_internacion real como índice
+            if 'id_internacion' in df.columns: 
+                df.set_index('id_internacion', inplace=True)
             return df
         except Exception:
             return pd.DataFrame()
 
     df_casos = cargar_casos_estudio()
-    params = st.query_params
+    
+    # Manejo compatible para cualquier versión de Streamlit
+    if hasattr(st, 'query_params'):
+        caso_param = st.query_params.get('caso', None)
+    else:
+        params_dict = st.experimental_get_query_params()
+        caso_param = params_dict.get('caso', [None])[0]
 
     # 1. State Initialization (Seguro)
     default_states = {
@@ -703,18 +711,23 @@ if user_role == "Clinical Medic":
         "ui_ambulancia": False, "ui_uti": False, "ui_med_cardio": False, "ui_med_psico": False,
         "ui_cro_sel": [], "ui_ing_sel": [], "ui_evo_sel": [],
         "ui_ing_dolor": 0, "ui_ing_grav": 5, "ui_evo_dolor": 0, "ui_evo_grav": 5,
-        "nlp_processed": False, "nlp_quotes": {}, "text_ing_val": "", "text_evo_val": ""
+        "nlp_processed": False, "nlp_quotes": {}, "text_ing_val": "", "text_evo_val": "",
+        "caso_cargado": None
     }
     for k, v in default_states.items():
         if k not in st.session_state: st.session_state[k] = v
 
     # 2. Lógica de Inyección de Caso
-    if 'caso' in params and st.session_state.get('caso_cargado') != params['caso']:
+    if caso_param and st.session_state.caso_cargado != caso_param:
         try:
-            idx = int(params['caso']) if df_casos.index.dtype in ['int64', 'float64'] else params['caso']
+            idx = int(caso_param) # Convertimos el "68800" de la URL a entero
             if idx in df_casos.index:
                 d_pac = df_casos.loc[idx]
                 
+                # Función de seguridad para lectura de booleanos
+                def es_verdadero(val): 
+                    return str(val).strip().lower() in ['1', '1.0', 'true', 'yes']
+
                 # Inputs directos
                 st.session_state.ui_cie10 = str(d_pac.get('IN_MOTING', 'I10'))
                 st.session_state.ui_dias = int(d_pac.get('dias_internados', 5))
@@ -724,11 +737,11 @@ if user_role == "Clinical Medic":
                 st.session_state.ui_visitas = int(d_pac.get('visitas_guardia_6meses_previos', 0))
                 
                 # Checkboxes
-                st.session_state.ui_pluri = bool(d_pac.get('pluripatologico', 0))
-                st.session_state.ui_ambulancia = bool(d_pac.get('EST_ingreso_ambulancia', 0))
-                st.session_state.ui_uti = bool(d_pac.get('EST_paso_por_uti', 0))
-                st.session_state.ui_med_cardio = bool(d_pac.get('Riesgo_Cardiovasculares_Inotropicos', 0))
-                st.session_state.ui_med_psico = bool(d_pac.get('Riesgo_Psicofarmacos_Neurologicos', 0))
+                st.session_state.ui_pluri = es_verdadero(d_pac.get('pluripatologico', 0))
+                st.session_state.ui_ambulancia = es_verdadero(d_pac.get('EST_ingreso_ambulancia', 0))
+                st.session_state.ui_uti = es_verdadero(d_pac.get('EST_paso_por_uti', 0))
+                st.session_state.ui_med_cardio = es_verdadero(d_pac.get('Riesgo_Cardiovasculares_Inotropicos', 0))
+                st.session_state.ui_med_psico = es_verdadero(d_pac.get('Riesgo_Psicofarmacos_Neurologicos', 0))
 
                 # Traducción a UI Dropdowns
                 st.session_state.ui_sexo = 'Male' if str(d_pac.get('sexo', 'M')).upper().startswith('M') else 'Female'
@@ -746,12 +759,12 @@ if user_role == "Clinical Medic":
                 st.session_state.ui_evo_grav = int(d_pac.get('EVO_gravedad_percibida', 5))
 
                 # Multiselects (Arrays)
-                st.session_state.ui_cro_sel = [ui for db, ui in cro_dict.items() if bool(d_pac.get(f'LLM_{db}', 0))]
-                st.session_state.ui_ing_sel = [ui for db, ui in ing_dict.items() if bool(d_pac.get(f'ING_{db}', 0))]
-                st.session_state.ui_evo_sel = [ui for db, ui in evo_dict.items() if bool(d_pac.get(f'EVO_{db}', 0))]
+                st.session_state.ui_cro_sel = [ui for db, ui in cro_dict.items() if es_verdadero(d_pac.get(f'LLM_{db}', 0))]
+                st.session_state.ui_ing_sel = [ui for db, ui in ing_dict.items() if es_verdadero(d_pac.get(f'ING_{db}', 0))]
+                st.session_state.ui_evo_sel = [ui for db, ui in evo_dict.items() if es_verdadero(d_pac.get(f'EVO_{db}', 0))]
 
-                st.session_state.caso_cargado = params['caso']
-                st.toast(f"✅ Patient Data Pre-loaded (Case #{idx})", icon="🏥")
+                st.session_state.caso_cargado = caso_param
+                st.toast(f"✅ Pre-carga exitosa: Historia Clínica #{idx}", icon="🏥")
         except Exception as e:
             st.sidebar.error(f"Error loading case: {e}")
     
