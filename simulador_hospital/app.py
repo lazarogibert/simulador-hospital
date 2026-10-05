@@ -693,9 +693,8 @@ if user_role == "Clinical Medic":
     # =================================================================
     # --- PRECARGA AUTOMATIZADA PARA ESTUDIO DE USUARIOS (URL PARAMS) ---
     # =================================================================
-    @st.cache_data(ttl=60) # Refresca caché cada 60s si hubo error
+    @st.cache_data(ttl=60)
     def cargar_casos_estudio():
-        # Usamos la misma lógica infalible que usas para tu .pkl
         directorio_actual = os.path.dirname(os.path.abspath(__file__))
         ruta_csv = os.path.join(directorio_actual, 'casos_estudio.csv')
         
@@ -729,21 +728,24 @@ if user_role == "Clinical Medic":
         "caso_cargado": None
     }
     for k, v in default_states.items():
-        if k not in st.session_state: st.session_state[k] = v
+        if k not in st.session_state:
+            st.session_state[k] = v
 
-    # 2. Lógica de Inyección de Caso (Con Hard Reset de Caché)
-    if caso_param and st.session_state.get('caso_cargado') != caso_param:
+    # Botón auxiliar por si quieres recargar el caso actual de la URL tras mover sliders
+    if caso_param:
+        if st.sidebar.button(f"🔄 Reset Case #{caso_param}", use_container_width=True):
+            st.session_state['caso_cargado'] = None
+
+    # 2. Lógica de Inyección de Caso (Sin st.rerun para no limpiar los widgets)
+    if caso_param and str(st.session_state.get('caso_cargado')) != str(caso_param):
         try:
-            idx = int(caso_param) # Convertimos el string de la URL a entero
+            idx = int(caso_param)
             if idx in df_casos.index:
                 d_pac = df_casos.loc[idx]
                 
-                # Función de seguridad para lectura de booleanos
                 def es_verdadero(val): 
                     return str(val).strip().lower() in ['1', '1.0', 'true', 'yes']
 
-                # --- HARD RESET: Forzamos la actualización de cada variable ---
-                
                 # Inputs directos
                 st.session_state['ui_cie10'] = str(d_pac.get('IN_MOTING', 'I10'))
                 st.session_state['ui_dias'] = int(d_pac.get('dias_internados', 5))
@@ -777,19 +779,14 @@ if user_role == "Clinical Medic":
                 st.session_state['ui_evo_dolor'] = int(d_pac.get('EVO_dolor_eva', 0))
                 st.session_state['ui_evo_grav'] = int(d_pac.get('EVO_gravedad_percibida', 5))
 
-                # Multiselects (Arrays) - FIX: Orden correcto de key (UI) y value (Base de Datos)
+                # Multiselects (Arrays)
                 st.session_state['ui_cro_sel'] = [ui_label for ui_label, db_suffix in cro_dict.items() if es_verdadero(d_pac.get(f'LLM_{db_suffix}', 0))]
                 st.session_state['ui_ing_sel'] = [ui_label for ui_label, db_suffix in ing_dict.items() if es_verdadero(d_pac.get(f'ING_{db_suffix}', 0))]
                 st.session_state['ui_evo_sel'] = [ui_label for ui_label, db_suffix in evo_dict.items() if es_verdadero(d_pac.get(f'EVO_{db_suffix}', 0))]
 
-                # Actualizamos la bandera
-                st.session_state['caso_cargado'] = caso_param
+                # Actualizamos la bandera y dejamos que el script continúe hacia los widgets
+                st.session_state['caso_cargado'] = str(caso_param)
                 st.toast(f"✅ Pre-carga exitosa: Historia Clínica #{idx}", icon="🏥")
-                
-                # --- FORZAR RECARGA ---
-                # Esto obliga a Streamlit a redibujar toda la UI con los nuevos valores de session_state
-                st.rerun()
-                
             else:
                 st.sidebar.error(f"❌ ID {idx} no encontrado en el archivo de casos.")
         except Exception as e:
