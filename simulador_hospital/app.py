@@ -693,55 +693,33 @@ if user_role == "Clinical Medic":
    # =================================================================
     # --- PRECARGA AUTOMATIZADA PARA ESTUDIO DE USUARIOS (URL PARAMS) ---
     # =================================================================
+    @st.cache_data
     def cargar_casos_estudio():
-        # Sin @st.cache_data para forzar la ejecución real en cada recarga
         directorio_actual = os.path.dirname(os.path.abspath(__file__))
         ruta_csv = os.path.join(directorio_actual, 'casos_estudio.csv')
         try:
             df = pd.read_csv(ruta_csv)
             if 'id_internacion' in df.columns:
-                df['id_internacion'] = df['id_internacion'].astype(int)
+                df['id_internacion'] = df['id_internacion'].astype(str).str.strip().str.replace('.0', '', regex=False)
                 df.set_index('id_internacion', inplace=True)
             return df
         except Exception as e:
-            st.sidebar.error(f"Error crítico leyendo {ruta_csv}: {e}")
+            st.sidebar.error(f"Error leyendo casos_estudio.csv: {e}")
             return pd.DataFrame()
 
     df_casos = cargar_casos_estudio()
 
-    # Detecta tanto ?caso= como ?case= en cualquier versión de Streamlit
-    params_url = dict(st.query_params) if hasattr(st, 'query_params') else st.experimental_get_query_params()
-    caso_param = params_url.get('caso') or params_url.get('case')
-    if isinstance(caso_param, list):
-        caso_param = caso_param[0]
+    # Soporta tanto ?case=70063 como ?caso=70063 en el enlace
+    if hasattr(st, 'query_params'):
+        caso_param = st.query_params.get('case') or st.query_params.get('caso')
+    else:
+        params_dict = st.experimental_get_query_params()
+        caso_param = (params_dict.get('case') or params_dict.get('caso') or [None])[0]
 
-    # 1. State Initialization
-    default_states = {
-        "ui_cie10": "I10", "ui_dias": 5, "ui_edad": "Older Adult", "ui_sexo": "Male",
-        "ui_area": "Internal Medicine", "ui_perfil": "Initial Admission", "ui_complejidad": 1,
-        "ui_prioridad": 0, "ui_interconsultas": 0, "ui_visitas": 0, "ui_pluri": False,
-        "ui_ambulancia": False, "ui_uti": False, "ui_med_cardio": False, "ui_med_psico": False,
-        "ui_cro_sel": [], "ui_ing_sel": [], "ui_evo_sel": [],
-        "ui_ing_dolor": 0, "ui_ing_grav": 5, "ui_evo_dolor": 0, "ui_evo_grav": 5,
-        "nlp_processed": False, "nlp_quotes": {}, "text_ing_val": "", "text_evo_val": "",
-        "id_caso_activo": None
-    }
-    for k, v in default_states.items():
-        if k not in st.session_state:
-            st.session_state[k] = v
-
-    # --- DIAGNÓSTICO VISIBLE Y BOTÓN DE FORZADO ---
-    st.sidebar.info(
-        f"🔎 **URL Params:** `{params_url}`\n\n"
-        f"📂 **CSV cargado:** `{len(df_casos)}` casos\n\n"
-        f"🆔 **Caso en memoria:** `{st.session_state.get('id_caso_activo')}`"
-    )
-    forzar_carga = st.sidebar.button("⚡ Forzar Carga de Caso URL", use_container_width=True)
-
-    # 2. Lógica de Inyección de Caso
-    if caso_param and (forzar_carga or str(st.session_state.get('id_caso_activo')) != str(caso_param)):
+    # 1. Lógica de Inyección de Caso desde el enlace (antes de default_states)
+    if caso_param and str(st.session_state.get('caso_cargado')) != str(caso_param).strip():
         try:
-            idx = int(str(caso_param).strip())
+            idx = str(caso_param).strip()
             if idx in df_casos.index:
                 d_pac = df_casos.loc[idx]
                 if isinstance(d_pac, pd.DataFrame):
@@ -751,12 +729,12 @@ if user_role == "Clinical Medic":
                     return str(val).strip().lower() in ['1', '1.0', 'true', 'yes']
 
                 # Inputs directos
-                st.session_state['ui_cie10'] = str(d_pac.get('IN_MOTING', 'I10'))
-                st.session_state['ui_dias'] = int(d_pac.get('dias_internados', 5))
-                st.session_state['ui_complejidad'] = int(d_pac.get('IN_COMPLEJIDAD', 1))
-                st.session_state['ui_prioridad'] = int(d_pac.get('TR_Prioridad', 0))
-                st.session_state['ui_interconsultas'] = int(d_pac.get('cantidad_interconsultas', 0))
-                st.session_state['ui_visitas'] = int(d_pac.get('visitas_guardia_6meses_previos', 0))
+                st.session_state['ui_cie10'] = str(d_pac.get('IN_MOTING', 'I10')).strip()
+                st.session_state['ui_dias'] = int(float(d_pac.get('dias_internados', 5)))
+                st.session_state['ui_complejidad'] = int(float(d_pac.get('IN_COMPLEJIDAD', 1)))
+                st.session_state['ui_prioridad'] = int(float(d_pac.get('TR_Prioridad', 0)))
+                st.session_state['ui_interconsultas'] = int(float(d_pac.get('cantidad_interconsultas', 0)))
+                st.session_state['ui_visitas'] = int(float(d_pac.get('visitas_guardia_6meses_previos', 0)))
 
                 # Checkboxes
                 st.session_state['ui_pluri'] = es_verdadero(d_pac.get('pluripatologico', 0))
@@ -765,7 +743,7 @@ if user_role == "Clinical Medic":
                 st.session_state['ui_med_cardio'] = es_verdadero(d_pac.get('Riesgo_Cardiovasculares_Inotropicos', 0))
                 st.session_state['ui_med_psico'] = es_verdadero(d_pac.get('Riesgo_Psicofarmacos_Neurologicos', 0))
 
-                # Dropdowns
+                # Traducción a UI Dropdowns
                 st.session_state['ui_sexo'] = 'Male' if str(d_pac.get('sexo', 'M')).upper().startswith('M') else 'Female'
 
                 edad_csv = str(d_pac.get('rango_edad', '')).upper().strip()
@@ -778,22 +756,38 @@ if user_role == "Clinical Medic":
                 st.session_state['ui_perfil'] = {v.upper(): k for k, v in perfil_clinico_map.items()}.get(perf_csv, "Initial Admission")
 
                 # Sliders
-                st.session_state['ui_ing_dolor'] = int(d_pac.get('ING_dolor_eva', 0))
-                st.session_state['ui_ing_grav'] = int(d_pac.get('ING_gravedad_percibida', 5))
-                st.session_state['ui_evo_dolor'] = int(d_pac.get('EVO_dolor_eva', 0))
-                st.session_state['ui_evo_grav'] = int(d_pac.get('EVO_gravedad_percibida', 5))
+                st.session_state['ui_ing_dolor'] = int(float(d_pac.get('ING_dolor_eva', 0)))
+                st.session_state['ui_ing_grav'] = int(float(d_pac.get('ING_gravedad_percibida', 5)))
+                st.session_state['ui_evo_dolor'] = int(float(d_pac.get('EVO_dolor_eva', 0)))
+                st.session_state['ui_evo_grav'] = int(float(d_pac.get('EVO_gravedad_percibida', 5)))
 
-                # Multiselects
+                # Multiselects (Arrays)
                 st.session_state['ui_cro_sel'] = [ui_label for ui_label, db_suffix in cro_dict.items() if es_verdadero(d_pac.get(f'LLM_{db_suffix}', 0))]
                 st.session_state['ui_ing_sel'] = [ui_label for ui_label, db_suffix in ing_dict.items() if es_verdadero(d_pac.get(f'ING_{db_suffix}', 0))]
                 st.session_state['ui_evo_sel'] = [ui_label for ui_label, db_suffix in evo_dict.items() if es_verdadero(d_pac.get(f'EVO_{db_suffix}', 0))]
 
-                st.session_state['id_caso_activo'] = str(caso_param)
-                st.toast(f"✅ Pre-carga exitosa: Historia Clínica #{idx}", icon="🏥")
+                st.session_state['caso_cargado'] = idx
+                st.toast(f"✅ Patient Data Pre-loaded (Case #{idx})", icon="🏥")
             else:
-                st.sidebar.error(f"❌ ID {idx} no encontrado en casos_estudio.csv")
+                st.sidebar.error(f"❌ ID {idx} no encontrado en casos_estudio.csv.")
         except Exception as e:
-            st.sidebar.error(f"Error loading case: {e}")    
+            st.sidebar.error(f"Error loading case: {e}")
+
+    # 2. State Initialization (Rellena solo si no entró ningún enlace)
+    default_states = {
+        "ui_cie10": "I10", "ui_dias": 5, "ui_edad": "Older Adult", "ui_sexo": "Male",
+        "ui_area": "Internal Medicine", "ui_perfil": "Initial Admission", "ui_complejidad": 1,
+        "ui_prioridad": 0, "ui_interconsultas": 0, "ui_visitas": 0, "ui_pluri": False,
+        "ui_ambulancia": False, "ui_uti": False, "ui_med_cardio": False, "ui_med_psico": False,
+        "ui_cro_sel": [], "ui_ing_sel": [], "ui_evo_sel": [],
+        "ui_ing_dolor": 0, "ui_ing_grav": 5, "ui_evo_dolor": 0, "ui_evo_grav": 5,
+        "nlp_processed": False, "nlp_quotes": {}, "text_ing_val": "", "text_evo_val": "",
+        "caso_cargado": None
+    }
+    for k, v in default_states.items():
+        if k not in st.session_state:
+            st.session_state[k] = v  
+   
     st.sidebar.markdown("---")
     
     # --- BLOQUE 2: MOTOR NLP (AUTOMATIZACIÓN) ---
