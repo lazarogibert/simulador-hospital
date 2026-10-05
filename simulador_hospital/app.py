@@ -591,6 +591,16 @@ class MotorEDADinamico:
             return opciones[tipo_analisis.lower()]()
         return None
 
+from scipy.special import logit, expit
+
+# --- FUNCIÓN DE CALIBRACIÓN BAYESIANA (ESCALAR Y VECTORIAL) ---
+SHIFT_LOGIT = 1.0877
+
+def calibrar_prob(p):
+    p_segura = np.clip(p, 1e-6, 1 - 1e-6)
+    res = expit(logit(p_segura) - SHIFT_LOGIT)
+    return res if isinstance(p, np.ndarray) else float(res)
+
 # ==========================================
 # 1. PAGE CONFIGURATION
 # ==========================================
@@ -607,7 +617,7 @@ def cargar_entorno():
     
     paquete = joblib.load(ruta_modelo)
     pipeline = paquete['pipeline']
-    umbral = paquete['umbral']
+    umbral = calibrar_prob(paquete['umbral'])
     cols_modelo = paquete['nombres_columnas']
     
     return pipeline, umbral, cols_modelo
@@ -1352,7 +1362,7 @@ elif user_role == "Hospital Management":
     ])
 if user_role == "Clinical Medic":    
     with tab_diagnostico:
-        riesgo = pipeline.predict_proba(df_paciente)[0][1]
+        riesgo = calibrar_prob(pipeline.predict_proba(df_paciente)[0][1])
         
         col_kpi1, col_kpi2, col_kpi3 = st.columns([1, 1.2, 1.5])
         
@@ -1894,7 +1904,7 @@ if user_role == "Clinical Medic":
                             df_bulk[col] = df_candidatos[col]
                         
                         df_bulk = sincronizar_deltas(df_bulk)
-                        probas = pipeline.predict_proba(df_bulk)[:, 1]
+                        probas = calibrar_prob(pipeline.predict_proba(df_bulk)[:, 1])
                         
                         df_candidatos['riesgo_simulado'] = probas
                         
@@ -2066,8 +2076,8 @@ if user_role == "Clinical Medic":
     
                 df_sim = construir_fila_simulada(df_paciente, overrides_sandbox)
     
-                riesgo_base = pipeline.predict_proba(df_paciente)[0][1]
-                riesgo_simulado = pipeline.predict_proba(df_sim)[0][1]
+                riesgo_base = calibrar_prob(pipeline.predict_proba(df_paciente)[0][1])
+                riesgo_simulado = calibrar_prob(pipeline.predict_proba(df_sim)[0][1])
                 variacion_riesgo = (riesgo_simulado - riesgo_base) * 100
     
                 prep = pipeline.named_steps['preprocesador']
