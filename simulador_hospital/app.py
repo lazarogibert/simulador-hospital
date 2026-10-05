@@ -786,10 +786,41 @@ if user_role == "Clinical Medic":
     }
     for k, v in default_states.items():
         if k not in st.session_state:
-            st.session_state[k] = v  
-   
-    st.sidebar.markdown("---")
+            st.session_state[k] = v
+
+    # --- BLOQUE 1: INPUT MANUAL OBLIGATORIO (DEBE TENER 4 ESPACIOS DE SANGRÍA) ---
+    st.sidebar.subheader("1. Core Parameters (Manual Entry)")
+    cie10_input = st.sidebar.text_input("Reason for admission (ICD-10 Code):", key="ui_cie10", help="Example: I10, E11, J44")
+    dias_internados = st.sidebar.number_input("Number of days hospitalized:", min_value=0, max_value=150, key="ui_dias")
     
+    rango_edad_ui = st.sidebar.selectbox("Patient Age Range:", list(opciones_edad_dict.keys()), key="ui_edad")
+    rango_edad = opciones_edad_dict[rango_edad_ui].upper()
+    
+    sexo_map = {"Male": "MASCULINO", "Female": "FEMENINO"}
+    sexo_ui = st.sidebar.selectbox("Sex:", list(sexo_map.keys()), key="ui_sexo")
+    sexo_input = sexo_map[sexo_ui]
+    
+    area_ui = st.sidebar.selectbox("Admission Area:", list(area_map.keys()), key="ui_area")
+    area_input = area_map[area_ui]
+    
+    perfil_ui = st.sidebar.selectbox("Admission Clinical Profile:", list(perfil_clinico_map.keys()), key="ui_perfil")
+    perfil_input = perfil_clinico_map[perfil_ui].upper()
+    
+    complejidad_input = st.sidebar.number_input("Complexity Level (IN_COMPLEJIDAD):", min_value=1, step=1, key="ui_complejidad")
+    prioridad_input = st.sidebar.selectbox("Triage Priority (TR_Prioridad):", options=[0, 1, 2, 3], key="ui_prioridad", help="0: Non-urgent, 3: Resuscitation/Emergency")
+    
+    interconsultas_input = st.sidebar.number_input("Interconsultations:", min_value=0, key="ui_interconsultas")
+    visitas_guardia_input = st.sidebar.number_input("ER Visits (Previous 6 months):", min_value=0, key="ui_visitas")
+    
+    es_pluripatologico = st.sidebar.checkbox("Has Multimorbidity (Pluripathological)?", key="ui_pluri")
+    ingreso_ambulancia = st.sidebar.checkbox("Arrived by Ambulance?", key="ui_ambulancia")
+    paso_por_uti = st.sidebar.checkbox("ICU Stay during admission?", key="ui_uti")
+    
+    st.sidebar.markdown("#### High-Risk Medications")
+    med_cardio = st.sidebar.checkbox("Cardiovascular / Inotropes", key="ui_med_cardio")
+    med_psico = st.sidebar.checkbox("Psychotropics / Neurologicals", key="ui_med_psico")
+    
+    st.sidebar.markdown("---")    
     # --- BLOQUE 2: MOTOR NLP (AUTOMATIZACIÓN) ---
     st.sidebar.subheader("2. Narrative Phenotype (NLP)")
     
