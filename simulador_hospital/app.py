@@ -1016,6 +1016,9 @@ if user_role == "Clinical Medic":
         ing_grav = st.slider("Initial Severity", 1, 10, key="ui_ing_grav")
         ing_sel_ui = st.multiselect("Complications (ING):", list(ing_dict.keys()), key="ui_ing_sel")
         ing_sel = [ing_dict[k] for k in ing_sel_ui]
+        # --- NUEVO: Mostrar lista completa legible ---
+        if ing_sel_ui:
+            st.info("**Detalle:**\n" + "\n".join([f"- {item}" for item in ing_sel_ui]))
     
     with c_evo:
         st.markdown("**At Discharge (EVO)**")
@@ -1023,6 +1026,8 @@ if user_role == "Clinical Medic":
         evo_grav = st.slider("Current Severity", 1, 10, key="ui_evo_grav")
         evo_sel_ui = st.multiselect("Complications (EVO):", list(evo_dict.keys()), key="ui_evo_sel")
         evo_sel = [evo_dict[k] for k in evo_sel_ui]
+        if evo_sel_ui:
+            st.info("**Detalle:**\n" + "\n".join([f"- {item}" for item in evo_sel_ui]))
 else:
     # Silent defaults to prevent the UMAP engine from crashing when building df_paciente
     cie10_input = "I10"
