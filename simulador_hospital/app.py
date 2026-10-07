@@ -1018,7 +1018,7 @@ if user_role == "Clinical Medic":
         ing_sel = [ing_dict[k] for k in ing_sel_ui]
         # --- NUEVO: Mostrar lista completa legible ---
         if ing_sel_ui:
-            st.info("**Detalle:**\n" + "\n".join([f"- {item}" for item in ing_sel_ui]))
+            st.info("**Active:**\n" + "\n".join([f"- {item}" for item in ing_sel_ui]))
     
     with c_evo:
         st.markdown("**At Discharge (EVO)**")
@@ -1027,7 +1027,7 @@ if user_role == "Clinical Medic":
         evo_sel_ui = st.multiselect("Complications (EVO):", list(evo_dict.keys()), key="ui_evo_sel")
         evo_sel = [evo_dict[k] for k in evo_sel_ui]
         if evo_sel_ui:
-            st.info("**Detalle:**\n" + "\n".join([f"- {item}" for item in evo_sel_ui]))
+            st.info("**Active:**\n" + "\n".join([f"- {item}" for item in evo_sel_ui]))
 else:
     # Silent defaults to prevent the UMAP engine from crashing when building df_paciente
     cie10_input = "I10"
